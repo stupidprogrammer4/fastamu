@@ -1,0 +1,51 @@
+fastapi:
+  title: "Fastamu"
+  description: "A FastAPI + dishka + taskiq modular-monolith template."
+  version: "0.0.0"
+
+taskiq:
+  redis_url: "redis://0.0.0.0:6379/0"
+  max_connection_pool_size: 25
+
+postgresql:
+  test_dsn: "postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/fastamu_test_db"
+  dsn: "postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/fastamu_db"
+  pool_timeout: 30
+  pool_recycle: 1800
+  pool_size: 20
+  max_overflow: 5
+
+crypto:
+  encryption_key: "secret_key="
+  password_salt: ""
+
+redis:
+  url: "redis://0.0.0.0:6379/0"
+  max_connections: 10
+  socket_timeout: 5.0
+  socket_connect_timeout: 5.0
+  health_check_interval: 30
+
+jwt:
+  algorithm: "HS256"
+  secret_key: ""
+  access_token_expire_minutes: 60
+  api_secret: ""
+
+csrf:
+  secret_key: "plSAxBp93Wc9LiuvD0TI_pMWUzf_mlK8SjPB3oROOhU"
+
+storage:
+  path: "media"
+  temp_dir: "tmp"
+  max_file_size: 5242880
+  allowed_extensions: ["jpg", "jpeg", "png", "webp"]
+
+es:
+  hosts:
+    - "http://0.0.0.0:9200"
+  username: null
+  password: null
+  api_key: null
+  verify_certs: false
+  ca_certs: null

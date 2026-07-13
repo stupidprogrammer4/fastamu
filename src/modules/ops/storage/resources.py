@@ -1,0 +1,5 @@
+STORAGE_INVALID_EXTENSION = 'storage_invalid_extension'
+STORAGE_FILE_TOO_LARGE = 'storage_file_too_large'
+STORAGE_EMPTY_FILE = 'storage_empty_file'
+STORAGE_NOT_FOUND = 'storage_not_found'
+STORAGE_INVALID_PATH = 'storage_invalid_path'
