@@ -13,7 +13,8 @@ from alembic.config import Config
 from dishka import Provider, Scope, make_async_container, provide
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import OperationalError
+from asyncpg.exceptions import PostgresError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
@@ -89,16 +90,25 @@ def migrated_test_db(test_dsn: str) -> Iterator[None]:
 
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", test_dsn)
+    # only reaching the database is allowed to skip; a migration that fails
+    # once we're connected is a real failure and must be reported as one
     try:
         asyncio.run(_reset_public_schema(test_dsn))
-        command.upgrade(cfg, "head")
-    except (OSError, OperationalError) as exc:
+    except _UNREACHABLE as exc:
         pytest.skip(f"integration test database is not reachable: {exc}")
+    command.upgrade(cfg, "head")
     yield
     try:
         command.downgrade(cfg, "base")
-    except (OSError, OperationalError):
+    except _UNREACHABLE:
         pass
+
+
+# a bad host, a refused connection and a rejected password all mean the same
+# thing here: there is no test database to run against. asyncpg raises its own
+# errors straight out of connect, so neither OSError nor SQLAlchemyError alone
+# covers them.
+_UNREACHABLE = (OSError, SQLAlchemyError, PostgresError)
 
 
 async def _reset_public_schema(dsn: str) -> None:
