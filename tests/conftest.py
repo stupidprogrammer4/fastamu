@@ -149,16 +149,30 @@ async def es(integration_settings: Settings) -> AsyncIterator[ESClient]:
 
 
 @pytest.fixture
-async def clean_db(pg: PGConnection) -> None:
-    """Truncate every mapped table (discovered from the modules) between tests."""
-    get_bootstrapper().boot_sqlmodels()
+async def clean_db(pg: PGConnection, es: ESClient) -> None:
+    """Empty every mapped table and read-model index (both discovered from the
+    modules) between tests."""
+    bootstrapper = get_bootstrapper()
+    bootstrapper.boot_sqlmodels()
     tables = list(reversed(SQLModel.metadata.sorted_tables))
-    if not tables:
-        return
-    async with pg.session_factory() as session:
-        for table in tables:
-            await session.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))
-        await session.commit()
+    if tables:
+        # one statement: a TRUNCATE per table costs a round-trip and an
+        # ACCESS EXCLUSIVE lock each, before every single test
+        names = ", ".join(f'"{table.name}"' for table in tables)
+        async with pg.session_factory() as session:
+            await session.execute(text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE"))
+            await session.commit()
+    # a projection outlives the row it came from, so a stale document would
+    # answer the next test's search
+    for document in bootstrapper.boot_documents():
+        index = document.Index.name
+        if await es.client.indices.exists(index=index):
+            await es.client.delete_by_query(
+                index=index,
+                body={"query": {"match_all": {}}},
+                refresh=True,
+                conflicts="proceed",
+            )
 
 
 @pytest.fixture
