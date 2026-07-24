@@ -1,8 +1,9 @@
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any, Generic, TypeVar, get_args, get_origin
 
 from elasticsearch import NotFoundError
 from elasticsearch.dsl import AsyncDocument, AsyncSearch
+from elasticsearch.helpers import async_bulk
 
 from .client import ESClient
 
@@ -58,6 +59,32 @@ class ESRepository(Generic[TDoc]):
 
         indexed, _ = await self.__document__.bulk(actions(), using=self._using, refresh=refresh)
         return indexed
+
+    async def bulk_update(
+        self,
+        updates: Mapping[str, dict[str, Any]],
+        *,
+        refresh: bool = False,
+    ) -> int:
+        """Partially update many documents in a single bulk request.
+
+        Args:
+            updates (Mapping[str, dict[str, Any]]): Field values per doc id.
+            refresh (bool): Make the changes searchable immediately.
+        Returns:
+            (int): Number of documents updated.
+        """
+        actions = [
+            {
+                "_op_type": "update",
+                "_index": self.__document__.Index.name,
+                "_id": id,
+                "doc": fields,
+            }
+            for id, fields in updates.items()
+        ]
+        updated, _ = await async_bulk(self._using, actions, refresh=refresh)
+        return updated
 
     async def get(self, id: str) -> TDoc | None:
         """Fetch by id, or ``None`` if it doesn't exist."""
