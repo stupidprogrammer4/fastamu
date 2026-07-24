@@ -678,9 +678,14 @@ serialise it into the same envelope with the right status code. Handlers dump wi
 | `NotFoundException` | 404 | `entity`, `identifier`, `identifier_value` |
 | `ConflictException` | 409 | `unique_dict` |
 
-FastAPI's own `RequestValidationError` is remapped into the envelope as a 422, and
-any unhandled `Exception` is logged and returned as a generic 500 — internals never
-leak.
+**Every** error leaves in this envelope — there is no second shape for a client to
+handle. FastAPI's own `RequestValidationError` is remapped to a 422 (dumped in JSON
+mode, so a rejected `Decimal` or date can't break serialisation); Starlette's own
+404 and 405 — an unmatched path and a wrong method, which never reach a router —
+get the codes `route_not_found` and `method_not_allowed` instead of a bare
+`{"detail": ...}`, keeping their headers (a 405 without `Allow` is not really a
+405); and any unhandled `Exception` is logged and returned as a generic 500, so
+internals never leak.
 
 `message_code` is a stable, machine-readable string that clients switch on. Global
 codes live in [src/core/resources.py](src/core/resources.py); each module ships its
@@ -761,6 +766,12 @@ Rules that matter:
   queue at boot and subscribes to it.
 - Every log line inside a job is stamped with the task id, exactly as a request is
   stamped with its request id.
+- **Results expire after 60 seconds.** A result answers "how did that run just go" —
+  a question asked within minutes or not at all. Keeping them forever leaks Redis
+  memory, and since Redis runs `noeviction` by default, a full Redis refuses writes:
+  the next *enqueue* is what fails, so the queue stalls, not just the cache. Raise
+  `result_ex_time` in [src/tasks/broker.py](src/tasks/broker.py) if you need to read
+  results back later.
 
 ### Scheduling
 
@@ -870,19 +881,57 @@ After `execute` returns, the decorator reads the id off the result and dispatche
 **background taskiq job** on a per-projection queue that reindexes that entity. The
 HTTP response is not blocked by Elasticsearch, and a slow index never slows a write.
 
-Three decorators, all from `src/tasks/projection.py`:
+Five decorators, all from `src/tasks/projection.py`:
 
 | Decorator | Use on | Dispatches |
 |---|---|---|
 | `@project(P)` | a write returning one entity | `P.project(id)` |
 | `@batch_project(P)` | a write returning a sequence | `P.batch_project(ids)` — one job, one bulk index |
 | `@unproject(P)` | a delete | `P.unproject(id)` — drops the document |
+| `@payload_project(P)` | a write whose return value *is* the data | `P.project(payload)` — no read-back |
+| `@batch_payload_project(P)` | ditto, returning a sequence | `P.batch_project(payloads)` |
 
-All take `id_attr="id"` by default; pass e.g. `id_attr="product_id"` when the method
-returns a child row but the *parent* is what must be reindexed.
+The id-based four take `id_attr="id"` by default; pass e.g. `id_attr="product_id"`
+when the method returns a child row but the *parent* is what must be reindexed.
 
-Reads go through `ESRepository[Doc]`: `save`, `bulk_insert`, `get`, `update`,
-`delete`, `exists`, and `search()` returning an async DSL `Search`. A shared
+### Projecting from an id, or from the data itself
+
+`@project` hands the job an **id**, and the job reads the row back out of Postgres
+to build the document. That is right whenever the document needs more than the
+caller happens to hold.
+
+When the caller has *just computed* every value it wrote — a repricing pass, say —
+that read is the same query run twice. `@payload_project` instead hands the job the
+model the method **returned**: it is dumped to JSON to cross the queue and rebuilt
+inside the job, so the projection writes what it was given. Subclass
+`AbstractPayloadProjection` (it takes only an ES repository — there is nothing to
+read from) and the payload model is inferred from the generic parameter, which keeps
+the two ends from drifting apart:
+
+```python
+class ListingPricePayload(BaseModel):
+    id: int
+    price: Decimal
+
+
+class ListingPriceProjection(AbstractPayloadProjection[ListingESRepository, ListingPricePayload]):
+    async def project(self, payload: ListingPricePayload) -> bool:
+        await self.es_repo.bulk_update({str(payload.id): {"price": str(payload.price)}})
+        return True
+
+
+class RepriceCommand:
+    @payload_project(ListingPriceProjection)
+    async def execute(self, id: int) -> ListingPricePayload:
+        ...   # returns the payload; the projection writes exactly it
+```
+
+`ESRepository.bulk_update({id: {field: value}})` is the natural partner: it patches
+the named fields on many documents in one request, leaving every other field alone —
+unlike `save()`, which replaces the whole document.
+
+Reads go through `ESRepository[Doc]`: `save`, `bulk_insert`, `bulk_update`, `get`,
+`update`, `delete`, `exists`, and `search()` returning an async DSL `Search`. A shared
 `persian_analyzer` is available in [src/infra/es/analyzers.py](src/infra/es/analyzers.py)
 — just use it as a field analyzer and the index picks it up on creation.
 
@@ -977,15 +1026,19 @@ Fixtures in [tests/conftest.py](tests/conftest.py):
 
 | Fixture | Gives you |
 |---|---|
-| `migrated_test_db` (session) | Drops and recreates the `public` schema of `postgresql.test_dsn`, then runs `alembic upgrade head`. **Refuses to run against a database whose name lacks `test`.** Skips cleanly if the DB is unreachable. |
+| `migrated_test_db` (session) | Drops and recreates the `public` schema of `postgresql.test_dsn`, then runs `alembic upgrade head`. **Refuses to run against a database whose name lacks `test`.** Skips cleanly if the DB is unreachable — but a migration that fails *after* connecting is still reported as a failure. |
 | `pg` | A `PGConnection` on the test DSN |
 | `uow` | A `PGUnitOfWork` in an open transaction — hand it to a repository directly |
-| `clean_db` | Truncates every discovered table between tests |
+| `clean_db` | Empties every discovered table **and read-model index** between tests |
 | `es` | An `ESClient` on the configured hosts |
 | `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and a hermetic schedule source that never touches Redis |
 
 Because the container discovers providers through the same bootstrapper, a new
-module is testable through DI with **no edit to `conftest.py`**.
+module is testable through DI with **no edit to `conftest.py`** — and for the same
+reason `clean_db` empties your new module's table and read-model index without being
+told about either. That second half matters: a projected document outlives the row
+it came from, so clearing only Postgres would leave a stale document to answer the
+next test's search.
 
 ---
 
