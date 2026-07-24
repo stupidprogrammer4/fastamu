@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi_csrf_protect.exceptions import CsrfProtectError
 from fastapi.exceptions import RequestValidationError as PydanticError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.core import resources
 from src.common.errors.base import APPException
@@ -34,6 +35,41 @@ def pydantic_error_handler(request: Request, exc: PydanticError) -> JSONResponse
     )
 
 
+def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Answer Starlette's own HTTP errors in the app's error envelope.
+
+    An unmatched path and a wrong method never reach a router, so they are the
+    two failures that would otherwise reply in Starlette's ``{"detail": ...}``
+    shape — and they are the two a client hits most while finding its way
+    around the API.
+
+    Args:
+        request (Request): The incoming request.
+        exc (StarletteHTTPException): The raised Starlette HTTP error.
+    Returns:
+        (JSONResponse): The error in the standard envelope.
+    """
+    codes = {
+        404: resources.ROUTE_NOT_FOUND,
+        405: resources.METHOD_NOT_ALLOWED,
+    }
+    response_model = APIResponse(
+        success=False,
+        error=BaseErrorOut(
+            message=str(exc.detail),
+            message_code=codes.get(exc.status_code, resources.SERVER_ERROR),
+        ),
+    )
+    return JSONResponse(
+        content=response_model.model_dump(exclude_defaults=True),
+        status_code=exc.status_code,
+        # a 405 without Allow, or a 401 without WWW-Authenticate, is not the
+        # status it claims to be
+        headers=exc.headers,
+        media_type=MediaType.JSON
+    )
+
+
 def csrf_error_handler(request: Request, exc: CsrfProtectError) -> JSONResponse:
     response_model = APIResponse(
         success=False,
@@ -57,6 +93,7 @@ def unexcepted_error_handler(request: Request, exc: Exception) -> JSONResponse:
 
 exception_handlers = {
     PydanticError: pydantic_error_handler,
+    StarletteHTTPException: http_error_handler,
     APPException: external_error_handler,
     CsrfProtectError: csrf_error_handler,
     Exception: unexcepted_error_handler

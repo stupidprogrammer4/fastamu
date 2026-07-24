@@ -1,5 +1,7 @@
 SERVER_ERROR = 'server_error'
 NOT_FOUND_ERROR = 'not_found'
+ROUTE_NOT_FOUND = 'route_not_found'
+METHOD_NOT_ALLOWED = 'method_not_allowed'
 EMPTY_INPUT = 'empty_input'
 INVALID_INPUT = 'invalid_input'
 CONFILICT_ERROR = '{0}_confilict_error'
