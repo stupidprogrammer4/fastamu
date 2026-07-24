@@ -26,7 +26,9 @@ def external_error_handler(request: Request, exc: APPException) -> JSONResponse:
 def pydantic_error_handler(request: Request, exc: PydanticError) -> JSONResponse:
     response_model = APIResponse.from_pydantic_error(exc)
     return JSONResponse(
-        content=response_model.model_dump(exclude_defaults=True),
+        # json mode: a rejected value is echoed back raw, and a Decimal
+        # or a date would not survive json.dumps
+        content=response_model.model_dump(mode="json", exclude_defaults=True),
         status_code=422,
         media_type=MediaType.JSON
     )
