@@ -152,7 +152,7 @@ src/
 │   └── middlewares/ # request-id + access logging
 │
 ├── manager.py       # The scaffolding CLI
-└── modules/         # Your features live here
+└── modules/         # Your features live here — grouped or not
     └── ops/{jobs,storage,system}/   # Reference modules — see below
 ```
 
@@ -163,11 +163,14 @@ all depend on `domain`; `domain` knows nothing about HTTP, SQL or Elasticsearch.
 
 ## The core idea: a module
 
-A feature is a **module**. Modules live under a **group**, which is nothing more
-than a namespace folder: `src/modules/<group>/<name>/`.
+A feature is a **module**: `src/modules/<name>/`. Modules may be filed under a
+**group** — `src/modules/<group>/<name>/` — but a group is nothing more than a
+namespace folder, and it is entirely optional. `modules/pricing/` and
+`modules/catalog/products/` are both perfectly ordinary modules; group things
+when grouping earns its keep, not because the layout demands it.
 
 ```
-modules/<group>/<name>/
+modules/[<group>/]<name>/
 ├── domain/         # The inward core — no I/O
 │   ├── models.py       # SQLModel tables            (write model)
 │   ├── dtos.py         # BaseDTO                    (validated input)
@@ -194,6 +197,50 @@ modules/<group>/<name>/
 Everything except `domain/` or `app/` is optional — a module with no table, no
 router and no tasks is perfectly legal (`ops/system` is exactly that).
 
+### Context modules: when the module owns logic, not rows
+
+Some modules own no data at all. A pricing engine reads a handful of fields —
+today's metal rate, a margin, a tax band — and turns them into a number. It has
+no table to write, nothing to project into Elasticsearch, and no CRUD surface;
+what it has is **rules**. Modelling it as a resource with a `*Model` and a
+repository would be inventing a row that never existed.
+
+Such a module replaces its write model with a **context**: a frozen dataclass in
+`domain/context.py` holding exactly the facts the logic runs on.
+
+```
+modules/pricing/
+├── domain/
+│   ├── context.py   # PricingContext — the facts, frozen
+│   ├── dtos.py      # PricingInput
+│   ├── schemas.py   # PricingOut
+│   └── enums.py
+├── app/services.py  # the engine
+├── infra/readers.py # PricingReader — pulls only the columns it needs
+├── routers/  interfaces.py  providers.py
+```
+
+The reader extends `PGReader` — a repository base with no model bound to it,
+just the session — and returns a context instead of rows. The service splits in
+two: `run()` sits at the edge and does the reading, `calculate()` stays pure.
+
+```python
+class PricingService:
+    def __init__(self, reader: PricingReader) -> None:
+        self.reader = reader
+
+    async def run(self, data: PricingInput) -> PricingOut:
+        context = await self.reader.read()
+        return self.calculate(context, data)
+
+    def calculate(self, context: PricingContext, data: PricingInput) -> PricingOut:
+        ...
+```
+
+That seam is the whole point: `calculate` is a pure function of a context and an
+input, so the rules that actually matter are unit-testable without a database,
+a container or a running app. Scaffold one with `--context`.
+
 **Modules never import each other directly.** Cross-module collaboration goes
 through an `I*Service` `Protocol` declared in `interfaces.py` and injected by
 dishka. That is what keeps a modular monolith from quietly becoming a big ball of
@@ -209,7 +256,9 @@ by walking `src.modules` and looking for exactly five paths.
 
 A package under `src/modules/` is recognised as a **module** if — and only if — it
 contains a `domain/` or an `app/` sub-package. Anything else is treated as a
-**group** and scanned one level deeper. That's the whole rule.
+**group** and scanned one level deeper. That's the whole rule — and it is why a
+group is optional: `modules/pricing/` is found by the same rule that finds
+`modules/catalog/products/`.
 
 | What | Where the bootstrapper looks | What it collects |
 |---|---|---|
@@ -240,20 +289,25 @@ Consequences worth internalising:
 
 ## Scaffolding a module
 
-Run from the repo root. Pass the name as `<group>.<singular-name>`; the CLI
-pluralises the folder, the router prefix, the tags and the table name, while class
-names stay singular.
+Run from the repo root. Pass the name as `<singular-name>`, or as
+`<group>.<singular-name>` to file it under a group; the CLI pluralises the
+folder, the router prefix, the tags and the table name, while class names stay
+singular.
 
 ```bash
-python -m src.manager module catalog.product           # CRUD (Postgres only)
+python -m src.manager module product                   # CRUD, no group
+python -m src.manager module catalog.product           # CRUD, filed under catalog/
 python -m src.manager module catalog.product --cqrs    # + ES read model, projection, commands/queries
+python -m src.manager module pricing --context         # pure logic: context + reader, no models
 python -m src.manager module catalog.product --tasks   # + tasks/
 python -m src.manager module catalog.product --http    # + infra/gateways.py
 python -m src.manager module catalog.product --excel   # + infra/exporters.py
 ```
 
-Flags compose freely (`--cqrs --tasks --excel`). The console script `fastamu` is
-also installed by `pip install -e .`, so `fastamu module catalog.product` works too.
+Flags compose freely (`--cqrs --tasks --excel`); `--context` is the one exclusion
+— a module with no table cannot have a read side to project into, so it rejects
+`--cqrs`. The console script `fastamu` is also installed by `pip install -e .`,
+so `fastamu module catalog.product` works too.
 
 What `catalog.product` produces:
 
@@ -263,6 +317,15 @@ What `catalog.product` produces:
 | Classes | `ProductModel`, `ProductCreate`, `ProductUpdate`, `ProductOut`, `ProductRepository`, `ProductService`, `IProductService`, `ProductProvider` |
 | Table | `tbl_products` |
 | Router | `APIRouter(prefix="/products", tags=["products"])` |
+
+What `pricing --context` produces:
+
+| | |
+|---|---|
+| Folder | `src/modules/pricing/` — **not** pluralised; an engine is not a collection |
+| Classes | `PricingContext`, `PricingInput`, `PricingOut`, `PricingReader`, `PricingService`, `IPricingService`, `PricingProvider` |
+| Table | none — no `domain/models.py`, no `domain/documents.py` |
+| Router | `APIRouter(prefix="/pricing", tags=["pricing"])` |
 
 The group folder is created on first use. Generated files are correctly layered
 and cross-imported, with method bodies left as `raise NotImplementedError` — the
@@ -618,6 +681,10 @@ delete_by_ids(ids) -> Sequence[TIDModel]
 
 **`PGTimestampRepository`** adds `get_stream_by_date_range`,
 `update_by_date_range`, `delete_by_date_range`.
+
+**`PGReader`** is the base underneath all of them: the session, and nothing else.
+Extend it directly when the code owns no table — a [context module](#context-modules-when-the-module-owns-logic-not-rows)
+selecting the few columns its logic needs.
 
 Note the write API takes a **model or a column dict** — never a DTO. The service
 converts (`data.to_row()`); the repository stays ignorant of validation.

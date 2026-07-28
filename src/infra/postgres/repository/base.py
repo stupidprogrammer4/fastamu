@@ -40,14 +40,23 @@ from sqlmodel import col
 
 T = TypeVar("T", bound=BaseModel)
 
-class PGRepository(Generic[TModel]):
+class PGReader:
+    """Read side for code that owns no table.
+
+    A context module pulls a handful of columns to feed its logic; it has no
+    model to bind, so it takes the unit of work and nothing else. Everything a
+    repository does on top of that is in ``PGRepository`` below.
+    """
+
+    def __init__(self, uow: PGUnitOfWork):
+        self.session = uow.session
+
+
+class PGRepository(PGReader, Generic[TModel]):
     __model__: type[TModel]
     __model_name__: str
 
     _managed_columns = frozenset({"created_at", "updated_at"})
-
-    def __init__(self, uow: PGUnitOfWork):
-        self.session = uow.session
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
