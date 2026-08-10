@@ -38,7 +38,8 @@ def to_persian_digits(value: str | int) -> str:
 
 
 def to_english_digits(value: str) -> str:
-    """Persian/Arabic digits -> ASCII digits — use before parsing user input."""
+    """Persian/Arabic digits -> ASCII digits — use before parsing user
+    input."""
     return digits.fa_to_en(digits.ar_to_fa(value))
 
 
@@ -70,18 +71,24 @@ def format_number(value: Number, *, persian_digits: bool = True) -> str:
     return to_persian_digits(out) if persian_digits else out
 
 
-def format_rial(amount: Number, *, with_unit: bool = True, persian_digits: bool = True) -> str:
+def format_rial(
+    amount: Number, *, with_unit: bool = True, persian_digits: bool = True
+) -> str:
     """Format an integer-Rial amount, e.g. 1_000_000 -> '۱،۰۰۰،۰۰۰ ریال'."""
     text = format_number(amount, persian_digits=persian_digits)
     return f"{text} {RIAL_UNIT}" if with_unit else text
 
 
-def format_toman(rial_amount: int, *, with_unit: bool = True, persian_digits: bool = True) -> str:
+def format_toman(
+    rial_amount: int, *, with_unit: bool = True, persian_digits: bool = True
+) -> str:
     """Convert a Rial amount to Toman (÷10) for display, e.g.
     1_000_000 Rial -> '۱۰۰،۰۰۰ تومان'. A non-zero Rial remainder is kept as a
     fractional Toman."""
     toman, remainder = divmod(rial_amount, 10)
-    value: Number = Decimal(toman) + (Decimal(remainder) / 10 if remainder else 0)
+    value: Number = Decimal(toman) + (
+        Decimal(remainder) / 10 if remainder else 0
+    )
     text = format_number(value, persian_digits=persian_digits)
     return f"{text} {TOMAN_UNIT}" if with_unit else text
 
@@ -91,14 +98,18 @@ def _to_jalali(dt: datetime, tz: str | tzinfo) -> JalaliDateTime:
     return JalaliDateTime(from_db(dt, tz))
 
 
-def format_jalali_datetime(dt: datetime, tz: str | tzinfo, fmt: str = DEFAULT_DATETIME_FORMAT) -> str:
+def format_jalali_datetime(
+    dt: datetime, tz: str | tzinfo, fmt: str = DEFAULT_DATETIME_FORMAT
+) -> str:
     """Gregorian datetime -> localized Persian datetime string, e.g.
     'سه‌شنبه ۲۹ اردیبهشت ۱۴۰۵ - ۰۰:۰۰'. ``dt`` is converted from UTC into
     ``tz`` first (pass the app timezone)."""
     return _to_jalali(dt, tz).strftime(fmt, locale="fa")
 
 
-def format_jalali_date(dt: datetime, tz: str | tzinfo, fmt: str = DEFAULT_DATE_FORMAT) -> str:
+def format_jalali_date(
+    dt: datetime, tz: str | tzinfo, fmt: str = DEFAULT_DATE_FORMAT
+) -> str:
     """Gregorian datetime -> localized Persian date string, e.g.
     '۲۹ اردیبهشت ۱۴۰۵'."""
     return _to_jalali(dt, tz).strftime(fmt, locale="fa")

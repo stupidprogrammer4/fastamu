@@ -1,14 +1,13 @@
 """Public ids that do not leak how many rows you have.
 
-A serial primary key is an information leak the moment it is exposed: `/orders/42`
-tells a competitor the order count, and `/orders/43` is a valid guess. `IDEncryption`
-maps an id through a modular multiplication — reversible, stateless, and one
-multiplication wide, so no lookup table and no extra column.
+A serial primary key is an information leak the moment it is exposed:
+`/orders/42` tells a competitor the order count, and `/orders/43` is a valid
+guess. `IDEncryption` maps an id through a modular multiplication — reversible,
+stateless, and one multiplication wide, so no lookup table and no extra column.
 
-It is **obfuscation, not authorisation**: the mapping is a secret coefficient, not a
-key, and it is reversible by anyone who collects enough pairs. Keep authorising every
-read; this only stops the id itself from being an oracle.
-"""
+It is **obfuscation, not authorisation**: the mapping is a secret coefficient,
+not a key, and it is reversible by anyone who collects enough pairs. Keep
+authorising every read; this only stops the id itself from being an oracle."""
 
 from __future__ import annotations
 
@@ -22,8 +21,8 @@ class IDEncryption:
 
     Because `coff` is coprime with `mod`, multiplication modulo `mod` is a
     permutation of the whole range — every id maps to exactly one public id and
-    back, with no collisions. Pick `mod` above the row count you will ever reach
-    (it is the hard capacity) and keep `coff` out of your public source.
+    back, with no collisions. Pick `mod` above the row count you will ever
+    reach (it is the hard capacity) and keep `coff` out of your public source.
     """
 
     __slots__ = ("_mod", "_coff", "_coff_inv", "_offset")
@@ -40,7 +39,9 @@ class IDEncryption:
 
         g = gcd(coff, mod)
         if g != 1:
-            raise ValueError(f"coff and mod must be coprime, but gcd(coff, mod) = {g}")
+            raise ValueError(
+                f"coff and mod must be coprime, but gcd(coff, mod) = {g}"
+            )
 
         self._mod = mod
         self._coff = coff
@@ -77,11 +78,14 @@ class IDEncryption:
         return self._offset + (id * self._coff) % self._mod
 
     def decode(self, public_id: int) -> int:
-        """Map a public id back to its row id, or raise if it is out of range."""
+        """Map a public id back to its row id, or raise if it is out of
+        range."""
         shifted = public_id - self._offset
         if not 0 <= shifted < self._mod:
             low, high = self.bounds
-            raise ValueError(f"public_id {public_id} out of range [{low}, {high}]")
+            raise ValueError(
+                f"public_id {public_id} out of range [{low}, {high}]"
+            )
         return (shifted * self._coff_inv) % self._mod
 
     def try_decode(self, public_id: int) -> int | None:
@@ -97,5 +101,8 @@ class IDEncryption:
         return mod >= 2 and gcd(coff % mod, mod) == 1
 
     def __repr__(self) -> str:
-        text = f"{type(self).__name__}(mod={self._mod}, coff=<hidden>, offset={self._offset})"
+        text = (
+            f"{type(self).__name__}(mod={self._mod}, "
+            f"coff=<hidden>, offset={self._offset})"
+        )
         return text

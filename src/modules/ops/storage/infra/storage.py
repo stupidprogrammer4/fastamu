@@ -12,9 +12,8 @@ class InvalidStoragePath(ValueError):
 class LocalStorage:
     """A local-filesystem media store rooted at a base directory.
 
-    All paths are resolved under ``base`` and checked so a caller can never read
-    or write outside it (no ``..`` traversal).
-    """
+    All paths are resolved under ``base`` and checked so a caller can never
+    read or write outside it (no ``..`` traversal)."""
 
     backend = "local"
 
@@ -34,11 +33,14 @@ class LocalStorage:
             raise InvalidStoragePath(path)
         return target
 
-    async def save_stream(self, path: str, chunks: AsyncIterator[bytes]) -> str:
+    async def save_stream(
+        self, path: str, chunks: AsyncIterator[bytes]
+    ) -> str:
         """Write a byte stream to ``path`` under the store, chunk by chunk.
 
         Args:
-            path (str): Relative path to write (parent dirs created if missing).
+            path (str): Relative path to write (parent dirs created if
+                missing).
             chunks (AsyncIterator[bytes]): The file contents as a chunk stream.
         Returns:
             (str): The stored path relative to the base.
@@ -55,7 +57,8 @@ class LocalStorage:
 
         Args:
             src (str): Existing relative path inside the store.
-            dst (str): Destination relative path (parent dirs created if missing).
+            dst (str): Destination relative path (parent dirs created if
+                missing).
         Returns:
             (str): The destination path relative to the base.
         """
@@ -75,7 +78,9 @@ class LocalStorage:
         """
         return self._resolve(path).is_file()
 
-    async def stream(self, path: str, chunk_size: int = 64 * 1024) -> AsyncIterator[bytes]:
+    async def stream(
+        self, path: str, chunk_size: int = 64 * 1024
+    ) -> AsyncIterator[bytes]:
         """Yield a file's contents in chunks.
 
         Args:

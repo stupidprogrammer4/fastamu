@@ -18,7 +18,9 @@ class LoggingMiddleware(TaskiqMiddleware):
         return message
 
     def post_send(self, message: TaskiqMessage) -> None:
-        logger.info("<-- enqueued %s id=%s", message.task_name, message.task_id)
+        logger.info(
+            "<-- enqueued %s id=%s", message.task_name, message.task_id
+        )
 
     def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
         self._tokens[message.task_id] = request_id_ctx.set(message.task_id)
@@ -26,7 +28,9 @@ class LoggingMiddleware(TaskiqMiddleware):
         logger.info("--> exec %s id=%s", message.task_name, message.task_id)
         return message
 
-    def post_execute(self, message: TaskiqMessage, result: TaskiqResult) -> None:
+    def post_execute(
+        self, message: TaskiqMessage, result: TaskiqResult
+    ) -> None:
         elapsed_ms = self._elapsed_ms(message.task_id)
         logger.info(
             "<-- exec %s id=%s %s %.2fms",

@@ -26,11 +26,15 @@ DEFAULT_BCRYPT_ROUNDS = 12
 
 
 def _peppered(password: str, pepper: str) -> bytes:
-    digest = hmac.new(pepper.encode(), password.encode(), hashlib.sha256).digest()
+    digest = hmac.new(
+        pepper.encode(), password.encode(), hashlib.sha256
+    ).digest()
     return base64.b64encode(digest)
 
 
-def hash_password(password: str, *, pepper: str = "", rounds: int = DEFAULT_BCRYPT_ROUNDS) -> str:
+def hash_password(
+    password: str, *, pepper: str = "", rounds: int = DEFAULT_BCRYPT_ROUNDS
+) -> str:
     hashed = bcrypt.hashpw(_peppered(password, pepper), bcrypt.gensalt(rounds))
     return hashed.decode()
 
@@ -62,7 +66,8 @@ def decrypt(token: str, key: str) -> str:
 
 
 def hash_sha256(value: str) -> str:
-    """Deterministic hex digest — for indexing/storing opaque tokens, not passwords."""
+    """Deterministic hex digest — for indexing/storing opaque tokens, not
+    passwords."""
     return hashlib.sha256(value.encode()).hexdigest()
 
 

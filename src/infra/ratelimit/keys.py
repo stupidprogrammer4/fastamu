@@ -14,12 +14,14 @@ def client_ip(request: Request) -> str:
     ``X-Forwarded-For`` is believed only when the immediate peer is one of the
     configured ``trusted_proxies``. Behind a load balancer the peer is always
     the balancer, so without that check every caller would share one bucket;
-    without the trust list, any caller could forge a header and get a fresh one.
+    without the trust list, any caller could forge a header and get a fresh
+    one.
 
     Args:
         request (Request): The incoming request.
     Returns:
-        (str): The client address, or ``"unknown"`` for a connection with no peer.
+        (str): The client address, or ``"unknown"`` for a connection with no
+            peer.
     """
     peer = request.client.host if request.client else None
     trusted = get_settings().rate_limit.trusted_proxies

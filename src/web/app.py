@@ -28,11 +28,8 @@ providers = bootstrapper.boot_providers()
 routers = bootstrapper.boot_routers()
 bootstrapper.boot_sqlmodels()
 
-container = make_async_container(
-    FastapiProvider(),
-    CoreProvider(),
-    *providers
-)
+container = make_async_container(FastapiProvider(), CoreProvider(), *providers)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -42,13 +39,14 @@ async def lifespan(_: FastAPI):
     yield
     await container.close()
 
+
 app = FastAPI(
     title=settings.fastapi.title,
     description=settings.fastapi.description,
     version=settings.fastapi.version,
     docs_url=None,
     redoc_url=None,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,

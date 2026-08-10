@@ -17,7 +17,10 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.common.bases.encryption import IDEncryption
-from src.common.errors.exceptions import NotFoundException, UnAuthorizedException
+from src.common.errors.exceptions import (
+    NotFoundException,
+    UnAuthorizedException,
+)
 from src.common.utils import jwt_utils
 from src.core import resources
 from src.core.config import Settings
@@ -97,7 +100,8 @@ def require_access(scope: Scope):
     """
 
     async def dependency(principal: CurrentPrincipal) -> Principal:
-        # a real identity module would raise ForbiddenException with the caller id here
+        # a real identity module would raise ForbiddenException with the caller
+        # id here
         if scope.value not in principal.scopes:
             raise UnAuthorizedException(
                 message=f"missing scope: {scope.value}",
@@ -115,7 +119,8 @@ def decode_path_id(
 ) -> Callable[..., int]:
     """Take the public id out of the path and hand the handler the real one.
 
-    The inbound half of `BaseIDOutput`: the route keeps speaking public ids, the
+    The inbound half of `BaseIDOutput`: the route keeps speaking public ids,
+    the
     service keeps speaking row ids, and neither has to know about the other::
 
         OrderID = Annotated[int, Depends(decode_path_id(ORDER_IDS, "Order"))]
@@ -128,7 +133,8 @@ def decode_path_id(
     the endpoint into an oracle for valid ids.
 
     Args:
-        encryption (IDEncryption): The mapping the entity's ids were encoded with.
+        encryption (IDEncryption): The mapping the entity's ids were encoded
+            with.
         entity (str): Entity name for the 404 body.
         param (str): The path parameter to read.
     Returns:

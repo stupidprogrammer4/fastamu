@@ -1,5 +1,6 @@
 """The storage/media API: upload, list, fetch and delete media (each managing
-route guarded by Scope.STORAGE) plus the unauthenticated file-download route."""
+route guarded by Scope.STORAGE) plus the unauthenticated file-download
+route."""
 
 from collections.abc import AsyncIterator
 
@@ -14,7 +15,9 @@ from src.modules.ops.storage.interfaces import IMediaService
 from src.web.dependencies import Scope, require_access
 from src.web.response import APIResponse
 
-router = APIRouter(prefix="/storage", tags=["Storage"], route_class=DishkaRoute)
+router = APIRouter(
+    prefix="/storage", tags=["Storage"], route_class=DishkaRoute
+)
 _guarded = [Depends(require_access(Scope.STORAGE))]
 
 MediaResponse = APIResponse[MediaOut, None]
@@ -47,7 +50,9 @@ async def get_media_list(
     return APIResponse(
         success=True,
         data=MediaOut.from_objs(paged.items),
-        meta=BaseMeta(pager=PagerMeta.from_total(page, per_page, paged.total_items)),
+        meta=BaseMeta(
+            pager=PagerMeta.from_total(page, per_page, paged.total_items)
+        ),
     )
 
 

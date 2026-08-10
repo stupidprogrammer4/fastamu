@@ -7,7 +7,6 @@ from src.infra.postgres.models.base import BaseIDModel, BaseModel
 
 
 class BaseService[TModel: BaseModel]:
-
     __model__: type[TModel]
     __model_name__: str
 
@@ -36,7 +35,7 @@ class BaseService[TModel: BaseModel]:
                 message="Your input must be not empty",
                 message_code=resources.EMPTY_INPUT,
                 loc=[],
-                input={}
+                input={},
             )
         return d
 
@@ -46,32 +45,31 @@ class BaseService[TModel: BaseModel]:
                 message="Your input must be not empty",
                 message_code=resources.EMPTY_INPUT,
                 loc=[],
-                input=[]
+                input=[],
             )
         return ls
 
     def _check_for_existence(
-        self,
-        identifier: str,
-        identifier_value: Any,
-        obj: TModel | None
+        self, identifier: str, identifier_value: Any, obj: TModel | None
     ) -> TModel:
         if not obj:
             raise NotFoundException(
                 identifier=identifier,
                 identifier_value=identifier_value,
-                message=f"Cannot find {self.__model_name__} by {identifier} with value {identifier_value}",
+                message=(
+                    f"Cannot find {self.__model_name__} by {identifier} "
+                    f"with value {identifier_value}"
+                ),
                 message_code=resources.NOT_FOUND_ERROR,
-                entity=self.__model_name__
+                entity=self.__model_name__,
             )
         return obj
-
 
     def _check_batch_data(
         self,
         founed_ids: Sequence[int],
         input_ids: Sequence[int],
-        prefix_loc: list[str]
+        prefix_loc: list[str],
     ) -> Sequence[ValidationException]:
         set_founded_ids = set(founed_ids)
         errors = []
@@ -79,57 +77,48 @@ class BaseService[TModel: BaseModel]:
             if id not in set_founded_ids:
                 errors.append(
                     ValidationException(
-                        message=f"Cannot find {self.__model_name__} with id {id}",
+                        message=(
+                            f"Cannot find {self.__model_name__} with id {id}"
+                        ),
                         message_code=resources.NOT_FOUND_ERROR,
-                        loc=prefix_loc + [idx]
+                        loc=prefix_loc + [idx],
                     )
                 )
         return errors
 
 
-
 class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
-
-    def _check_for_id_existence(
-        self,
-        id: int,
-        obj: TIDModel | None
-    ):
+    def _check_for_id_existence(self, id: int, obj: TIDModel | None):
         return super()._check_for_existence(
-            identifier="id",
-            identifier_value=id,
-            obj=obj
+            identifier="id", identifier_value=id, obj=obj
         )
 
     def _check_batch_data(
         self,
         input_ids: Sequence[int],
         founded_objs: Sequence[TIDModel],
-        loc: list[str] | None = None
+        loc: list[str] | None = None,
     ) -> BatchResultType[TIDModel, ValidationException]:
         founded_ids = {o.id: o for o in founded_objs}
 
         items, errors, ids = [], [], []
         base_loc = loc or [f"{self.__model_name__.lower()}_ids"]
         for idx, id in enumerate(set(input_ids)):
-
             if id in founded_ids:
                 items.append(founded_ids[id])
                 ids.append(id)
             else:
                 errors.append(
                     ValidationException(
-                        message=f"Cannot find {self.__model_name__} with id {id}",
+                        message=(
+                            f"Cannot find {self.__model_name__} with id {id}"
+                        ),
                         message_code=resources.NOT_FOUND_ERROR,
-                        loc=base_loc + [idx]
+                        loc=base_loc + [idx],
                     )
                 )
 
         if not items:
             raise ValidationException.get_invalid_input(errors)
 
-        return BatchResultType(
-            items=items,
-            errors=errors,
-            item_ids=set(ids)
-        )
+        return BatchResultType(items=items, errors=errors, item_ids=set(ids))

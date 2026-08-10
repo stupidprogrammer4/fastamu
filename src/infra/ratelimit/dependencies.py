@@ -36,8 +36,8 @@ def rate_limit(
     attack unmetered.
 
     A name with no rule in the config is not limited, so a rule can be switched
-    off by deleting it. The refusal is raised, not returned, so it leaves through
-    the normal error handlers in the standard envelope.
+    off by deleting it. The refusal is raised, not returned, so it leaves
+    through the normal error handlers in the standard envelope.
 
     Args:
         name (str): The key under `rate_limit.rules`.
@@ -57,7 +57,9 @@ def rate_limit(
         limiter = get_limiter()
         for part in parts:
             key = f"{NAMESPACE}:{name}:{await part(request)}"
-            verdict = await limiter.hit(key, rule, closed_when_down=closed_when_down)
+            verdict = await limiter.hit(
+                key, rule, closed_when_down=closed_when_down
+            )
             if not verdict.allowed:
                 raise limiter.refuse(verdict)
 

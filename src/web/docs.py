@@ -11,7 +11,10 @@ local copy. No network egress, version pinned with the dependency set.
 from __future__ import annotations
 
 from fastapi import FastAPI
-from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
+from fastapi.openapi.docs import (
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from swagger_ui_bundle import swagger_ui_path
@@ -27,7 +30,9 @@ def setup_docs(app: FastAPI) -> None:
     Call before `setup_dishka`; the app must be created with
     ``docs_url=None, redoc_url=None``.
     """
-    app.mount(STATIC_MOUNT, StaticFiles(directory=swagger_ui_path), name="swagger")
+    app.mount(
+        STATIC_MOUNT, StaticFiles(directory=swagger_ui_path), name="swagger"
+    )
 
     @app.get(DOCS_URL, include_in_schema=False)
     async def swagger_ui() -> HTMLResponse:

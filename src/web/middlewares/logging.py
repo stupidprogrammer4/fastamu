@@ -12,7 +12,9 @@ from src.core.logger import logger, request_id_ctx
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, header_name: str = "X-Request-ID") -> None:
+    def __init__(
+        self, app: ASGIApp, header_name: str = "X-Request-ID"
+    ) -> None:
         super().__init__(app)
         self.header_name = header_name
 

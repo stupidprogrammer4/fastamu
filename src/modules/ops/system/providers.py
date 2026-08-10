@@ -6,4 +6,6 @@ from src.modules.ops.system.interfaces import ISystemService
 
 class SystemProvider(Provider):
     # no DB — probes the CoreProvider infra adapters
-    system_service = provide(SystemService, provides=ISystemService, scope=Scope.APP)
+    system_service = provide(
+        SystemService, provides=ISystemService, scope=Scope.APP
+    )

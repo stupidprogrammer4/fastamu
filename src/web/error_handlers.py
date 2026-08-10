@@ -16,7 +16,9 @@ from src.core.logger import logger
 from .response import APIResponse
 
 
-def external_error_handler(request: Request, exc: APPException) -> JSONResponse:
+def external_error_handler(
+    request: Request, exc: APPException
+) -> JSONResponse:
     """Serialise a typed exception into the standard envelope.
 
     A 429 also carries its budget as headers, so a route guard's refusal looks
@@ -39,18 +41,22 @@ def external_error_handler(request: Request, exc: APPException) -> JSONResponse:
     )
 
 
-def pydantic_error_handler(request: Request, exc: PydanticError) -> JSONResponse:
+def pydantic_error_handler(
+    request: Request, exc: PydanticError
+) -> JSONResponse:
     response_model = APIResponse.from_pydantic_error(exc)
     return JSONResponse(
         # json mode: a rejected value is echoed back raw, and a Decimal
         # or a date would not survive json.dumps
         content=response_model.model_dump(mode="json", exclude_defaults=True),
         status_code=422,
-        media_type=MediaType.JSON
+        media_type=MediaType.JSON,
     )
 
 
-def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+def http_error_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     """Answer Starlette's own HTTP errors in the app's error envelope.
 
     An unmatched path and a wrong method never reach a router, so they are the
@@ -81,19 +87,23 @@ def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONRes
         # a 405 without Allow, or a 401 without WWW-Authenticate, is not the
         # status it claims to be
         headers=exc.headers,
-        media_type=MediaType.JSON
+        media_type=MediaType.JSON,
     )
 
 
-def csrf_error_handler(request: Request, exc: CsrfProtectError) -> JSONResponse:
+def csrf_error_handler(
+    request: Request, exc: CsrfProtectError
+) -> JSONResponse:
     response_model = APIResponse(
         success=False,
-        error=BaseErrorOut(message=exc.message, message_code=resources.CSRF_FAILED),
+        error=BaseErrorOut(
+            message=exc.message, message_code=resources.CSRF_FAILED
+        ),
     )
     return JSONResponse(
         content=response_model.model_dump(exclude_defaults=True),
         status_code=exc.status_code,
-        media_type=MediaType.JSON
+        media_type=MediaType.JSON,
     )
 
 
@@ -110,15 +120,16 @@ def unexcepted_error_handler(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         content=response_model.model_dump(exclude_defaults=True),
         status_code=500,
-        media_type=MediaType.JSON
+        media_type=MediaType.JSON,
     )
+
 
 exception_handlers = {
     PydanticError: pydantic_error_handler,
     StarletteHTTPException: http_error_handler,
     APPException: external_error_handler,
     CsrfProtectError: csrf_error_handler,
-    Exception: unexcepted_error_handler
+    Exception: unexcepted_error_handler,
 }
 
 

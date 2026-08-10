@@ -21,19 +21,23 @@ def _dispatch_after(
     id_attr: str | None,
     batch: bool = False,
 ) -> Callable[..., Callable[..., Any]]:
-    """Register a background taskiq job that calls ``projection.<method>(id)`` and
-    return a decorator that dispatches it after the wrapped service method returns.
+    """Register a background taskiq job that calls ``projection.<method>(id)``
+    and return a decorator that dispatches it after the wrapped service method
+    returns.
 
     Shared by ``project`` / ``unproject`` / ``batch_project`` — the differences
     are which projection method runs, the task-name prefix, and (``batch``)
     whether the ids come off one returned entity or a returned sequence.
 
     Args:
-        projection_cls (type[TESProjection]): The projection to run in background.
-        method (str): The projection method to call (``"project"`` / ``"unproject"``
+        projection_cls (type[TESProjection]): The projection to run in
+            background.
+        method (str): The projection method to call (``"project"`` /
+            ``"unproject"``
             / ``"batch_project"``).
         task_prefix (str): Task-name prefix (keeps the tasks distinct).
-        id_attr (str): Attribute on the returned object(s) holding the entity id.
+        id_attr (str): Attribute on the returned object(s) holding the entity
+            id.
         batch (bool): When True the wrapped method returns a sequence and the
             job gets the list of their ids.
     Returns:
@@ -49,7 +53,8 @@ def _dispatch_after(
 
     _task.__name__ = task_name
     _task.__qualname__ = task_name
-    # Resolve the concrete projection from dishka by its type (modern FromDishka[T]).
+    # Resolve the concrete projection from dishka by its type
+    # (modern FromDishka[T]).
     _task.__annotations__ = {
         "id": list[int] if batch else int,
         "projection": FromDishka[projection_cls],
@@ -60,12 +65,18 @@ def _dispatch_after(
         inject(_task, patch_module=True)
     )
 
-    def decorator(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., Any]:
+    def decorator(
+        func: Callable[..., Coroutine[Any, Any, Any]],
+    ) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             result = await func(*args, **kwargs)
             if batch:
-                ids = list(result) if id_attr is None else [getattr(item, id_attr) for item in result]
+                ids = (
+                    list(result)
+                    if id_attr is None
+                    else [getattr(item, id_attr) for item in result]
+                )
                 await registered.kiq(ids)
             else:
                 await registered.kiq(getattr(result, id_attr or "id"))
@@ -84,7 +95,8 @@ def project[TESProjection: AbstractESProjection](
     entity is (re)projected into Elasticsearch by a background taskiq job.
 
     The id handed to ``projection_cls.project(id)`` is read off the returned
-    object's ``id_attr`` — ``"id"`` by default, or e.g. ``"product_id"`` when the
+    object's ``id_attr`` — ``"id"`` by default, or e.g. ``"product_id"`` when
+    the
     method returns a child row whose owning entity is what gets reprojected::
 
         @project(ProductProjection)
@@ -97,15 +109,18 @@ def batch_project[TBatchProjection: AbstractBatchProjection](
     projection_cls: type[TBatchProjection],
     id_attr: str | None = "id",
 ) -> Callable[..., Callable[..., Any]]:
-    """Decorate a write service method returning a sequence of entities so that,
-    after it returns, they are all (re)projected by ONE background job carrying
-    the list of their ids (``projection.batch_project(ids)``); pass
+    """Decorate a write service method returning a sequence of entities so
+    that, after it returns, they are all (re)projected by ONE background job
+    carrying the list of their ids (``projection.batch_project(ids)``); pass
     ``id_attr=None`` when the method already returns the ids themselves::
 
         @batch_project(ListingBatchProjection)
-        async def deactive_all(self, platform_id: int) -> Sequence[ListingModel]: ...
+        async def deactive_all(self, platform_id: int) ->
+        Sequence[ListingModel]: ...
     """
-    return _dispatch_after(projection_cls, "batch_project", "run_batch", id_attr, batch=True)
+    return _dispatch_after(
+        projection_cls, "batch_project", "run_batch", id_attr, batch=True
+    )
 
 
 def unproject[TESProjection: AbstractESProjection](
@@ -139,7 +154,9 @@ def _payload_model(projection_cls: type[Any]) -> type[BaseModel]:
                 model = arg
                 break
     if model is None:
-        raise TypeError(f"{projection_cls.__name__} names no payload model to project")
+        raise TypeError(
+            f"{projection_cls.__name__} names no payload model to project"
+        )
     return model
 
 
@@ -190,7 +207,9 @@ def _dispatch_payload_after(
         inject(_task, patch_module=True)
     )
 
-    def decorator(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., Any]:
+    def decorator(
+        func: Callable[..., Coroutine[Any, Any, Any]],
+    ) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             result = await func(*args, **kwargs)
@@ -224,14 +243,17 @@ def payload_project[TPayloadProjection: AbstractPayloadProjection](
     return _dispatch_payload_after(projection_cls, "project", "payload")
 
 
-def batch_payload_project[TBatchPayloadProjection: AbstractBatchPayloadProjection](
+def batch_payload_project[
+    TBatchPayloadProjection: AbstractBatchPayloadProjection
+](
     projection_cls: type[TBatchPayloadProjection],
 ) -> Callable[..., Callable[..., Any]]:
     """Decorate a write service method returning a sequence of models so that
     all of them are projected from their own data by ONE background job::
 
         @batch_payload_project(ListingPriceBatchProjection)
-        async def reprice_all(self, ids: Sequence[int]) -> Sequence[ListingPricePayload]: ...
+        async def reprice_all(self, ids: Sequence[int]) ->
+        Sequence[ListingPricePayload]: ...
     """
     return _dispatch_payload_after(
         projection_cls, "batch_project", "batch_payload", batch=True

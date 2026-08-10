@@ -10,19 +10,29 @@ from src.modules.ops.storage import resources
 from src.modules.ops.storage.app.helpers import StreamMeter
 from src.modules.ops.storage.domain.models import MediaModel
 from src.modules.ops.storage.infra.repository import MediaRepository
-from src.modules.ops.storage.infra.storage import InvalidStoragePath, LocalStorage
+from src.modules.ops.storage.infra.storage import (
+    InvalidStoragePath,
+    LocalStorage,
+)
 
 
 class MediaService(BaseIDService[MediaModel]):
-    """Manages uploaded media: streamed storage, dedupe by hash, and the catalog."""
+    """Manages uploaded media: streamed storage, dedupe by hash, and the
+    catalog."""
 
-    def __init__(self, repo: MediaRepository, storage: LocalStorage, config: StorageConfig) -> None:
+    def __init__(
+        self,
+        repo: MediaRepository,
+        storage: LocalStorage,
+        config: StorageConfig,
+    ) -> None:
         self.repo = repo
         self.storage = storage
         self.config = config
 
     def _validate_extension(self, filename: str | None) -> str:
-        """Extract and validate a file's extension against the configured whitelist.
+        """Extract and validate a file's extension against the configured
+        whitelist.
 
         Args:
             filename (str | None): The original file name.
@@ -39,14 +49,19 @@ class MediaService(BaseIDService[MediaModel]):
             )
         return extension
 
-    async def upload(self, stream: AsyncIterator[bytes], filename: str | None) -> MediaModel:
-        """Stream an upload into the store and register it, deduplicating by hash.
+    async def upload(
+        self, stream: AsyncIterator[bytes], filename: str | None
+    ) -> MediaModel:
+        """Stream an upload into the store and register it, deduplicating by
+        hash.
 
         Args:
             stream (AsyncIterator[bytes]): The file contents as a chunk stream.
-            filename (str | None): The original file name (extension is validated).
+            filename (str | None): The original file name (extension is
+                validated).
         Returns:
-            (MediaModel): The stored media record (an existing one on duplicate content).
+            (MediaModel): The stored media record (an existing one on duplicate
+                content).
         """
         extension = self._validate_extension(filename)
         temp_path = f"{self.config.temp_dir}/{uuid4().hex}"
@@ -71,7 +86,10 @@ class MediaService(BaseIDService[MediaModel]):
         else:
             path = f"{digest[:2]}/{digest}.{extension}"
             await self.storage.move(temp_path, path)
-            content_type = mimetypes.guess_type(f"f.{extension}")[0] or "application/octet-stream"
+            content_type = (
+                mimetypes.guess_type(f"f.{extension}")[0]
+                or "application/octet-stream"
+            )
             result = await self.repo.create(
                 MediaModel(
                     backend=self.storage.backend,
@@ -97,7 +115,9 @@ class MediaService(BaseIDService[MediaModel]):
         media = self._check_for_id_existence(id, media)
         return media
 
-    async def get_paged(self, page: int, per_page: int) -> PagedType[MediaModel]:
+    async def get_paged(
+        self, page: int, per_page: int
+    ) -> PagedType[MediaModel]:
         """Get a page of media records, newest first.
 
         Args:
@@ -106,7 +126,9 @@ class MediaService(BaseIDService[MediaModel]):
         Returns:
             (PagedType[MediaModel]): The page rows and the total count.
         """
-        paged = await self.repo.get_paged(limit=per_page, offset=(page - 1) * per_page)
+        paged = await self.repo.get_paged(
+            limit=per_page, offset=(page - 1) * per_page
+        )
         return paged
 
     async def open(self, path: str) -> tuple[AsyncIterator[bytes], str]:
@@ -115,7 +137,8 @@ class MediaService(BaseIDService[MediaModel]):
         Args:
             path (str): The stored path (as returned by ``upload``).
         Returns:
-            (tuple[AsyncIterator[bytes], str]): A chunk iterator and the content type.
+            (tuple[AsyncIterator[bytes], str]): A chunk iterator and the
+                content type.
         """
         media = await self.repo.get_by_path(path)
         media = self._check_for_existence("path", path, media)

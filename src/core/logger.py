@@ -40,11 +40,31 @@ class JSONFormatter(logging.Formatter):
 
     BUILTIN_RECORD_ATTRS = frozenset(
         {
-            "args", "asctime", "created", "exc_info", "exc_text", "filename",
-            "funcName", "levelname", "levelno", "lineno", "message", "module",
-            "msecs", "msg", "name", "pathname", "process", "processName",
-            "relativeCreated", "request_id", "stack_info", "stacklevel",
-            "taskName", "thread", "threadName",
+            "args",
+            "asctime",
+            "created",
+            "exc_info",
+            "exc_text",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "message",
+            "module",
+            "msecs",
+            "msg",
+            "name",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "request_id",
+            "stack_info",
+            "stacklevel",
+            "taskName",
+            "thread",
+            "threadName",
         }
     )
 
@@ -70,7 +90,9 @@ class JSONFormatter(logging.Formatter):
             exc_type, exc_value, _ = record.exc_info
             payload["error.type"] = getattr(exc_type, "__name__", None)
             payload["error.message"] = str(exc_value)
-            payload["error.stack_trace"] = self.formatException(record.exc_info)
+            payload["error.stack_trace"] = self.formatException(
+                record.exc_info
+            )
         elif record.exc_text:
             payload["error.stack_trace"] = record.exc_text
 
@@ -94,10 +116,9 @@ class Logger:
     """The app logger, and the owner of the root handler.
 
     `setup` installs one handler on the **root** logger and makes uvicorn,
-    gunicorn and taskiq propagate into it, so a request line from the server and
-    a line from a service look alike and carry the same request id — otherwise
-    half the output is formatted by somebody else's defaults.
-    """
+    gunicorn and taskiq propagate into it, so a request line from the server
+    and a line from a service look alike and carry the same request id —
+    otherwise half the output is formatted by somebody else's defaults."""
 
     #: Loggers whose own handlers are dropped so their records reach ours.
     ADOPTED_LOGGERS = (
@@ -109,7 +130,9 @@ class Logger:
         "taskiq",
     )
 
-    def __init__(self, name: str = "app", level: int | str = logging.INFO) -> None:
+    def __init__(
+        self, name: str = "app", level: int | str = logging.INFO
+    ) -> None:
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
 
@@ -140,7 +163,9 @@ class Logger:
             handler.setFormatter(JSONFormatter(service))
         else:
             handler = RichHandler(rich_tracebacks=True, show_path=False)
-            handler.setFormatter(logging.Formatter("[%(request_id)s] %(message)s"))
+            handler.setFormatter(
+                logging.Formatter("[%(request_id)s] %(message)s")
+            )
         handler.addFilter(_ContextFilter())
         return handler
 

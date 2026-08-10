@@ -2,53 +2,56 @@ from enum import StrEnum
 
 
 class SortOrder(StrEnum):
-    ASC  = 'asc'
-    DESC = 'desc'
+    ASC = "asc"
+    DESC = "desc"
+
 
 class MediaType(StrEnum):
-    EXCEL = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    PDF   = 'application/pdf'
-    JSON  = 'application/json'
-    XML   = 'application/xml'
-    HTML  = 'text/html'
-    TEXT  = 'text/plain'
-    CSV   = 'text/csv'
-    OCTET_STREAM = 'application/octet-stream'
-    ZIP = 'application/zip'
-    GZIP = 'application/gzip'
-    PNG = 'image/png'
-    JPEG = 'image/jpeg'
-    JPG = 'image/jpg'
-    GIF = 'image/gif'
-    SVG = 'image/svg+xml'
-    TIFF = 'image/tiff'
-    BMP = 'image/bmp'
-    WEBP = 'image/webp'
-    AVIF = 'image/avif'
-    MP4 = 'video/mp4'
-    MOV = 'video/quicktime'
-    MKV = 'video/x-matroska'
-    FLV = 'video/x-flv'
-    AVI = 'video/x-msvideo'
-    WMV = 'video/x-ms-wmv'
-    MP3 = 'audio/mpeg'
-    WAV = 'audio/wav'
-    OGG = 'audio/ogg'
-    AAC = 'audio/aac'
-    FLAC = 'audio/flac'
-    WMA = 'audio/x-ms-wma'
-    M4A = 'audio/x-m4a'
-    AMR = 'audio/amr'
-    MPG = 'audio/mpeg'
+    EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    PDF = "application/pdf"
+    JSON = "application/json"
+    XML = "application/xml"
+    HTML = "text/html"
+    TEXT = "text/plain"
+    CSV = "text/csv"
+    OCTET_STREAM = "application/octet-stream"
+    ZIP = "application/zip"
+    GZIP = "application/gzip"
+    PNG = "image/png"
+    JPEG = "image/jpeg"
+    JPG = "image/jpg"
+    GIF = "image/gif"
+    SVG = "image/svg+xml"
+    TIFF = "image/tiff"
+    BMP = "image/bmp"
+    WEBP = "image/webp"
+    AVIF = "image/avif"
+    MP4 = "video/mp4"
+    MOV = "video/quicktime"
+    MKV = "video/x-matroska"
+    FLV = "video/x-flv"
+    AVI = "video/x-msvideo"
+    WMV = "video/x-ms-wmv"
+    MP3 = "audio/mpeg"
+    WAV = "audio/wav"
+    OGG = "audio/ogg"
+    AAC = "audio/aac"
+    FLAC = "audio/flac"
+    WMA = "audio/x-ms-wma"
+    M4A = "audio/x-m4a"
+    AMR = "audio/amr"
+    MPG = "audio/mpeg"
+
 
 class HTTPMethod(StrEnum):
-    POST = 'POST'
-    PUT = 'PUT'
-    GET = 'GET'
-    DELETE = 'DELETE'
-    PATCH = 'PATCH'
+    POST = "POST"
+    PUT = "PUT"
+    GET = "GET"
+    DELETE = "DELETE"
+    PATCH = "PATCH"
+
 
 class FilterType(StrEnum):
-    SLIDER = 'slider'
-    CHECKBOX = 'checkbox'
-    RADIO = 'radio'
+    SLIDER = "slider"
+    CHECKBOX = "checkbox"
+    RADIO = "radio"

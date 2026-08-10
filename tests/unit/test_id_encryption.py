@@ -14,7 +14,9 @@ def test_every_id_in_range_maps_to_a_distinct_public_id() -> None:
 
 def test_decode_undoes_encode() -> None:
     cipher = IDEncryption(mod=1009, coff=387, offset=10_000)
-    assert all(cipher.decode(cipher.encode(i)) == i for i in range(cipher.capacity))
+    assert all(
+        cipher.decode(cipher.encode(i)) == i for i in range(cipher.capacity)
+    )
 
 
 def test_public_ids_stay_inside_the_declared_bounds() -> None:

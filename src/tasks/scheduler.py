@@ -9,10 +9,9 @@ settings = get_settings()
 
 redis_schedule_source = RedisScheduleSource(
     url=settings.taskiq.redis_url,
-    max_connection_pool_size=settings.taskiq.max_connection_pool_size
+    max_connection_pool_size=settings.taskiq.max_connection_pool_size,
 )
 
 scheduler = TaskiqScheduler(
-    broker=broker,
-    sources=[LabelScheduleSource(broker), redis_schedule_source]
+    broker=broker, sources=[LabelScheduleSource(broker), redis_schedule_source]
 )

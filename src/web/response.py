@@ -5,10 +5,15 @@ from pydantic import BaseModel
 
 from src.common.bases.schemas import BaseMeta, BaseOutput
 from src.common.errors.base import APPException
-from src.common.errors.schemas import BaseErrorOut, ValidationErrorOut, errors_types
+from src.common.errors.schemas import (
+    BaseErrorOut,
+    ValidationErrorOut,
+    errors_types,
+)
 from src.core import resources
 
 ErrorType = Union[*errors_types]
+
 
 class APIResponse[TOut: BaseOutput | None, TMeta: BaseMeta | None](BaseModel):
     success: bool
@@ -30,42 +35,28 @@ class APIResponse[TOut: BaseOutput | None, TMeta: BaseMeta | None](BaseModel):
             success=True,
             data=data,
             message_code=message_code,
-            errors=error_schemas
+            errors=error_schemas,
         )
 
+    @classmethod
+    def from_external_error(cls, error: APPException):
+        return cls(success=False, error=error.as_schema())
 
     @classmethod
-    def from_external_error(
-        cls,
-        error: APPException
-    ):
-        return cls(
-            success=False,
-            error=error.as_schema()
-        )
-
-
-    @classmethod
-    def from_pydantic_error(
-        cls,
-        error: PydanticError
-    ):
+    def from_pydantic_error(cls, error: PydanticError):
         errors = []
         for e in error.errors():
             errors.append(
                 ValidationErrorOut(
-                    message=e['msg'],
-                    message_code=e['type'],
-                    loc=e['loc'][1:] if e['loc'] else [],
-                    ctx=e.get('ctx'),
-                    input=e.get('input')
+                    message=e["msg"],
+                    message_code=e["type"],
+                    loc=e["loc"][1:] if e["loc"] else [],
+                    ctx=e.get("ctx"),
+                    input=e.get("input"),
                 )
             )
 
-        return APIResponse(
-            success=False,
-            errors=errors
-        )
+        return APIResponse(success=False, errors=errors)
 
     @classmethod
     def get_server_error(cls):
@@ -73,6 +64,6 @@ class APIResponse[TOut: BaseOutput | None, TMeta: BaseMeta | None](BaseModel):
             success=False,
             error=BaseErrorOut(
                 message="Internal server error",
-                message_code=resources.SERVER_ERROR
-            )
+                message_code=resources.SERVER_ERROR,
+            ),
         )

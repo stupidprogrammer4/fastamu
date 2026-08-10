@@ -20,7 +20,10 @@ class ESClient:
         verify_certs: bool = True,
         ca_certs: str | None = None,
     ) -> None:
-        options: dict[str, Any] = {"hosts": hosts, "verify_certs": verify_certs}
+        options: dict[str, Any] = {
+            "hosts": hosts,
+            "verify_certs": verify_certs,
+        }
         if username and password:
             options["basic_auth"] = (username, password)
         if api_key:

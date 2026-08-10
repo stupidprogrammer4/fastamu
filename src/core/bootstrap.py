@@ -32,13 +32,17 @@ class Bootstrapper:
         """
         modules = []
         base = importlib.import_module(self.base_pkg)
-        for _, name, is_pkg in pkgutil.iter_modules(base.__path__, prefix=self.base_pkg + "."):
+        for _, name, is_pkg in pkgutil.iter_modules(
+            base.__path__, prefix=self.base_pkg + "."
+        ):
             if is_pkg:
                 if self._is_module(name):
                     modules.append(name)
                 else:
                     group = importlib.import_module(name)
-                    for _, sub_name, sub_is_pkg in pkgutil.iter_modules(group.__path__, prefix=name + "."):
+                    for _, sub_name, sub_is_pkg in pkgutil.iter_modules(
+                        group.__path__, prefix=name + "."
+                    ):
                         if sub_is_pkg and self._is_module(sub_name):
                             modules.append(sub_name)
         return modules
@@ -52,7 +56,11 @@ class Bootstrapper:
             (bool): True when the package has a ``domain`` or ``app`` layer.
         """
         pkg = importlib.import_module(name)
-        layers = {sub for _, sub, is_pkg in pkgutil.iter_modules(pkg.__path__) if is_pkg}
+        layers = {
+            sub
+            for _, sub, is_pkg in pkgutil.iter_modules(pkg.__path__)
+            if is_pkg
+        }
         return bool(layers & {"domain", "app"})
 
     def import_module(self, path: str, *, raise_nested: bool = False):
@@ -64,28 +72,38 @@ class Bootstrapper:
                 raise
         return module
 
-    def import_package_modules(self, path: str, *, raise_nested: bool = False) -> list:
+    def import_package_modules(
+        self, path: str, *, raise_nested: bool = False
+    ) -> list:
         """Import a package and every file inside it — packages keep an empty
         ``__init__.py``, so the members live in the files.
 
         Args:
-            path (str): Dotted path of the package (e.g. ``...listings.routers``).
-            raise_nested (bool): Re-raise import errors coming from inside a file.
+            path (str): Dotted path of the package (e.g.
+                ``...listings.routers``).
+            raise_nested (bool): Re-raise import errors coming from inside a
+                file.
         Returns:
-            (list): The imported file modules; empty when the package is absent.
+            (list): The imported file modules; empty when the package is
+                absent.
         """
         modules = []
         package = self.import_module(path, raise_nested=raise_nested)
         if package is not None and hasattr(package, "__path__"):
-            for _, name, is_pkg in pkgutil.iter_modules(package.__path__, prefix=path + "."):
+            for _, name, is_pkg in pkgutil.iter_modules(
+                package.__path__, prefix=path + "."
+            ):
                 if not is_pkg:
-                    module = self.import_module(name, raise_nested=raise_nested)
+                    module = self.import_module(
+                        name, raise_nested=raise_nested
+                    )
                     if module is not None:
                         modules.append(module)
         return modules
 
     def boot_routers(self) -> list[APIRouter]:
-        """Find all instances of fastapi.APIRouter in each module's routers files."""
+        """Find all instances of fastapi.APIRouter in each module's routers
+        files."""
         routers = []
         for module_name in self.submodules:
             files = self.import_package_modules(
@@ -93,7 +111,9 @@ class Bootstrapper:
             )
             for module in files:
                 for _, obj in inspect.getmembers(module):
-                    if isinstance(obj, APIRouter) and not any(obj is seen for seen in routers):
+                    if isinstance(obj, APIRouter) and not any(
+                        obj is seen for seen in routers
+                    ):
                         routers.append(obj)
         return routers
 
@@ -128,23 +148,28 @@ class Bootstrapper:
             module = self.import_module(f"{module_name}.{self.doc_path}")
             if module:
                 for _, obj in inspect.getmembers(module):
-                    if inspect.isclass(obj) and issubclass(obj, AsyncDocument) and obj is not AsyncDocument:
+                    if (
+                        inspect.isclass(obj)
+                        and issubclass(obj, AsyncDocument)
+                        and obj is not AsyncDocument
+                    ):
                         es_documents.append(obj)
         return es_documents
 
     def boot_tasks(self) -> None:
-        """Import each module's tasks files so their taskiq tasks register on the broker."""
+        """Import each module's tasks files so their taskiq tasks register on
+        the broker."""
         for module_name in self.submodules:
             self.import_package_modules(f"{module_name}.{self.tasks_path}")
 
     async def boot_es_indices(self, es: AsyncElasticsearch) -> None:
         """Create each ES read-model index (with its mapping) if it's missing.
 
-        Safe to run on startup: a missing or unreachable Elasticsearch is logged
-        and skipped so the app still boots. A document marked ``__external__``
-        is read, never created — its index belongs to something else (a log
-        shipper, another service), and initialising it here would impose our
-        mapping on data we do not own.
+        Safe to run on startup: a missing or unreachable Elasticsearch is
+        logged and skipped so the app still boots. A document marked
+        ``__external__`` is read, never created — its index belongs to
+        something else (a log shipper, another service), and initialising it
+        here would impose our mapping on data we do not own.
 
         Args:
             es (AsyncElasticsearch): The client to create the indices with.

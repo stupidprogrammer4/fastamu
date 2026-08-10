@@ -25,14 +25,16 @@ class BaseDTO(BaseModel):
         """
         return {
             key: str(value) if isinstance(value, AnyUrl) else value
-            for key, value in self.model_dump(exclude_unset=exclude_unset).items()
+            for key, value in self.model_dump(
+                exclude_unset=exclude_unset
+            ).items()
         }
 
 
 @runtime_checkable
 class SupportsToRow(Protocol):
     """Anything that can yield a column dict — both ``BaseModel`` (the SQLModel
-    ORM base) and ``BaseDTO`` satisfy it structurally, so repository helpers can
-    accept model instances and DTOs alike."""
+    ORM base) and ``BaseDTO`` satisfy it structurally, so repository helpers
+    can accept model instances and DTOs alike."""
 
     def to_row(self, *, exclude_unset: bool = ...) -> dict[str, Any]: ...

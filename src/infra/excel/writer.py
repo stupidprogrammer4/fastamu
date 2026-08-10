@@ -20,7 +20,6 @@ class ExcelWriter:
     def __init__(self, max_workers: int = 1) -> None:
         self._pool = ProcessPoolExecutor(max_workers=max_workers)
 
-
     def _write_rows_job(
         self,
         template: str,
@@ -48,8 +47,14 @@ class ExcelWriter:
         wb.save(output)
         return output
 
-
-    def _write_cell_job(self, template: str, output: str, sheet: str | None, cell: str, value: Any) -> str:
+    def _write_cell_job(
+        self,
+        template: str,
+        output: str,
+        sheet: str | None,
+        cell: str,
+        value: Any,
+    ) -> str:
         wb = load_workbook(template)
         ws = wb[sheet] if sheet else wb.active
         if ws is None:
@@ -75,7 +80,14 @@ class ExcelWriter:
         payload = [row.cells() for row in rows]
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
-            self._pool, self._write_rows_job, template, output, sheet, start_row, titles, payload
+            self._pool,
+            self._write_rows_job,
+            template,
+            output,
+            sheet,
+            start_row,
+            titles,
+            payload,
         )
         return result
 
@@ -88,10 +100,17 @@ class ExcelWriter:
         *,
         sheet: str | None = None,
     ) -> str:
-        """Write a single ``value`` into a specific ``cell`` (e.g. ``"B3"``)."""
+        """Write a single ``value`` into a specific ``cell`` (e.g.
+        ``"B3"``)."""
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
-            self._pool, self._write_cell_job, template, output, sheet, cell, value
+            self._pool,
+            self._write_cell_job,
+            template,
+            output,
+            sheet,
+            cell,
+            value,
         )
         return result
 

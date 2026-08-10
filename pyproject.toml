@@ -84,7 +84,7 @@ packages = ["src"]
 # takes precedence over pyproject, so do not re-add [tool.pytest.ini_options]).
 
 [tool.ruff]
-line-length = 120
+line-length = 79
 target-version = "py313"
 
 [tool.ruff.lint]

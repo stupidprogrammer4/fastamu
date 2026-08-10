@@ -1,6 +1,26 @@
-from typing import Any, AsyncIterator, Optional, Sequence, TypeVar, get_args, get_origin
+from typing import (
+    Any,
+    AsyncIterator,
+    Optional,
+    Sequence,
+    TypeVar,
+    get_args,
+    get_origin,
+)
 
-from sqlalchemy import Select, Values, column, delete, func, insert, inspect, literal, select, update, values
+from sqlalchemy import (
+    Select,
+    Values,
+    column,
+    delete,
+    func,
+    insert,
+    inspect,
+    literal,
+    select,
+    update,
+    values,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped
 from sqlalchemy.sql.dml import ReturningInsert, ReturningUpdate
@@ -9,7 +29,12 @@ from sqlmodel import col
 from src.common.bases.dtos import SupportsToRow
 from src.common.bases.results import PagedType
 
-from ..models.base import BaseIDModel, BaseIDTimestampModel, BaseModel, BaseTimestampModel
+from ..models.base import (
+    BaseIDModel,
+    BaseIDTimestampModel,
+    BaseModel,
+    BaseTimestampModel,
+)
 from ..uow import PGUnitOfWork
 
 
@@ -52,38 +77,49 @@ class PGRepository[TModel: BaseModel](PGReader):
 
     async def create(self, data: TModel) -> TModel:
         """
-            Create a new record.
+        Create a new record.
 
-            Args:
-                data (TModel): A SQLModel carrying the fields for the new record.
-            Returns:
-                (TModel): Created record.
+        Args:
+            data (TModel): A SQLModel carrying the fields for the new record.
+        Returns:
+            (TModel): Created record.
         """
-        stmt = insert(self.__model__).values(**data.to_row()).returning(self.__model__)
+        stmt = (
+            insert(self.__model__)
+            .values(**data.to_row())
+            .returning(self.__model__)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
     async def bulk_create(self, data: Sequence[TModel]) -> Sequence[TModel]:
         """
-            Create multiple records.
+        Create multiple records.
 
-            Args:
-                data (Sequence[TModel]): SQLModels carrying the fields for new records.
-            Returns:
-                (Sequence[TModel]): Created records.
+        Args:
+            data (Sequence[TModel]): SQLModels carrying the fields for new
+                records.
+        Returns:
+            (Sequence[TModel]): Created records.
         """
-        stmt = insert(self.__model__).values([d.to_row() for d in data]).returning(self.__model__)
+        stmt = (
+            insert(self.__model__)
+            .values([d.to_row() for d in data])
+            .returning(self.__model__)
+        )
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_all_stream(self, yield_per: int = 100) -> AsyncIterator[TModel]:
+    async def get_all_stream(
+        self, yield_per: int = 100
+    ) -> AsyncIterator[TModel]:
         """
-            Stream all records.
+        Stream all records.
 
-            Args:
-                yield_per (int): Number of records to fetch per batch.
-            Returns:
-                (AsyncIterator[TModel]): Async iterator of records.
+        Args:
+            yield_per (int): Number of records to fetch per batch.
+        Returns:
+            (AsyncIterator[TModel]): Async iterator of records.
         """
         stmt = select(self.__model__).execution_options(yield_per=yield_per)
         stream = await self.session.stream_scalars(stmt)
@@ -92,10 +128,10 @@ class PGRepository[TModel: BaseModel](PGReader):
 
     async def get_all(self) -> Sequence[TModel]:
         """
-            Get all records.
+        Get all records.
 
-            Returns:
-                (Sequence[TModel]): All records.
+        Returns:
+            (Sequence[TModel]): All records.
         """
         stmt = select(self.__model__)
         result = await self.session.execute(stmt)
@@ -129,13 +165,13 @@ class PGRepository[TModel: BaseModel](PGReader):
 
     def _values_grid(self, data: Sequence[SupportsToRow]) -> Values:
         """
-            Build a typed VALUES grid from model rows for FROM-clause joins.
+        Build a typed VALUES grid from model rows for FROM-clause joins.
 
-            Args:
-                data (Sequence[SupportsToRow]): Non-empty rows (models or DTOs);
-                    their set columns and the model's column types define the grid.
-            Returns:
-                (Values): VALUES construct exposing its columns via ``.c``.
+        Args:
+            data (Sequence[SupportsToRow]): Non-empty rows (models or DTOs);
+                their set columns and the model's column types define the grid.
+        Returns:
+            (Values): VALUES construct exposing its columns via ``.c``.
         """
         mapper = inspect(self.__model__)
         rows = [row.to_row(exclude_unset=True) for row in data]
@@ -144,37 +180,45 @@ class PGRepository[TModel: BaseModel](PGReader):
         return values(
             *(column(name, types[name]) for name in names),
             name="bulk_values",
-        ).data([
-            tuple(literal(row[name], types[name]) for name in names)
-            for row in rows
-        ])
+        ).data(
+            [
+                tuple(literal(row[name], types[name]) for name in names)
+                for row in rows
+            ]
+        )
 
     def _upsert_stmt(
         self,
         data: SupportsToRow | Sequence[SupportsToRow],
-        index_elements: Sequence[Mapped[Any]]
+        index_elements: Sequence[Mapped[Any]],
     ) -> ReturningInsert[tuple[TModel]]:
         """
-            Build an INSERT ... ON CONFLICT DO UPDATE ... RETURNING the model.
+        Build an INSERT ... ON CONFLICT DO UPDATE ... RETURNING the model.
 
-            Args:
-                data (SupportsToRow | Sequence[SupportsToRow]): One row or many to insert.
-                index_elements (Sequence[Mapped[Any]]): Conflict-target columns as
-                    model attributes (e.g. ``col(Model.field)``). On conflict every
-                    inserted column except these is refreshed from the proposed row.
-            Returns:
-                (ReturningInsert[tuple[TModel]]): The upsert statement.
+        Args:
+            data (SupportsToRow | Sequence[SupportsToRow]): One row or many to
+                insert.
+            index_elements (Sequence[Mapped[Any]]): Conflict-target columns as
+                model attributes (e.g. ``col(Model.field)``). On conflict every
+                inserted column except these is refreshed from the proposed
+                row.
+        Returns:
+            (ReturningInsert[tuple[TModel]]): The upsert statement.
         """
-        conflict_keys = {self._column_key(element) for element in index_elements}
-        rows = [data.to_row()] if isinstance(data, SupportsToRow) else [row.to_row() for row in data]
+        conflict_keys = {
+            self._column_key(element) for element in index_elements
+        }
+        rows = (
+            [data.to_row()]
+            if isinstance(data, SupportsToRow)
+            else [row.to_row() for row in data]
+        )
         base = pg_insert(self.__model__).values(rows)
         set_keys = [name for name in rows[0] if name not in conflict_keys]
         set_: dict[str, Any] = {name: base.excluded[name] for name in set_keys}
-        stmt = (
-            base
-            .on_conflict_do_update(index_elements=list(index_elements), set_=set_)
-            .returning(self.__model__)
-        )
+        stmt = base.on_conflict_do_update(
+            index_elements=list(index_elements), set_=set_
+        ).returning(self.__model__)
         return stmt
 
     def _bulk_update_stmt(
@@ -183,19 +227,19 @@ class PGRepository[TModel: BaseModel](PGReader):
         key: Mapped[Any],
     ) -> ReturningUpdate[tuple[TModel]]:
         """
-            Build a bulk UPDATE that sets each row from a typed VALUES grid.
+        Build a bulk UPDATE that sets each row from a typed VALUES grid.
 
-            One statement updates every row: the grid is joined to the table on
-            ``key`` and the set columns are read per-row from the grid.
+        One statement updates every row: the grid is joined to the table on
+        ``key`` and the set columns are read per-row from the grid.
 
-            Args:
-                data (Sequence[SupportsToRow]): Non-empty rows (models or DTOs)
-                    carrying the key plus the columns to write.
-                key (Mapped[Any]): The match column (e.g. ``col(Model.metal_id)``).
-                    Every grid column except the key and DB-managed timestamps is
-                    written per-row.
-            Returns:
-                (ReturningUpdate[tuple[TModel]]): The bulk update statement.
+        Args:
+            data (Sequence[SupportsToRow]): Non-empty rows (models or DTOs)
+                carrying the key plus the columns to write.
+            key (Mapped[Any]): The match column (e.g. ``col(Model.metal_id)``).
+                Every grid column except the key and DB-managed timestamps is
+                written per-row.
+        Returns:
+            (ReturningUpdate[tuple[TModel]]): The bulk update statement.
         """
         grid = self._values_grid(data)
         key_name = self._column_key(key)
@@ -212,29 +256,29 @@ class PGRepository[TModel: BaseModel](PGReader):
     @staticmethod
     def _column_key(element: Mapped[BaseModel]) -> str:
         """
-            Resolve a column attribute's name.
+        Resolve a column attribute's name.
 
-            Args:
-                element (Mapped[Any]): A model column attribute (``col(Model.field)``).
-            Returns:
-                (str): The underlying column key.
+        Args:
+            element (Mapped[Any]): A model column attribute
+                (``col(Model.field)``).
+        Returns:
+            (str): The underlying column key.
         """
-        return element.key # type: ignore
+        return element.key  # type: ignore
 
 
 class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
     def __init__(self, uow: PGUnitOfWork):
         super().__init__(uow)
 
-
     async def get_by_id(self, id: int) -> Optional[TIDModel]:
         """
-            Get a record by ID.
+        Get a record by ID.
 
-            Args:
-                id (int): ID of the record to retrieve.
-            Returns:
-                (Optional[TIDModel]): Found record or None.
+        Args:
+            id (int): ID of the record to retrieve.
+        Returns:
+            (Optional[TIDModel]): Found record or None.
         """
         stmt = select(self.__model__).where(col(self.__model__.id) == id)
         result = await self.session.execute(stmt)
@@ -242,43 +286,51 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
 
     async def delete_by_id(self, id: int) -> Optional[TIDModel]:
         """
-            Delete a record by ID.
+        Delete a record by ID.
 
-            Args:
-                id (int): ID of the record to delete.
-            Returns:
-                (Optional[TIDModel]): Deleted record or None.
+        Args:
+            id (int): ID of the record to delete.
+        Returns:
+            (Optional[TIDModel]): Deleted record or None.
         """
-        stmt = delete(self.__model__).where(col(self.__model__.id) == id).returning(self.__model__)
+        stmt = (
+            delete(self.__model__)
+            .where(col(self.__model__.id) == id)
+            .returning(self.__model__)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def update_row_by_id(self, id: int, data: TIDModel) -> Optional[TIDModel]:
+    async def update_row_by_id(
+        self, id: int, data: TIDModel
+    ) -> Optional[TIDModel]:
         """
-            Update a record by ID from a model instance.
+        Update a record by ID from a model instance.
 
-            Only explicitly-set fields are written (``to_row`` excludes unset),
-            so a partially-populated model acts as a patch.
+        Only explicitly-set fields are written (``to_row`` excludes unset),
+        so a partially-populated model acts as a patch.
 
-            Args:
-                id (int): ID of the record to update.
-                data (TIDModel): A model whose set fields are written.
-            Returns:
-                (Optional[TIDModel]): Updated record or None.
+        Args:
+            id (int): ID of the record to update.
+            data (TIDModel): A model whose set fields are written.
+        Returns:
+            (Optional[TIDModel]): Updated record or None.
         """
         row = await self.update_by_id(id, data.to_row())
         return row
 
-    async def update_by_id(self, id: int, row: dict[str, Any]) -> Optional[TIDModel]:
+    async def update_by_id(
+        self, id: int, row: dict[str, Any]
+    ) -> Optional[TIDModel]:
         """
-            Update a record by ID from a column dict.
+        Update a record by ID from a column dict.
 
-            Args:
-                id (int): ID of the record to update.
-                row (dict[str, Any]): Column values to write (from a validated
-                    DTO's ``to_row()``).
-            Returns:
-                (Optional[TIDModel]): Updated record or None.
+        Args:
+            id (int): ID of the record to update.
+            row (dict[str, Any]): Column values to write (from a validated
+                DTO's ``to_row()``).
+        Returns:
+            (Optional[TIDModel]): Updated record or None.
         """
         stmt = (
             update(self.__model__)
@@ -291,27 +343,29 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
 
     async def get_by_ids(self, ids: list[int]) -> Sequence[TIDModel]:
         """
-            Get multiple records by IDs.
+        Get multiple records by IDs.
 
-            Args:
-                ids (list[int]): List of record IDs to retrieve.
-            Returns:
-                (Sequence[TIDModel]): Found records.
+        Args:
+            ids (list[int]): List of record IDs to retrieve.
+        Returns:
+            (Sequence[TIDModel]): Found records.
         """
         stmt = select(self.__model__).where(col(self.__model__.id).in_(ids))
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def update_by_ids(self, ids: Sequence[int], row: dict[str, Any]) -> Sequence[TIDModel]:
+    async def update_by_ids(
+        self, ids: Sequence[int], row: dict[str, Any]
+    ) -> Sequence[TIDModel]:
         """
-            Update multiple records by IDs.
+        Update multiple records by IDs.
 
-            Args:
-                ids (Sequence[int]): Sequence of record IDs to update.
-                row (dict[str, Any]): Column values to write (from a validated
-                    DTO's ``to_row()``).
-            Returns:
-                (Sequence[TIDModel]): Updated records.
+        Args:
+            ids (Sequence[int]): Sequence of record IDs to update.
+            row (dict[str, Any]): Column values to write (from a validated
+                DTO's ``to_row()``).
+        Returns:
+            (Sequence[TIDModel]): Updated records.
         """
         stmt = (
             update(self.__model__)
@@ -324,32 +378,40 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
 
     async def delete_by_ids(self, ids: Sequence[int]) -> Sequence[TIDModel]:
         """
-            Delete multiple records by IDs.
+        Delete multiple records by IDs.
 
-            Args:
-                ids (Sequence[int]): Sequence of record IDs to delete.
-            Returns:
-                (Sequence[TIDModel]): Deleted records.
+        Args:
+            ids (Sequence[int]): Sequence of record IDs to delete.
+        Returns:
+            (Sequence[TIDModel]): Deleted records.
         """
-        stmt = delete(self.__model__).where(col(self.__model__.id).in_(ids)).returning(self.__model__)
+        stmt = (
+            delete(self.__model__)
+            .where(col(self.__model__.id).in_(ids))
+            .returning(self.__model__)
+        )
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
     async def upsert_by_id(self, id: int, row: dict[str, Any]) -> TIDModel:
         """
-            Upsert a record by ID.
+        Upsert a record by ID.
 
-            Args:
-                id (int): ID of the record to upsert.
-                row (dict[str, Any]): Column values to write (from a validated
-                    DTO's ``to_row()``).
-            Returns:
-                (TIDModel): Created or updated record.
+        Args:
+            id (int): ID of the record to upsert.
+            row (dict[str, Any]): Column values to write (from a validated
+                DTO's ``to_row()``).
+        Returns:
+            (TIDModel): Created or updated record.
         """
-        stmt = pg_insert(self.__model__).values(id=id, **row).on_conflict_do_update(
-            index_elements=[col(self.__model__.id)],
-            set_=row
-        ).returning(self.__model__)
+        stmt = (
+            pg_insert(self.__model__)
+            .values(id=id, **row)
+            .on_conflict_do_update(
+                index_elements=[col(self.__model__.id)], set_=row
+            )
+            .returning(self.__model__)
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
@@ -361,24 +423,24 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
         super().__init__(uow)
 
     async def get_stream_by_date_range(
-        self,
-        start: str,
-        end: str,
-        yield_per: int = 100
+        self, start: str, end: str, yield_per: int = 100
     ) -> AsyncIterator[TTimestampModel]:
         """
-            Stream records within a date range.
+        Stream records within a date range.
 
-            Args:
-                start (str): Start date in ISO format.
-                end (str): End date in ISO format.
-                yield_per (int): Number of records to fetch per batch.
-            Returns:
-                (AsyncIterator[TTimestampModel]): Async iterator of records.
+        Args:
+            start (str): Start date in ISO format.
+            end (str): End date in ISO format.
+            yield_per (int): Number of records to fetch per batch.
+        Returns:
+            (AsyncIterator[TTimestampModel]): Async iterator of records.
         """
         stmt = (
             select(self.__model__)
-            .where(col(self.__model__.created_at) >= start, col(self.__model__.created_at) <= end)
+            .where(
+                col(self.__model__.created_at) >= start,
+                col(self.__model__.created_at) <= end,
+            )
             .execution_options(yield_per=yield_per)
         )
         stream = await self.session.stream_scalars(stmt)
@@ -386,46 +448,47 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
             yield row
 
     async def delete_by_date_range(
-        self,
-        start: str,
-        end: str
+        self, start: str, end: str
     ) -> Sequence[TTimestampModel]:
         """
-            Delete records within a date range.
+        Delete records within a date range.
 
-            Args:
-                start (str): Start date in ISO format.
-                end (str): End date in ISO format.
-            Returns:
-                (Sequence[TTimestampModel]): Deleted records.
+        Args:
+            start (str): Start date in ISO format.
+            end (str): End date in ISO format.
+        Returns:
+            (Sequence[TTimestampModel]): Deleted records.
         """
         stmt = (
             delete(self.__model__)
-            .where(col(self.__model__.created_at) >= start, col(self.__model__.created_at) <= end)
+            .where(
+                col(self.__model__.created_at) >= start,
+                col(self.__model__.created_at) <= end,
+            )
             .returning(self.__model__)
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
     async def update_by_date_range(
-        self,
-        start: str,
-        end: str,
-        data: BaseModel
+        self, start: str, end: str, data: BaseModel
     ) -> Sequence[TTimestampModel]:
         """
-            Update records within a date range.
+        Update records within a date range.
 
-            Args:
-                start (str): Start date in ISO format.
-                end (str): End date in ISO format.
-                data (BaseModel): A SQLModel carrying the fields to update.
-            Returns:
-                (Sequence[TTimestampModel]): Updated records.
+        Args:
+            start (str): Start date in ISO format.
+            end (str): End date in ISO format.
+            data (BaseModel): A SQLModel carrying the fields to update.
+        Returns:
+            (Sequence[TTimestampModel]): Updated records.
         """
         stmt = (
             update(self.__model__)
-            .where(col(self.__model__.created_at) >= start, col(self.__model__.created_at) <= end)
+            .where(
+                col(self.__model__.created_at) >= start,
+                col(self.__model__.created_at) <= end,
+            )
             .values(**data.to_row())
             .returning(self.__model__)
         )
@@ -434,8 +497,7 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
 
 
 class PGTimestampIDRepository[TIDTimestampModel: BaseIDTimestampModel](
-    PGIDRepository[TIDTimestampModel],
-    PGTimestampRepository[TIDTimestampModel]
+    PGIDRepository[TIDTimestampModel], PGTimestampRepository[TIDTimestampModel]
 ):
     def __init__(self, uow: PGUnitOfWork):
         super().__init__(uow)

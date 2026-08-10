@@ -66,7 +66,9 @@ class RateLimiter:
         if throttle is None:
             throttle = Throttled(
                 using=RateLimiterType.SLIDING_WINDOW.value,
-                quota=per_duration(timedelta(seconds=rule.window_seconds), limit=rule.limit),
+                quota=per_duration(
+                    timedelta(seconds=rule.window_seconds), limit=rule.limit
+                ),
                 store=self.store,
             )
             self._throttles[name] = throttle
@@ -98,7 +100,9 @@ class RateLimiter:
         try:
             result = await self._throttle(rule).limit(key)
         except BaseThrottledError as exc:
-            logger.warning("rate limit store is unreachable for %s: %s", key, exc)
+            logger.warning(
+                "rate limit store is unreachable for %s: %s", key, exc
+            )
             return RateLimitVerdict(
                 allowed=not closed_when_down,
                 limit=rule.limit,

@@ -17,7 +17,9 @@ class ExtraField[T]:
     def __set__(self, instance: object, value: T) -> None:
         instance.__dict__[self._name] = value
 
-    def __get__(self, instance: object | None, owner: type | None = None) -> T | None:
+    def __get__(
+        self, instance: object | None, owner: type | None = None
+    ) -> T | None:
         if instance is None:
             return None
         return instance.__dict__.get(self._name)
@@ -34,7 +36,9 @@ class HookField[TIn, T]:
     def __set__(self, instance: object, value: TIn) -> None:
         instance.__dict__[self._name] = self.hook(value)
 
-    def __get__(self, instance: object | None, owner: type | None = None) -> T | None:
+    def __get__(
+        self, instance: object | None, owner: type | None = None
+    ) -> T | None:
         if instance is None:
             return None
         return instance.__dict__.get(self._name)
@@ -44,8 +48,12 @@ class BaseOutput(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
-    def from_obj(cls, model: Any, extra: dict[str, BaseModel] | None = None) -> Self:
-        return cls.model_validate(model, context={"extra": extra} if extra else None)
+    def from_obj(
+        cls, model: Any, extra: dict[str, BaseModel] | None = None
+    ) -> Self:
+        return cls.model_validate(
+            model, context={"extra": extra} if extra else None
+        )
 
     @classmethod
     def from_objs(cls, models: Sequence[Any]) -> list[Self]:
@@ -115,7 +123,8 @@ class PagerMeta(BaseModel):
 
 
 class FilterMeta[TOut: BaseOutput](BaseModel):
-    # id of the entity behind the facet (e.g. the attribute id), when it has one
+    # id of the entity behind the facet (e.g. the attribute id), when it has
+    # one
     id: int | None = None
     type: FilterType
     title: str | None = None

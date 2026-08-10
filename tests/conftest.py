@@ -39,8 +39,11 @@ class _NullScheduleSource(ScheduleSource):
     async def delete_schedule(self, schedule_id: str) -> None: ...
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Auto-mark tests by their folder: tests/unit -> unit, tests/integration -> integration."""
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Auto-mark tests by their folder: tests/unit -> unit, tests/integration
+    -> integration."""
     for item in items:
         path = str(item.fspath).replace("\\", "/")
         if "/tests/integration/" in path:
@@ -58,7 +61,8 @@ def make_obj():
     return obj
 
 
-# --- integration: real test database --------------------------------------------
+# --- integration: real test database ----------------------------------------
+
 
 def _load_settings() -> Settings:
     path = Path("config.yml")
@@ -72,7 +76,9 @@ def _load_settings() -> Settings:
 def integration_settings() -> Settings:
     settings = _load_settings()
     if settings is None:
-        pytest.skip("integration tests require config.yml with postgresql.test_dsn")
+        pytest.skip(
+            "integration tests require config.yml with postgresql.test_dsn"
+        )
     return settings
 
 
@@ -169,7 +175,9 @@ async def clean_db(pg: PGConnection, es: ESClient) -> None:
         # ACCESS EXCLUSIVE lock each, before every single test
         names = ", ".join(f'"{table.name}"' for table in tables)
         async with pg.session_factory() as session:
-            await session.execute(text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE"))
+            await session.execute(
+                text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
+            )
             await session.commit()
     # a projection outlives the row it came from, so a stale document would
     # answer the next test's search
@@ -188,7 +196,11 @@ async def clean_db(pg: PGConnection, es: ESClient) -> None:
 async def dishka_container(integration_settings: Settings, test_dsn: str):
     test_settings = integration_settings.model_copy(
         deep=True,
-        update={"postgresql": integration_settings.postgresql.model_copy(update={"dsn": test_dsn})},
+        update={
+            "postgresql": integration_settings.postgresql.model_copy(
+                update={"dsn": test_dsn}
+            )
+        },
     )
 
     class TestCoreProvider(Provider):
@@ -231,7 +243,9 @@ async def dishka_container(integration_settings: Settings, test_dsn: str):
                 await client.close()
 
         @provide(scope=Scope.APP)
-        async def redis(self, settings: Settings) -> AsyncIterator[RedisClient]:
+        async def redis(
+            self, settings: Settings
+        ) -> AsyncIterator[RedisClient]:
             client = RedisClient(
                 settings.redis.url,
                 max_connections=settings.redis.max_connections,
@@ -244,8 +258,11 @@ async def dishka_container(integration_settings: Settings, test_dsn: str):
             finally:
                 await client.close()
 
-    # Module providers are discovered automatically — new modules need no edit here.
-    container = make_async_container(TestCoreProvider(), *get_bootstrapper().boot_providers())
+    # Module providers are discovered automatically — new modules need no
+    # edit here.
+    container = make_async_container(
+        TestCoreProvider(), *get_bootstrapper().boot_providers()
+    )
     try:
         yield container
     finally:

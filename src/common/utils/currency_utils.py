@@ -1,10 +1,10 @@
 """Turning a quoted amount into a number you can store.
 
-A price arrives as whatever its source felt like sending: a Persian-digit string
-with thousands separators, a float, a `Decimal`. These normalise that to one
-storable integer or `Decimal`, and refuse anything that is not a number rather
-than silently coercing it — a price that quietly becomes `0` is worse than a
-failed import.
+A price arrives as whatever its source felt like sending: a Persian-digit
+string with thousands separators, a float, a `Decimal`. These normalise that to
+one storable integer or `Decimal`, and refuse anything that is not a number
+rather than silently coercing it — a price that quietly becomes `0` is worse
+than a failed import.
 
 `persian_utils` is the other half of the pair: this parses inbound text, that
 formats outbound.
@@ -46,7 +46,8 @@ def to_rial(value: QuotedAmount) -> int:
     """Parse a quoted amount into whole rial.
 
     Args:
-        value (QuotedAmount): A number, or a string in Persian or English digits.
+        value (QuotedAmount): A number, or a string in Persian or English
+            digits.
     Returns:
         (int): The amount, rounded to the nearest whole unit.
     Raises:

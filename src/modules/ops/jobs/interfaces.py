@@ -1,6 +1,10 @@
 from typing import Protocol
 
-from src.modules.ops.jobs.domain.schemas import JobsOverviewOut, JobStatusOut, RunningJobOut
+from src.modules.ops.jobs.domain.schemas import (
+    JobsOverviewOut,
+    JobStatusOut,
+    RunningJobOut,
+)
 
 
 class IJobService(Protocol):

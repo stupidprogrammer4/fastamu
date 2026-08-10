@@ -97,7 +97,9 @@ def decode_token(
     expected_type: TokenType | None = None,
 ) -> dict[str, Any]:
     try:
-        payload: dict[str, Any] = jwt.decode(token, secret_key, algorithms=[algorithm])
+        payload: dict[str, Any] = jwt.decode(
+            token, secret_key, algorithms=[algorithm]
+        )
     except ExpiredSignatureError as exc:
         raise UnAuthorizedException(
             message="token has expired",
@@ -109,7 +111,10 @@ def decode_token(
             message_code=resources.INVALID_TOKEN,
         ) from exc
 
-    if expected_type is not None and payload.get("type") != expected_type.value:
+    if (
+        expected_type is not None
+        and payload.get("type") != expected_type.value
+    ):
         raise UnAuthorizedException(
             message=f"expected a {expected_type.value} token",
             message_code=resources.INVALID_TOKEN,

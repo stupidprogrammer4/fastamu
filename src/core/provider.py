@@ -1,4 +1,3 @@
-
 from typing import AsyncIterable, AsyncIterator
 
 from dishka import Provider, Scope, provide
@@ -13,7 +12,6 @@ from src.infra.redis.client import RedisClient
 
 
 class CoreProvider(Provider):
-
     @provide(scope=Scope.APP)
     def settings(self) -> Settings:
         return get_settings()
@@ -25,14 +23,13 @@ class CoreProvider(Provider):
             pool_size=settings.postgresql.pool_size,
             max_overflow=settings.postgresql.max_overflow,
             pool_timeout=settings.postgresql.pool_timeout,
-            pool_recycle=settings.postgresql.pool_recycle
+            pool_recycle=settings.postgresql.pool_recycle,
         )
 
     @provide(scope=Scope.REQUEST)
     async def uow(self, pg: PGConnection) -> AsyncIterable[PGUnitOfWork]:
         async with PGUnitOfWork(pg) as uow:
             yield uow
-
 
     @provide(scope=Scope.APP)
     async def es(self, settings: Settings) -> AsyncIterator[ESClient]:
@@ -48,7 +45,6 @@ class CoreProvider(Provider):
             yield client
         finally:
             await client.close()
-
 
     @provide(scope=Scope.APP)
     def schedule_source(self, settings: Settings) -> ScheduleSource:

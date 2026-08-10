@@ -48,14 +48,19 @@ class ESRepository[TDoc: AsyncDocument]:
         await doc.save(using=self._using)
         return doc
 
-    async def bulk_insert(self, docs: Sequence[TDoc], *, refresh: bool = False) -> int:
+    async def bulk_insert(
+        self, docs: Sequence[TDoc], *, refresh: bool = False
+    ) -> int:
         """Index many documents in a single bulk request; returns the count
         indexed. Pass ``refresh=True`` to make them searchable immediately."""
+
         async def actions() -> AsyncIterator[TDoc]:
             for doc in docs:
                 yield doc
 
-        indexed, _ = await self.__document__.bulk(actions(), using=self._using, refresh=refresh)
+        indexed, _ = await self.__document__.bulk(
+            actions(), using=self._using, refresh=refresh
+        )
         return indexed
 
     async def bulk_update(
@@ -105,7 +110,6 @@ class ESRepository[TDoc: AsyncDocument]:
         return result
 
     def search(self) -> AsyncSearch[TDoc]:
-        """A search bound to this client — build the query and ``await .execute()``."""
+        """A search bound to this client — build the query and ``await
+        .execute()``."""
         return self.__document__.search(using=self._using)
-
-

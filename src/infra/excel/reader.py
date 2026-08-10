@@ -34,7 +34,11 @@ class ExcelReader:
                 raise ValueError("workbook has no active worksheet")
 
             out: list[list[Any]] = []
-            for i, row in enumerate(ws.iter_rows(min_row=start_row, max_col=n_cols, values_only=True)):
+            for i, row in enumerate(
+                ws.iter_rows(
+                    min_row=start_row, max_col=n_cols, values_only=True
+                )
+            ):
                 if max_rows is not None and i >= max_rows:
                     break
                 if all(v is None for v in row):  # stop at the first blank row
@@ -43,7 +47,6 @@ class ExcelReader:
             return out
         finally:
             wb.close()
-
 
     def _read_cell_job(self, path: str, sheet: str | None, cell: str) -> Any:
         wb = load_workbook(path, data_only=True)
@@ -70,14 +73,24 @@ class ExcelReader:
         names = list(row_model.model_fields)
         loop = asyncio.get_running_loop()
         raw = await loop.run_in_executor(
-            self._pool, self._read_rows_job, path, sheet, start_row, len(names), limit
+            self._pool,
+            self._read_rows_job,
+            path,
+            sheet,
+            start_row,
+            len(names),
+            limit,
         )
         return [row_model(**dict(zip(names, values))) for values in raw]
 
-    async def read_cell(self, path: str, cell: str, *, sheet: str | None = None) -> Any:
+    async def read_cell(
+        self, path: str, cell: str, *, sheet: str | None = None
+    ) -> Any:
         """Read a single cell value (e.g. ``"B3"``)."""
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(self._pool, self._read_cell_job, path, sheet, cell)
+        result = await loop.run_in_executor(
+            self._pool, self._read_cell_job, path, sheet, cell
+        )
         return result
 
     def close(self) -> None:

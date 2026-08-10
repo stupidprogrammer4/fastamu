@@ -8,7 +8,8 @@ from src.infra.postgres.repository.base import PGRepository
 
 
 class AbstractESProjection[
-    TPGRepository: PGRepository, TESRepository: ESRepository
+    TPGRepository: PGRepository,
+    TESRepository: ESRepository,
 ](ABC):
     """Builds an Elasticsearch read-model from the Postgres source of truth
     (the CQRS read side).
@@ -42,7 +43,8 @@ class AbstractESProjection[
 
 
 class AbstractBatchProjection[
-    TPGRepository: PGRepository, TESRepository: ESRepository
+    TPGRepository: PGRepository,
+    TESRepository: ESRepository,
 ](ABC):
     """The batch counterpart of `AbstractESProjection`: (re)index MANY entities
     in one background job — one bulk read + one bulk index, no per-id loop.
@@ -62,9 +64,11 @@ class AbstractBatchProjection[
 
 
 class AbstractPayloadProjection[
-    TESRepository: ESRepository, TPayload: BaseModel
+    TESRepository: ESRepository,
+    TPayload: BaseModel,
 ](ABC):
-    """Writes a read-model document from data it is handed, reading nothing back.
+    """Writes a read-model document from data it is handed, reading nothing
+    back.
 
     The `AbstractESProjection` flavour takes an id and re-reads Postgres to
     build the document. When the caller already holds every value it just
@@ -83,7 +87,8 @@ class AbstractPayloadProjection[
 
 
 class AbstractBatchPayloadProjection[
-    TESRepository: ESRepository, TPayload: BaseModel
+    TESRepository: ESRepository,
+    TPayload: BaseModel,
 ](ABC):
     """The batch counterpart of `AbstractPayloadProjection`: write MANY
     documents from handed-over data in one background job.

@@ -19,5 +19,6 @@ class MediaOut(BaseOutput):
     @computed_field
     @property
     def url(self) -> str:
-        # The download route for this file; path is what callers store/reference.
+        # The download route for this file; path is what callers
+        # store/reference.
         return f"/storage/file/{self.path}"

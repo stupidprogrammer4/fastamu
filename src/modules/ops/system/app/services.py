@@ -9,12 +9,16 @@ from src.core.logger import logger
 from src.infra.es.client import ESClient
 from src.infra.postgres.connection import PGConnection
 from src.infra.redis.client import RedisClient
-from src.modules.ops.system.domain.schemas import ComponentHealthOut, HealthOut, SystemInfoOut
+from src.modules.ops.system.domain.schemas import (
+    ComponentHealthOut,
+    HealthOut,
+    SystemInfoOut,
+)
 
 
 class SystemService:
-    """Liveness/health of the backing services + basic runtime info. No DB model
-    of its own — it just probes the shared infra adapters."""
+    """Liveness/health of the backing services + basic runtime info. No DB
+    model of its own — it just probes the shared infra adapters."""
 
     def __init__(
         self,
@@ -39,7 +43,11 @@ class SystemService:
             "redis": await self._check(self._ping_redis),
             "elasticsearch": await self._check(self._ping_es),
         }
-        status = "ok" if all(component.healthy for component in components.values()) else "degraded"
+        status = (
+            "ok"
+            if all(component.healthy for component in components.values())
+            else "degraded"
+        )
         return HealthOut(status=status, components=components)
 
     async def info(self) -> SystemInfoOut:
@@ -55,7 +63,9 @@ class SystemService:
             server_time=date_utils.utc_now(),
         )
 
-    async def _check(self, probe: Callable[[], Awaitable[None]]) -> ComponentHealthOut:
+    async def _check(
+        self, probe: Callable[[], Awaitable[None]]
+    ) -> ComponentHealthOut:
         """Run a probe, capturing any failure as an unhealthy component."""
         result = ComponentHealthOut(healthy=True)
         try:
@@ -71,7 +81,7 @@ class SystemService:
             await session.execute(text("SELECT 1"))
 
     async def _ping_redis(self) -> None:
-        await self.redis.client.ping() # type: ignore
+        await self.redis.client.ping()  # type: ignore
 
     async def _ping_es(self) -> None:
         await self.es.client.ping()

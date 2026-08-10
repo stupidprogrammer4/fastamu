@@ -30,7 +30,9 @@ class MediaRepository(PGIDRepository[MediaModel]):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_paged(self, limit: int, offset: int) -> PagedType[MediaModel]:
+    async def get_paged(
+        self, limit: int, offset: int
+    ) -> PagedType[MediaModel]:
         """Get a page of media records, newest first, with the total count.
 
         Args:

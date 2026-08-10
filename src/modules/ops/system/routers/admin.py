@@ -17,12 +17,16 @@ router = APIRouter(
 
 
 @router.get("/health", response_model=APIResponse[HealthOut, None])
-async def system_health(service: FromDishka[ISystemService]) -> APIResponse[HealthOut, None]:
+async def system_health(
+    service: FromDishka[ISystemService],
+) -> APIResponse[HealthOut, None]:
     health = await service.health()
     return APIResponse.from_data(health)
 
 
 @router.get("/info", response_model=APIResponse[SystemInfoOut, None])
-async def system_info(service: FromDishka[ISystemService]) -> APIResponse[SystemInfoOut, None]:
+async def system_info(
+    service: FromDishka[ISystemService],
+) -> APIResponse[SystemInfoOut, None]:
     info = await service.info()
     return APIResponse.from_data(info)

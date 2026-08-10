@@ -24,9 +24,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     The refusal is built here rather than raised, because a middleware sits
     outside the exception handlers — so it is assembled through `APIResponse`
     to leave in exactly the envelope those handlers would have produced.
-    Successful answers carry the `RateLimit-*` headers too, so a client can pace
-    itself before it is refused.
-    """
+    Successful answers carry the `RateLimit-*` headers too, so a client can
+    pace itself before it is refused."""
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
@@ -45,7 +44,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 content=response_model.model_dump(exclude_defaults=True),
                 status_code=refused.status_code,
-                headers={**verdict.headers(), "Retry-After": str(verdict.retry_after)},
+                headers={
+                    **verdict.headers(),
+                    "Retry-After": str(verdict.retry_after),
+                },
                 media_type=MediaType.JSON,
             )
 

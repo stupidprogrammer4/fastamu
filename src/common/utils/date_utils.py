@@ -9,8 +9,8 @@ Convention in this codebase:
   for the same reason as `jwt_utils` / `crypto_utils`.
 
 So the two normal flows are:
-- reading:  ``from_db(row.created_at, settings.server.timezone)``  (UTC -> app tz)
-- writing:  ``to_db(user_dt, assume=settings.server.timezone)``    (app tz -> UTC)
+- reading:  ``from_db(row.created_at, tz)``    (UTC -> app tz)
+- writing:  ``to_db(user_dt, assume=tz)``      (app tz -> UTC)
 """
 
 from __future__ import annotations
@@ -37,9 +37,11 @@ def ensure_aware(dt: datetime, tz: str | tzinfo = UTC) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=_zone(tz))
 
 
-def convert_tz(dt: datetime, tz: str | tzinfo, *, assume: str | tzinfo = UTC) -> datetime:
-    """Convert ``dt`` into ``tz``. A naive ``dt`` is assumed to be in ``assume``
-    (UTC by default — the DB convention)."""
+def convert_tz(
+    dt: datetime, tz: str | tzinfo, *, assume: str | tzinfo = UTC
+) -> datetime:
+    """Convert ``dt`` into ``tz``. A naive ``dt`` is assumed to be in
+    ``assume`` (UTC by default — the DB convention)."""
     return ensure_aware(dt, assume).astimezone(_zone(tz))
 
 
@@ -59,7 +61,9 @@ def to_db(dt: datetime, *, assume: str | tzinfo) -> datetime:
     return to_utc(dt, assume=assume)
 
 
-def to_jalali(dt: datetime, tz: str | tzinfo | None = None) -> jdatetime.datetime:
+def to_jalali(
+    dt: datetime, tz: str | tzinfo | None = None
+) -> jdatetime.datetime:
     """Gregorian -> Jalali. Naive ``dt`` is treated as UTC (DB convention);
     pass ``tz`` to shift into a local zone before conversion."""
     aware = ensure_aware(dt, UTC)
@@ -82,7 +86,8 @@ def format_jalali(
     fmt: str = DEFAULT_JALALI_FORMAT,
     tz: str | tzinfo | None = None,
 ) -> str:
-    """Render a Gregorian datetime as a Jalali string (optionally in ``tz``)."""
+    """Render a Gregorian datetime as a Jalali string (optionally in
+    ``tz``)."""
     return to_jalali(dt, tz).strftime(fmt)
 
 

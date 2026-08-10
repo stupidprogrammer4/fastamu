@@ -23,8 +23,8 @@ class ScheduledJobOut(BaseOutput):
 class RunningJobOut(BaseOutput):
     message_id: str
     consumer: str
-    idle_ms: int            # how long it's been in-flight without being acked
-    delivery_count: int     # times it was delivered (>1 hints at retries)
+    idle_ms: int  # how long it's been in-flight without being acked
+    delivery_count: int  # times it was delivered (>1 hints at retries)
 
 
 class JobsOverviewOut(BaseOutput):
