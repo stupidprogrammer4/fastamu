@@ -120,7 +120,7 @@ src/
 │   │                # BatchResultType, AbstractESProjection, EventHandler,
 │   │                # IDEncryption
 │   ├── errors/      # APPException hierarchy + the *ErrorOut wire schemas
-│   ├── utils/       # date / jwt / crypto / string / persian / currency / calc
+│   ├── utils/       # date / jwt / crypto / string / persian / currency
 │   ├── types.py     # validation aliases (IdType, SlugType, RialType, …)
 │   ├── enums.py  constants.py
 │
@@ -1135,12 +1135,62 @@ creating a workbook from scratch. Scaffold with `--excel` to get an
 conventional home for third-party API clients. Map gateway responses into *your*
 domain types before they cross back into `app/`.
 
-**Utilities** ([src/common/utils/](src/common/utils/)) — `jwt_utils` (create/decode
-access + refresh tokens; raises the framework's typed auth errors, never a raw
-`PyJWTError`), `crypto_utils` (bcrypt hashing with optional pepper, Fernet
-encrypt/decrypt, SHA-256, constant-time compare), `date_utils` (timezone-aware UTC
-helpers plus Jalali conversion), `persian_utils` (digit normalisation, rial/toman
-formatting), `currency_utils`, `string_utils`.
+### Security helpers
+
+[src/common/utils/jwt_utils.py](src/common/utils/jwt_utils.py) and
+[src/common/utils/crypto_utils.py](src/common/utils/crypto_utils.py) are
+**config-agnostic on purpose**: the caller passes the secret, the algorithm and the
+expiry (wire them from `JWTConfig` / `CryptoConfig`). That keeps `common` free of a
+`core.config` import and leaves both files unit-testable without a `config.yml`.
+
+**`jwt_utils`** — `create_access_token` / `create_refresh_token` / `decode_token`.
+Every token carries `sub`, `iat`, `exp`, a `jti` and a `type`, and `decode_token`
+takes an `expected_type`, so a refresh token cannot be replayed as an access token
+against a route that forgot to look. Failures come out as the framework's
+`UnAuthorizedException` with `token_expired` / `invalid_token` — a raw `PyJWTError`
+never escapes, so an expired token answers 401 in the standard envelope rather than
+500.
+
+```python
+token = create_access_token(str(admin.id), cfg.secret_key,
+                            expires_minutes=cfg.access_token_expire_minutes,
+                            extra_claims={"scopes": ["brands"]})
+payload = decode_token(token, cfg.secret_key, expected_type=TokenType.ACCESS)
+```
+
+**`crypto_utils`** — three jobs that are easy to confuse and must not be:
+
+| For | Use | Why that one |
+|---|---|---|
+| Passwords | `hash_password` / `verify_password` | bcrypt, deliberately slow. The configured salt is applied as an HMAC **pepper**, which also pre-hashes the input and so sidesteps bcrypt's silent 72-byte truncation |
+| Payloads you must read back | `encrypt` / `decrypt` | Fernet — authenticated, so a tampered ciphertext raises instead of decrypting to garbage. Any passphrase is stretched to a valid key |
+| Opaque tokens (refresh tokens, API keys) | `hash_sha256` + `secure_compare` | Fast and deterministic, so it can be indexed; compared in constant time, so the check leaks no prefix |
+
+A malformed stored hash is a non-match, never an exception — a legacy row cannot take
+a login endpoint down.
+
+**`IDEncryption`** ([src/common/bases/encryption.py](src/common/bases/encryption.py))
+— exposes a serial primary key as a public id that doesn't announce your row count
+(`/orders/42` says how many orders exist; `/orders/43` is a valid guess). It is a
+modular multiplication, so it is reversible, stateless and needs no extra column:
+
+```python
+public = IDEncryption(mod=10_000_019, coff=387_241, offset=100_000)
+public.encode(42)          # -> the id you put in the URL
+public.try_decode(value)   # -> None for a malformed id, so the route can 404
+```
+
+Obfuscation, not authorisation — keep checking access on every read. It raises rather
+than colliding once the table outgrows `mod`, so pick `mod` well above any row count
+you expect to reach.
+
+### Other utilities
+
+`date_utils` (timezone-aware UTC helpers plus Jalali conversion), `persian_utils`
+(digit normalisation, rial/toman formatting), `currency_utils` (parses a quoted
+amount — Persian digits, separators, float or `Decimal` — into a storable integer or
+exact `Decimal`, and raises on anything that is not a number instead of quietly
+returning `0`), `string_utils`.
 
 ---
 
