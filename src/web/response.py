@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from fastapi.exceptions import RequestValidationError as PydanticError
 
-from typing import Union, Optional, TypeVar, Generic, Sequence
+from typing import Union, Optional, Sequence
 
 from src.core import resources
 from src.common.bases.schemas import BaseOutput, BaseMeta
@@ -10,24 +10,20 @@ from src.common.errors.base import APPException
 
 ErrorType = Union[*errors_types]
 
-O = TypeVar('O', bound=BaseOutput | None)
-M = TypeVar('M', bound=BaseMeta | None)
-E = TypeVar('E', bound=APPException)
-
-class APIResponse(BaseModel, Generic[O, M]):
+class APIResponse[TOut: BaseOutput | None, TMeta: BaseMeta | None](BaseModel):
     success: bool
     message_code: Optional[str] = None
-    data: Optional[Union[O, Sequence[O]]] = None
-    meta: Optional[M] = None
+    data: Optional[Union[TOut, Sequence[TOut]]] = None
+    meta: Optional[TMeta] = None
     error: Optional[ErrorType] = None
     errors: Optional[Sequence[ErrorType]] = None
 
     @classmethod
     def from_data(
         cls,
-        data: Union[O, Sequence[O]],
+        data: Union[TOut, Sequence[TOut]],
         message_code: Optional[str] = None,
-        errors: Optional[Sequence[E]] = None,
+        errors: Optional[Sequence[APPException]] = None,
     ):
         error_schemas = [e.as_schema() for e in errors] if errors else None
         return cls(

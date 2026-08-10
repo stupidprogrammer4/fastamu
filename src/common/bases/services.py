@@ -1,12 +1,12 @@
-from typing import Generic, Any, Sequence, TypeVar, get_args, get_origin
+from typing import Any, Sequence, TypeVar, get_args, get_origin
 
 from src.common.errors.exceptions import NotFoundException, ValidationException
 from src.common.bases.results import BatchResultType
 from src.core import resources
-from src.infra.postgres.models.typing import TIDModel, TModel
+from src.infra.postgres.models.base import BaseIDModel, BaseModel
 
 
-class BaseService(Generic[TModel]):
+class BaseService[TModel: BaseModel]:
 
     __model__: type[TModel]
     __model_name__: str
@@ -88,7 +88,7 @@ class BaseService(Generic[TModel]):
 
     
 
-class BaseIDService(BaseService[TIDModel]):
+class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
 
     def _check_for_id_existence(
         self,

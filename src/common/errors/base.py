@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
-
 from .schemas import BaseErrorOut
 
-T = TypeVar("T", bound=BaseErrorOut)
 
-
-class APPException(Exception, ABC, Generic[T]):
+class APPException[T: BaseErrorOut](Exception, ABC):
     def __init__(
         self,
         message: str,

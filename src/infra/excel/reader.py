@@ -1,13 +1,10 @@
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
-from typing import Any, TypeVar
+from typing import Any
 
 from openpyxl import load_workbook
 
 from .row import ExcelRow
-
-TRow = TypeVar("TRow", bound=ExcelRow)
-
 
 
 class ExcelReader:
@@ -58,7 +55,7 @@ class ExcelReader:
         finally:
             wb.close()
 
-    async def read_rows(
+    async def read_rows[TRow: ExcelRow](
         self,
         path: str,
         row_model: type[TRow],

@@ -1,7 +1,6 @@
 from typing import (
     Any,
     AsyncIterator,
-    Generic,
     Optional,
     Sequence,
     TypeVar,
@@ -10,13 +9,12 @@ from typing import (
 )
 
 from ..uow import PGUnitOfWork
-from ..models.typing import (
-    TModel,
-    TIDModel,
-    TTimestampModel,
-    TIDTimestampModel
+from ..models.base import (
+    BaseModel,
+    BaseIDModel,
+    BaseTimestampModel,
+    BaseIDTimestampModel
 )
-from ..models.base import BaseModel
 from src.common.bases.dtos import SupportsToRow
 from src.common.bases.results import PagedType
 from sqlalchemy import (
@@ -38,8 +36,6 @@ from sqlalchemy.sql.dml import ReturningInsert, ReturningUpdate
 from sqlmodel import col
 
 
-T = TypeVar("T", bound=BaseModel)
-
 class PGReader:
     """Read side for code that owns no table.
 
@@ -52,7 +48,7 @@ class PGReader:
         self.session = uow.session
 
 
-class PGRepository(PGReader, Generic[TModel]):
+class PGRepository[TModel: BaseModel](PGReader):
     __model__: type[TModel]
     __model_name__: str
 
@@ -249,7 +245,7 @@ class PGRepository(PGReader, Generic[TModel]):
         return element.key # type: ignore
 
 
-class PGIDRepository(PGRepository[TIDModel]):
+class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
     def __init__(self, uow: PGUnitOfWork):
         super().__init__(uow)
 
@@ -381,7 +377,9 @@ class PGIDRepository(PGRepository[TIDModel]):
         return result.scalar_one()
 
 
-class PGTimestampRepository(PGRepository[TTimestampModel]):
+class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
+    PGRepository[TTimestampModel]
+):
     def __init__(self, uow: PGUnitOfWork):
         super().__init__(uow)
 
@@ -458,7 +456,7 @@ class PGTimestampRepository(PGRepository[TTimestampModel]):
         return result.scalars().all()
 
 
-class PGTimestampIDRepository(
+class PGTimestampIDRepository[TIDTimestampModel: BaseIDTimestampModel](
     PGIDRepository[TIDTimestampModel],
     PGTimestampRepository[TIDTimestampModel]
 ):

@@ -6,10 +6,10 @@ from dishka.integrations.taskiq import FromDishka, inject
 from pydantic import BaseModel
 
 from src.common.bases.projection import (
-    TBatchPayloadProjection,
-    TBatchProjection,
-    TESProjection,
-    TPayloadProjection,
+    AbstractBatchPayloadProjection,
+    AbstractBatchProjection,
+    AbstractESProjection,
+    AbstractPayloadProjection,
 )
 from src.tasks.broker import broker
 
@@ -76,7 +76,7 @@ def _dispatch_after(
     return decorator
 
 
-def project(
+def project[TESProjection: AbstractESProjection](
     projection_cls: type[TESProjection],
     id_attr: str = "id",
 ) -> Callable[..., Callable[..., Any]]:
@@ -93,7 +93,7 @@ def project(
     return _dispatch_after(projection_cls, "project", "run", id_attr)
 
 
-def batch_project(
+def batch_project[TBatchProjection: AbstractBatchProjection](
     projection_cls: type[TBatchProjection],
     id_attr: str | None = "id",
 ) -> Callable[..., Callable[..., Any]]:
@@ -108,7 +108,7 @@ def batch_project(
     return _dispatch_after(projection_cls, "batch_project", "run_batch", id_attr, batch=True)
 
 
-def unproject(
+def unproject[TESProjection: AbstractESProjection](
     projection_cls: type[TESProjection],
     id_attr: str = "id",
 ) -> Callable[..., Callable[..., Any]]:
@@ -208,7 +208,7 @@ def _dispatch_payload_after(
     return decorator
 
 
-def payload_project(
+def payload_project[TPayloadProjection: AbstractPayloadProjection](
     projection_cls: type[TPayloadProjection],
 ) -> Callable[..., Callable[..., Any]]:
     """Decorate a write service method so that what it *returned* is projected
@@ -224,7 +224,7 @@ def payload_project(
     return _dispatch_payload_after(projection_cls, "project", "payload")
 
 
-def batch_payload_project(
+def batch_payload_project[TBatchPayloadProjection: AbstractBatchPayloadProjection](
     projection_cls: type[TBatchPayloadProjection],
 ) -> Callable[..., Callable[..., Any]]:
     """Decorate a write service method returning a sequence of models so that

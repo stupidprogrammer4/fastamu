@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Generic, Sequence, TypeVar
+from typing import Sequence
 
 from pydantic import BaseModel
 
-from src.infra.es.repository import TESRepository
-from src.infra.postgres.repository.typing import TPGRepository
+from src.infra.es.repository import ESRepository
+from src.infra.postgres.repository.base import PGRepository
 
 
-class AbstractESProjection(ABC, Generic[TPGRepository, TESRepository]):
+class AbstractESProjection[
+    TPGRepository: PGRepository, TESRepository: ESRepository
+](ABC):
     """Builds an Elasticsearch read-model from the Postgres source of truth
     (the CQRS read side).
 
@@ -39,10 +41,9 @@ class AbstractESProjection(ABC, Generic[TPGRepository, TESRepository]):
         return True
 
 
-TESProjection = TypeVar("TESProjection", bound=AbstractESProjection)
-
-
-class AbstractBatchProjection(ABC, Generic[TPGRepository, TESRepository]):
+class AbstractBatchProjection[
+    TPGRepository: PGRepository, TESRepository: ESRepository
+](ABC):
     """The batch counterpart of `AbstractESProjection`: (re)index MANY entities
     in one background job — one bulk read + one bulk index, no per-id loop.
 
@@ -60,13 +61,9 @@ class AbstractBatchProjection(ABC, Generic[TPGRepository, TESRepository]):
         ...
 
 
-TBatchProjection = TypeVar("TBatchProjection", bound=AbstractBatchProjection)
-
-
-TPayload = TypeVar("TPayload", bound=BaseModel)
-
-
-class AbstractPayloadProjection(ABC, Generic[TESRepository, TPayload]):
+class AbstractPayloadProjection[
+    TESRepository: ESRepository, TPayload: BaseModel
+](ABC):
     """Writes a read-model document from data it is handed, reading nothing back.
 
     The `AbstractESProjection` flavour takes an id and re-reads Postgres to
@@ -85,10 +82,9 @@ class AbstractPayloadProjection(ABC, Generic[TESRepository, TPayload]):
         ...
 
 
-TPayloadProjection = TypeVar("TPayloadProjection", bound=AbstractPayloadProjection)
-
-
-class AbstractBatchPayloadProjection(ABC, Generic[TESRepository, TPayload]):
+class AbstractBatchPayloadProjection[
+    TESRepository: ESRepository, TPayload: BaseModel
+](ABC):
     """The batch counterpart of `AbstractPayloadProjection`: write MANY
     documents from handed-over data in one background job.
 
@@ -103,8 +99,3 @@ class AbstractBatchPayloadProjection(ABC, Generic[TESRepository, TPayload]):
     async def batch_project(self, payload: Sequence[TPayload]) -> bool:
         """Write documents straight from ``payload``."""
         ...
-
-
-TBatchPayloadProjection = TypeVar(
-    "TBatchPayloadProjection", bound=AbstractBatchPayloadProjection
-)

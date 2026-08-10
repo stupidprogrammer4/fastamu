@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any, Generic, TypeVar, get_args, get_origin
+from typing import Any, TypeVar, get_args, get_origin
 
 from elasticsearch import NotFoundError
 from elasticsearch.dsl import AsyncDocument, AsyncSearch
@@ -7,10 +7,8 @@ from elasticsearch.helpers import async_bulk
 
 from .client import ESClient
 
-TDoc = TypeVar("TDoc", bound=AsyncDocument)
 
-
-class ESRepository(Generic[TDoc]):
+class ESRepository[TDoc: AsyncDocument]:
     """Generic CRUD + search over an `elasticsearch.dsl.AsyncDocument`.
 
     Parameterize with the document type and the index is taken from it::
@@ -111,4 +109,3 @@ class ESRepository(Generic[TDoc]):
         return self.__document__.search(using=self._using)
 
 
-TESRepository = TypeVar("TESRepository", bound=ESRepository)
