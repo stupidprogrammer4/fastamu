@@ -865,15 +865,21 @@ For fan-out across modules without coupling them,
 same broker. Subscribe a handler class to an event name:
 
 ```python
+from src.common.bases.events import EventHandler, EventInput
 from src.tasks.events import on
 
 
+class BrandDeactivated(EventInput):      # the payload, a plain pydantic model
+    brand_id: int
+    reason: str
+
+
 @on("brand_deactivated")
-class ReindexBrandListings:
+class ReindexBrandListings(EventHandler[BrandDeactivated]):
     def __init__(self, repo: ListingRepository) -> None:
         self.repo = repo
 
-    async def handle(self, id: int) -> bool:
+    async def handle(self, data: BrandDeactivated) -> None:
         ...
 ```
 
@@ -882,14 +888,20 @@ and emit from anywhere:
 ```python
 from src.tasks.events import emit
 
-await emit("brand_deactivated", brand.id)
+await emit("brand_deactivated", BrandDeactivated(brand_id=brand.id, reason="manual"))
 ```
 
-Each subscriber runs as its own background job on its own queue. A handler must
-expose `async def handle(self, id: int) -> bool` and must be registered in its
-module's `providers.py` (it is resolved from dishka by type). The bus deliberately
-carries **only an entity id** — handlers re-read state rather than trusting a
-payload. Emitting an event nobody subscribes to is a silent no-op. Declare the event
+Each subscriber runs as its own background job on its own queue. A handler must be
+registered in its module's `providers.py` (it is resolved from dishka by type) and
+must **name its payload in its class header** — `EventHandler[BrandDeactivated]`.
+That declaration is the only place the type is written: the bus reads it back off
+the class, ships the model as JSON, and validates it into that same type on the
+worker, so `handle` receives a model rather than a dict. A handler that names no
+payload is refused at registration, not on a worker already holding the job.
+
+The payload is what the event *means*, not a copy of the row — a handler that needs
+the current state should still re-read it, because a job runs some time after the
+fact. Emitting an event nobody subscribes to is a silent no-op. Declare the event
 name constants in `events.py` so emitters and handlers meet on the same vocabulary.
 
 ---
