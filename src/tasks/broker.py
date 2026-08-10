@@ -1,7 +1,7 @@
 from dishka import make_async_container
 from taskiq import SmartRetryMiddleware
 from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
-from taskiq_redis import RedisAsyncResultBackend, RedisScheduleSource, RedisStreamBroker
+from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
 
 from src.core.bootstrap import get_bootstrapper
 from src.core.config import get_settings

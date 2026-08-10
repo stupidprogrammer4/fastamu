@@ -3,6 +3,7 @@ from datetime import timedelta
 from redis.exceptions import ResponseError
 from taskiq import AsyncResultBackend, ScheduleSource
 
+from src.core.logger import logger
 from src.infra.redis.client import RedisClient
 from src.modules.ops.jobs.domain.schemas import (
     JobStatusOut,
@@ -92,8 +93,16 @@ class JobService:
             pending = await self.redis.client.xpending_range(
                 self.stream_name, self.group_name, min="-", max="+", count=100
             )
-        except ResponseError:
-            return []                           # NOGROUP — no worker has consumed yet
+        except ResponseError as exc:
+            # NOGROUP — no worker has consumed yet; say so instead of
+            # answering "no jobs running", which looks the same to a caller
+            logger.warning(
+                "cannot read the in-flight jobs of %s: %s",
+                self.stream_name,
+                exc,
+                exc_info=exc,
+            )
+            return []
         return [
             RunningJobOut(
                 message_id=str(entry["message_id"]),

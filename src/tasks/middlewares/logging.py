@@ -44,12 +44,13 @@ class LoggingMiddleware(TaskiqMiddleware):
         exception: BaseException,
     ) -> None:
         elapsed_ms = self._elapsed_ms(message.task_id)
-        logger.exception(
+        logger.error(
             "<-- exec %s id=%s failed after %.2fms: %s",
             message.task_name,
             message.task_id,
             elapsed_ms,
             exception,
+            exc_info=exception,
         )
         self._reset(message.task_id)
 
