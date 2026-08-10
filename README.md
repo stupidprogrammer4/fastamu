@@ -1344,6 +1344,8 @@ usually means something silently stops being discovered.
 10. **Type parameters are declared inline** — `class Repo[T: BaseModel]`, not a
     module-level `TypeVar` plus `Generic[T]`. The bound belongs at the class that
     enforces it.
+11. **The line is 79 columns.** `ruff check` and `ruff format` are the arbiters
+    (config in `pyproject.toml`); the scaffolder's output already satisfies both.
 
 ---
 

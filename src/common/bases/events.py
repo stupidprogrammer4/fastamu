@@ -9,7 +9,7 @@ worker."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -20,10 +20,7 @@ class EventInput(BaseModel):
     on the other side."""
 
 
-TEvent = TypeVar("TEvent", bound=EventInput)
-
-
-class EventHandler(ABC, Generic[TEvent]):
+class EventHandler[TEvent: EventInput](ABC):
     """One reaction to one event.
 
     ::
