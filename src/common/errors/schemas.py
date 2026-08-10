@@ -36,6 +36,12 @@ class ConflictErrorOut(BaseErrorOut):
     unique_dict: dict[str, Any]
 
 
+class TooManyRequestsErrorOut(BaseErrorOut):
+    limit: int
+    remaining: int
+    retry_after: int
+
+
 errors_types = [
     BaseErrorOut,
     ValidationErrorOut,
@@ -43,4 +49,5 @@ errors_types = [
     ForbiddenErrorOut,
     UnAuthorizedErrorOut,
     ConflictErrorOut,
+    TooManyRequestsErrorOut,
 ]

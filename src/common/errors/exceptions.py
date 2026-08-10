@@ -10,6 +10,7 @@ from .schemas import (
     ConflictErrorOut,
     ForbiddenErrorOut,
     NotFoundErrorOut,
+    TooManyRequestsErrorOut,
     UnAuthorizedErrorOut,
     ValidationErrorOut,
 )
@@ -107,4 +108,34 @@ class ConflictException(APPException[ConflictErrorOut]):
             message=self.message,
             message_code=self.message_code,
             unique_dict=self.unique_dict,
+        )
+
+
+class TooManyRequestsException(APPException[TooManyRequestsErrorOut]):
+    """A rate-limited call, answered with the budget the caller just spent.
+
+    The body carries the same three numbers the ``RateLimit-*`` headers do, so
+    a client that only reads JSON still learns how long to wait.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        message_code: str,
+        limit: int,
+        remaining: int,
+        retry_after: int,
+    ) -> None:
+        super().__init__(message, message_code, HTTPStatus.TOO_MANY_REQUESTS)
+        self.limit = limit
+        self.remaining = remaining
+        self.retry_after = retry_after
+
+    def as_schema(self) -> TooManyRequestsErrorOut:
+        return TooManyRequestsErrorOut(
+            message=self.message,
+            message_code=self.message_code,
+            limit=self.limit,
+            remaining=self.remaining,
+            retry_after=self.retry_after,
         )
