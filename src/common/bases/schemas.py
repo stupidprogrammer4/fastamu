@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from math import ceil
-from typing import Any, Generic, Self, TypeVar, override
+from typing import Any, ClassVar, Self, override
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
+from src.common.bases.encryption import IDEncryption
 from src.common.enums import FilterType
 
-I = TypeVar("I")
-T = TypeVar("T")
 
-
-class ExtraField(Generic[T]):
+class ExtraField[T]:
     def __set_name__(self, owner: type, name: str) -> None:
         self._name = name
 
@@ -25,15 +23,15 @@ class ExtraField(Generic[T]):
         return instance.__dict__.get(self._name)
 
 
-class HookField(Generic[I, T]):
-    def __init__(self, hook: Callable[[I], T]) -> None:
+class HookField[TIn, T]:
+    def __init__(self, hook: Callable[[TIn], T]) -> None:
         super().__init__()
         self.hook = hook
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._name = name
 
-    def __set__(self, instance: object, value: I) -> None:
+    def __set__(self, instance: object, value: TIn) -> None:
         instance.__dict__[self._name] = self.hook(value)
 
     def __get__(self, instance: object | None, owner: type | None = None) -> T | None:
@@ -74,7 +72,29 @@ class BaseOutput(BaseModel):
                 setattr(self, key, val)
 
 
-O = TypeVar("O", bound=BaseOutput)
+class BaseIDOutput(BaseOutput):
+    """An output whose `id` is encoded on its way out.
+
+    Point `__encryption__` at an `IDEncryption` and the row id is serialised as
+    its public id — the schema is the single place that happens, so no handler
+    can forget it and no service has to know the URL representation exists.
+    Leave it `None` and the id goes out as-is.
+
+        class OrderOut(BaseIDOutput):
+            __encryption__ = IDEncryption(mod=10_000_019, coff=387_241)
+    """
+
+    __encryption__: ClassVar[IDEncryption | None] = None
+
+    id: int
+
+    @field_serializer("id")
+    def _encode_id(self, id: int) -> int:
+        encryption = type(self).__encryption__
+        result = id
+        if encryption is not None:
+            result = encryption.encode(id)
+        return result
 
 
 class PagerMeta(BaseModel):
@@ -94,12 +114,12 @@ class PagerMeta(BaseModel):
         )
 
 
-class FilterMeta(BaseModel, Generic[O]):
+class FilterMeta[TOut: BaseOutput](BaseModel):
     # id of the entity behind the facet (e.g. the attribute id), when it has one
     id: int | None = None
     type: FilterType
     title: str | None = None
-    options: list[O]
+    options: list[TOut]
 
 
 class BaseMeta(BaseModel):
