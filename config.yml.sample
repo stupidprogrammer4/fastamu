@@ -26,6 +26,20 @@ redis:
   socket_connect_timeout: 5.0
   health_check_interval: 30
 
+rate_limit:
+  enabled: true
+  trusted_proxies: []
+  general:
+    limit: 120
+    window_seconds: 60
+  rules:
+    login:
+      limit: 5
+      window_seconds: 300
+    refresh:
+      limit: 20
+      window_seconds: 60
+
 jwt:
   algorithm: "HS256"
   secret_key: ""

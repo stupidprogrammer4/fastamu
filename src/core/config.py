@@ -35,6 +35,32 @@ class RedisConfig(BaseModel):
     socket_connect_timeout: float = Field(ge=0)
     health_check_interval: int = Field(ge=0)
 
+class RateLimitRule(BaseModel):
+    """One budget: `limit` calls per `window_seconds`."""
+
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+
+
+class RateLimitConfig(BaseModel):
+    """The rate-limit budgets, all of them tunable without a deploy.
+
+    `general` is the blanket rule the middleware applies to every request;
+    `rules` are the named ones a route asks for by name via `rate_limit("login")`
+    — a route whose name is missing here is simply not limited, so a rule can be
+    dropped from the config to turn it off.
+
+    `trusted_proxies` lists the peers whose ``X-Forwarded-For`` may be believed.
+    Leave it empty when nothing sits in front of the app: an unvetted header is
+    a free way to spoof a fresh bucket per call.
+    """
+
+    enabled: bool = True
+    trusted_proxies: list[str] = Field(default_factory=list)
+    general: RateLimitRule
+    rules: dict[str, RateLimitRule] = Field(default_factory=dict)
+
+
 class JWTConfig(BaseModel):
     algorithm: str
     secret_key: str
@@ -68,6 +94,7 @@ class Settings(BaseModel):
     postgresql: PostgreSQLConfig
     crypto: CryptoConfig
     redis: RedisConfig
+    rate_limit: RateLimitConfig
     jwt: JWTConfig
     storage: StorageConfig
     csrf: CSRFConfig
