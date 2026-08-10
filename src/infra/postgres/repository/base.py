@@ -1,39 +1,16 @@
-from typing import (
-    Any,
-    AsyncIterator,
-    Optional,
-    Sequence,
-    TypeVar,
-    get_args,
-    get_origin
-)
+from typing import Any, AsyncIterator, Optional, Sequence, TypeVar, get_args, get_origin
 
-from ..uow import PGUnitOfWork
-from ..models.base import (
-    BaseModel,
-    BaseIDModel,
-    BaseTimestampModel,
-    BaseIDTimestampModel
-)
-from src.common.bases.dtos import SupportsToRow
-from src.common.bases.results import PagedType
-from sqlalchemy import (
-    Select,
-    Values,
-    column,
-    func,
-    inspect,
-    literal,
-    select,
-    update,
-    delete,
-    insert,
-    values
-)
+from sqlalchemy import Select, Values, column, delete, func, insert, inspect, literal, select, update, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import InstrumentedAttribute, Mapped
+from sqlalchemy.orm import Mapped
 from sqlalchemy.sql.dml import ReturningInsert, ReturningUpdate
 from sqlmodel import col
+
+from src.common.bases.dtos import SupportsToRow
+from src.common.bases.results import PagedType
+
+from ..models.base import BaseIDModel, BaseIDTimestampModel, BaseModel, BaseTimestampModel
+from ..uow import PGUnitOfWork
 
 
 class PGReader:

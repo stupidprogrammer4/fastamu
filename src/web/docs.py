@@ -43,5 +43,5 @@ def setup_docs(app: FastAPI) -> None:
     @app.get(OAUTH2_REDIRECT_URL, include_in_schema=False)
     async def swagger_ui_redirect() -> HTMLResponse:
         return get_swagger_ui_oauth2_redirect_html()
-    
+
     app.openapi_version = "3.0.2"

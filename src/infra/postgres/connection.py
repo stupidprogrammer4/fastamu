@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 class PGConnection:
@@ -23,6 +23,6 @@ class PGConnection:
             expire_on_commit=False,
             autocommit=False
         )
-    
+
     async def dispose(self) -> None:
         await self.engine.dispose()

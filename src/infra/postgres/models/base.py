@@ -5,9 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import declared_attr
 from sqlmodel import SQLModel
 
-from src.infra.postgres.types import IDField, TimestampField
 from src.common.utils import date_utils
 from src.common.utils.string_utils import pluralize
+from src.infra.postgres.types import IDField, TimestampField
+
 
 class BaseModel(AsyncAttrs, SQLModel):
     @declared_attr.directive
@@ -36,7 +37,7 @@ class BaseTimestampModel(BaseModel):
     )
     updated_at: datetime = TimestampField(
         server_default="NOW()",
-        onupdate=lambda: date_utils.utc_now()   
+        onupdate=lambda: date_utils.utc_now()
     )
 
 

@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 
 from dishka import make_async_container
-from dishka.integrations.fastapi import setup_dishka, FastapiProvider
-from fastapi import Depends, FastAPI, dependencies
+from dishka.integrations.fastapi import FastapiProvider, setup_dishka
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -11,8 +11,8 @@ from src.core.config import get_settings
 from src.core.provider import CoreProvider
 from src.infra.es.client import ESClient
 
-from .error_handlers import setup_exception_handlers
 from .docs import setup_docs
+from .error_handlers import setup_exception_handlers
 from .middlewares.logging import LoggingMiddleware
 from .middlewares.ratelimit import RateLimitMiddleware
 

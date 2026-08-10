@@ -10,17 +10,16 @@ import pytest
 import yaml
 from alembic import command
 from alembic.config import Config
+from asyncpg.exceptions import PostgresError
 from dishka import Provider, Scope, make_async_container, provide
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from asyncpg.exceptions import PostgresError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
 import src.tasks.broker  # noqa: F401
-
 from src.core.bootstrap import get_bootstrapper
 from src.core.config import Settings
 from src.infra.es.client import ESClient

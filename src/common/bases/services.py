@@ -1,7 +1,7 @@
 from typing import Any, Sequence, TypeVar, get_args, get_origin
 
-from src.common.errors.exceptions import NotFoundException, ValidationException
 from src.common.bases.results import BatchResultType
+from src.common.errors.exceptions import NotFoundException, ValidationException
 from src.core import resources
 from src.infra.postgres.models.base import BaseIDModel, BaseModel
 
@@ -39,7 +39,7 @@ class BaseService[TModel: BaseModel]:
                 input={}
             )
         return d
-    
+
     def _check_not_empty_list(self, ls: list):
         if not ls:
             raise ValidationException(
@@ -65,7 +65,7 @@ class BaseService[TModel: BaseModel]:
                 entity=self.__model_name__
             )
         return obj
-    
+
 
     def _check_batch_data(
         self,
@@ -86,7 +86,7 @@ class BaseService[TModel: BaseModel]:
                 )
         return errors
 
-    
+
 
 class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
 
@@ -100,7 +100,7 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
             identifier_value=id,
             obj=obj
         )
-    
+
     def _check_batch_data(
         self,
         input_ids: Sequence[int],

@@ -1,4 +1,5 @@
-from enum import IntEnum, StrEnum
+from enum import StrEnum
+
 
 class SortOrder(StrEnum):
     ASC  = 'asc'

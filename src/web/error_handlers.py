@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError as PydanticError
 from fastapi.responses import JSONResponse
 from fastapi_csrf_protect.exceptions import CsrfProtectError
-from fastapi.exceptions import RequestValidationError as PydanticError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from src.core import resources
+from src.common.enums import MediaType
 from src.common.errors.base import APPException
 from src.common.errors.exceptions import TooManyRequestsException
 from src.common.errors.schemas import BaseErrorOut
-from src.common.enums import MediaType
+from src.core import resources
 from src.core.logger import logger
 
 from .response import APIResponse

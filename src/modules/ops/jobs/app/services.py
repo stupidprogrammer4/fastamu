@@ -6,8 +6,8 @@ from taskiq import AsyncResultBackend, ScheduleSource
 from src.core.logger import logger
 from src.infra.redis.client import RedisClient
 from src.modules.ops.jobs.domain.schemas import (
-    JobStatusOut,
     JobsOverviewOut,
+    JobStatusOut,
     RunningJobOut,
     ScheduledJobOut,
 )
