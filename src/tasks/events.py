@@ -6,6 +6,8 @@ from typing import Any
 
 from dishka.integrations.taskiq import FromDishka, inject
 
+from src.common.bases.events import EventHandler, EventInput
+
 # the shared event vocabulary (emitters and handlers meet on these names)
 METAL_PRICE_UPDATED = "metal_price_updated"
 
@@ -32,23 +34,32 @@ class EventBus:
     def on(self, event: str) -> Callable[[type], type]:
         """Subscribe a handler class to an event.
 
+        The payload type is read off the handler's own ``EventHandler[X]`` header,
+        so a handler that forgot to name one fails here, at import time, instead
+        of on a worker holding a job it cannot parse.
+
         Args:
             event (str): The event name to handle.
         Returns:
             (Callable[[type], type]): Class decorator that registers the handler.
         """
-        def decorator(handler_cls: type) -> type:
+        def decorator(handler_cls: type[EventHandler[Any]]) -> type:
             broker = self._resolve_broker()
 
             task_name = f"on_{event}_{handler_cls.__name__}".lower().replace(".", "_")
+            input_cls = handler_cls.input_type()
 
-            async def _task(id: int, handler: Any) -> bool:
-                result = await handler.handle(id)
+            async def _task(payload: dict[str, Any], handler: Any) -> Any:
+                result = await handler.handle(input_cls.model_validate(payload))
                 return result
 
             _task.__name__ = task_name
             _task.__qualname__ = task_name
-            _task.__annotations__ = {"id": int, "handler": FromDishka[handler_cls], "return": bool}
+            _task.__annotations__ = {
+                "payload": dict[str, Any],
+                "handler": FromDishka[handler_cls],
+                "return": Any,
+            }
 
             registered = broker.task(task_name=task_name, queue_name=f"{task_name}_queue")(
                 inject(_task, patch_module=True)
@@ -58,17 +69,22 @@ class EventBus:
 
         return decorator
 
-    async def emit(self, event: str, id: int) -> None:
-        """Emit an event by id — each subscribed handler is dispatched as its own job.
+    async def emit(self, event: str, data: EventInput) -> None:
+        """Emit an event — each subscribed handler is dispatched as its own job.
+
+        The payload crosses the broker as JSON and is validated back into the
+        handler's declared input on the worker, so a handler receives a typed
+        model rather than a raw dict.
 
         Args:
             event (str): The event name.
-            id (int): The id of the entity the event is about.
+            data (EventInput): What happened — the payload the handlers declared.
         Returns:
             (None)
         """
         handlers = self._handlers.get(event, [])
-        await asyncio.gather(*(handler.kiq(id) for handler in handlers))
+        payload = data.model_dump(mode="json")
+        await asyncio.gather(*(handler.kiq(payload) for handler in handlers))
 
 
 event_bus = EventBus()
