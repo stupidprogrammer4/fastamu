@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field, SecretStr
@@ -88,6 +89,14 @@ class ESConfig(BaseModel):
     ca_certs: str | None = None
 
 
+class LoggingConfig(BaseModel):
+    """`console` for a readable terminal, `json` for one ECS object per line."""
+
+    level: str
+    format: Literal["console", "json"]
+    service: str
+
+
 class Settings(BaseModel):
     fastapi: FastAPIConfig
     taskiq: TaskiqConfig
@@ -99,6 +108,7 @@ class Settings(BaseModel):
     storage: StorageConfig
     csrf: CSRFConfig
     es: ESConfig
+    logging: LoggingConfig
 
 
 @lru_cache

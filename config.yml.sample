@@ -63,3 +63,8 @@ es:
   api_key: null
   verify_certs: false
   ca_certs: null
+
+logging:
+  level: "INFO"
+  format: "console"      # "json" in production
+  service: "fastamu-api"
