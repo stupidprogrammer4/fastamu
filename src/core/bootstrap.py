@@ -141,7 +141,10 @@ class Bootstrapper:
         """Create each ES read-model index (with its mapping) if it's missing.
 
         Safe to run on startup: a missing or unreachable Elasticsearch is logged
-        and skipped so the app still boots.
+        and skipped so the app still boots. A document marked ``__external__``
+        is read, never created — its index belongs to something else (a log
+        shipper, another service), and initialising it here would impose our
+        mapping on data we do not own.
 
         Args:
             es (AsyncElasticsearch): The client to create the indices with.
@@ -149,12 +152,19 @@ class Bootstrapper:
             (None)
         """
         for document in self.boot_documents():
+            if getattr(document, "__external__", False):
+                continue
             index_name = document._index._name
             try:
                 if not await es.indices.exists(index=index_name):
                     await document.init(using=es)
             except Exception as exc:  # noqa: BLE001 — boot must survive a down ES
-                logger.warning(f"skipping ES index init for {index_name}: {exc}")
+                logger.warning(
+                    "skipping ES index init for %s: %s",
+                    index_name,
+                    exc,
+                    exc_info=exc,
+                )
 
 
 @lru_cache
