@@ -25,6 +25,7 @@ RateType = Annotated[float, Field(ge=0, le=1)]
 RialType = Annotated[int, Field(ge=0, le=INT64_MAX)]
 SlugType = Annotated[str, Field(pattern=r'^[a-z0-9\-]{2,55}')]
 # A variable-like machine name: lowercase letters and underscores only, <= 35.
+ColorType = Annotated[str, Field(pattern=r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")]
 KeyType = Annotated[str, Field(pattern=r'^[a-z_]+$', max_length=35)]
 # Iranian mobile number, normalized to the 11-digit 09xxxxxxxxx form.
 MobileType = Annotated[str, Field(pattern=r'^09\d{9}$')]

@@ -1,4 +1,22 @@
+from collections.abc import Awaitable
+from typing import cast
+
 from redis.asyncio import Redis
+
+
+async def resolve[T](value: Awaitable[T] | T) -> T:
+    """Await a redis-py return value only if it is awaitable.
+
+    The async client types several commands as ``Awaitable[T] | T`` because the
+    same method serves a pipeline, where the result is not a value yet. This
+    keeps call sites free of that branch.
+    """
+    result: T
+    if isinstance(value, Awaitable):
+        result = await cast("Awaitable[T]", value)
+    else:
+        result = value
+    return result
 
 
 class RedisClient:
