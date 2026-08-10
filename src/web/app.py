@@ -14,6 +14,7 @@ from src.infra.es.client import ESClient
 from .error_handlers import setup_exception_handlers
 from .docs import setup_docs
 from .middlewares.logging import LoggingMiddleware
+from .middlewares.ratelimit import RateLimitMiddleware
 
 # get settings
 settings = get_settings()
@@ -57,6 +58,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=4096)
+# added before LoggingMiddleware, so logging stays the outermost layer and a
+# refused call is still logged and still answers with its request id
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(LoggingMiddleware)
 
 setup_dishka(container, app)
