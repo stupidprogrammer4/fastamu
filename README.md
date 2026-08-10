@@ -42,6 +42,7 @@ on the broker — because the bootstrapper found them.
 - [The data layer](#the-data-layer)
 - [Responses and errors](#responses-and-errors)
 - [Authentication and scopes](#authentication-and-scopes)
+- [Rate limiting](#rate-limiting)
 - [Background tasks and scheduling](#background-tasks-and-scheduling)
 - [CQRS: the Elasticsearch read side](#cqrs-the-elasticsearch-read-side)
 - [Other infrastructure](#other-infrastructure)
@@ -116,7 +117,8 @@ so it works on an air-gapped box.
 src/
 ├── common/          # Shared foundations — depend on nothing else in the app
 │   ├── bases/       # BaseService, BaseDTO, BaseOutput, BaseMeta, PagedType,
-│   │                # BatchResultType, AbstractESProjection
+│   │                # BatchResultType, AbstractESProjection, EventHandler,
+│   │                # IDEncryption
 │   ├── errors/      # APPException hierarchy + the *ErrorOut wire schemas
 │   ├── utils/       # date / jwt / crypto / string / persian / currency / calc
 │   ├── types.py     # validation aliases (IdType, SlugType, RialType, …)
@@ -135,6 +137,7 @@ src/
 │   │                # connection, uow, column types
 │   ├── es/          # client, repository, analyzers
 │   ├── redis/       # pooled async client
+│   ├── ratelimit/   # sliding-window limiter, bucket keys, the route guard
 │   └── excel/       # ProcessPool-backed reader / writer
 │
 ├── tasks/           # taskiq
@@ -149,7 +152,7 @@ src/
 │   ├── response.py  # APIResponse envelope
 │   ├── error_handlers.py
 │   ├── docs.py      # Offline Swagger UI
-│   └── middlewares/ # request-id + access logging
+│   └── middlewares/ # request-id + access logging, app-wide rate limit
 │
 ├── manager.py       # The scaffolding CLI
 └── modules/         # Your features live here — grouped or not
@@ -744,6 +747,7 @@ serialise it into the same envelope with the right status code. Handlers dump wi
 | `ForbiddenException` | 403 | `user_id` |
 | `NotFoundException` | 404 | `entity`, `identifier`, `identifier_value` |
 | `ConflictException` | 409 | `unique_dict` |
+| `TooManyRequestsException` | 429 | `limit`, `remaining`, `retry_after` |
 
 **Every** error leaves in this envelope — there is no second shape for a client to
 handle. FastAPI's own `RequestValidationError` is remapped to a 422 (dumped in JSON
@@ -787,6 +791,84 @@ When you build your own identity module, replace the body of `get_current_princi
 with a call to your `IAuthService` and **keep the exported names** (`Scope`,
 `Principal`, `require_access`) — every router depends only on those. Add each new
 module's scope to the `Scope` enum; the scaffolder does not touch it.
+
+---
+
+## Rate limiting
+
+Two layers, both reading their budgets from `config.yml`, both counting in Redis so
+that N workers enforce **one** budget instead of N.
+
+**The floor.** `RateLimitMiddleware` charges `rate_limit.general` against every
+request, on every route — including the ones nobody remembered to guard. Successful
+responses carry the `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset`
+headers, so a client can pace itself instead of discovering the wall.
+
+**The named rule.** Anything expensive or brute-forceable declares its own budget and
+asks for it by name, like any other dependency:
+
+```python
+from src.infra.ratelimit.dependencies import by_ip, rate_limit
+
+router = APIRouter(prefix="/auth", dependencies=[rate_limit("login")])   # whole router
+
+@router.post("/token", dependencies=[rate_limit("login", (by_ip, by_username))])
+async def login(...): ...                                               # …or one route
+```
+
+```yaml
+rate_limit:
+  enabled: true
+  trusted_proxies: []          # peers whose X-Forwarded-For may be believed
+  general:                     # the blanket rule
+    limit: 120
+    window_seconds: 60
+  rules:                       # what rate_limit("<name>") looks up
+    login:   { limit: 5,  window_seconds: 300 }
+    refresh: { limit: 20, window_seconds: 60 }
+```
+
+A name with no rule in the config is simply **not limited** — a budget is switched
+off by deleting it, not by editing a handler. `enabled: false` turns off both layers,
+which is what a test suite wants.
+
+**Every key part is charged.** A part maps a request to a bucket; `rate_limit` takes
+a sequence of them and spends one call from each:
+
+```python
+async def by_username(request: Request) -> str:
+    body = await request.json()
+    return f"username:{str(body.get('username', '')).strip().lower() or 'unknown'}"
+
+login_rate_limit = rate_limit("login", (by_ip, by_username), closed_when_down=True)
+```
+
+`by_ip` alone lets a botnet spread one account's password guesses across a thousand
+addresses; `by_username` alone lets one address walk a user list. Charging both meters
+both, and the same helper composes any other dimension you need — an admin id, an API
+key, a tenant.
+
+**Which way to fail.** When Redis is unreachable the limiter has no counters to judge
+by. It fails **open** by default, because losing the cache should not take the API
+down with it; a guard on something worth brute-forcing passes `closed_when_down=True`
+and gets a refusal instead. Either way the outage is logged, not swallowed.
+
+**Trust nothing you did not put there.** `client_ip` believes `X-Forwarded-For` only
+when the immediate peer is listed in `trusted_proxies`. Leave that list empty when
+nothing sits in front of the app: an unvetted header is a free way to buy a fresh
+bucket per call. Behind a proxy, list the proxy — otherwise every caller in the world
+shares one bucket, which is its own kind of outage.
+
+A refusal is a `TooManyRequestsException` (429) carrying `limit`, `remaining` and
+`retry_after`, in the same envelope as every other error, with `Retry-After` on the
+response. The route guard raises it; the middleware, which sits outside the exception
+handlers, assembles the identical body itself.
+
+> The limiter is process-global (`get_limiter()`), not a DI dependency — the
+> middleware runs outside the request scope and a `Depends` guard has no container.
+> Its Redis connections bind to the loop that first used them, so a test driving the
+> app across several event loops should set `enabled: false` or call
+> `get_limiter.cache_clear()`.
 
 ---
 
@@ -1123,7 +1205,7 @@ next test's search.
 
 ## Configuration reference
 
-`config.yml` (copy from `config.yml.sample`; gitignored). All nine sections are
+`config.yml` (copy from `config.yml.sample`; gitignored). All ten sections are
 required.
 
 | Section | Keys |
@@ -1132,6 +1214,7 @@ required.
 | `postgresql` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
 | `taskiq` | `redis_url`, `max_connection_pool_size` |
 | `redis` | `url`, `max_connections`, `socket_timeout`, `socket_connect_timeout`, `health_check_interval` |
+| `rate_limit` | `enabled`, `trusted_proxies`, `general` (`limit`, `window_seconds`), `rules` (name → rule) |
 | `es` | `hosts`, `username`, `password`, `api_key`, `verify_certs`, `ca_certs` |
 | `jwt` | `algorithm`, `secret_key`, `access_token_expire_minutes`, `refresh_token_expire_minutes`, `api_secret` |
 | `crypto` | `encryption_key`, `password_salt` |
