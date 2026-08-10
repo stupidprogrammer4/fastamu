@@ -69,6 +69,7 @@ behave as one thing.
 | Read side / search | **Elasticsearch DSL** (async) | `ESRepository`, index auto-creation on boot, and `@project` / `@batch_project` / `@unproject` decorators that keep the read model in sync with every write |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
+| Logging | **Rich / orjson** | One switch between Rich console output and ECS-shaped JSON lines, a request id on every record, and uvicorn/gunicorn/taskiq adopted into the same handler |
 | Spreadsheets | **openpyxl / xlsxwriter** | Async reader/writer that offloads to a `ProcessPool` so a large workbook never blocks the event loop |
 | Validation vocabulary | **pydantic v2** | A shared library of semantic type aliases (`RialType`, `SlugType`, `MobileType`, …) |
 | Scaffolding | **typer** | A CLI that generates a complete, correctly-layered module |
@@ -129,12 +130,12 @@ src/
 │   │                # ES documents, tasks
 │   ├── config.py    # Settings loaded from config.yml (pydantic)
 │   ├── provider.py  # CoreProvider — Settings / PG / UoW / Redis / ES / scheduler
-│   ├── logger.py    # Rich logger with a request-id ContextVar
+│   ├── logger.py    # console or ECS-JSON logging, request-id ContextVar
 │   └── resources.py # Global message codes
 │
 ├── infra/           # Adapters to the outside world
-│   ├── postgres/    # models (base + typing), repository (base + typing),
-│   │                # connection, uow, column types
+│   ├── postgres/    # model bases, repository bases, connection, uow,
+│   │                # column types
 │   ├── es/          # client, repository, analyzers
 │   ├── redis/       # pooled async client
 │   ├── ratelimit/   # sliding-window limiter, bucket keys, the route guard
@@ -148,7 +149,7 @@ src/
 │
 ├── web/             # The HTTP layer
 │   ├── app.py       # App construction: bootstrap → container → routers
-│   ├── dependencies.py # Auth (generic placeholder — swap for your identity module)
+│   ├── dependencies.py # Auth (generic placeholder) + decode_path_id
 │   ├── response.py  # APIResponse envelope
 │   ├── error_handlers.py
 │   ├── docs.py      # Offline Swagger UI
@@ -1131,6 +1132,18 @@ Reading stops at the first blank row; writing **fills a template** rather than
 creating a workbook from scratch. Scaffold with `--excel` to get an
 `infra/exporters.py` to house this per module.
 
+**Logging** — `logging.format` picks the handler: `console` gives Rich tracebacks
+while you develop, `json` emits one ECS-shaped line per record (`log.level`,
+`service.name`, `error.stack_trace`, …) that an ES/Kibana pipeline ingests with no
+mapping of its own. Either way the handler is installed on the **root** logger and
+uvicorn, gunicorn and taskiq are made to propagate into it, so a server request line
+and a service line look alike and carry the same request id. Anything you attach with
+`extra=` rides along as its own field:
+
+```python
+logger.info("charged %s", order.id, extra={"amount": order.total})
+```
+
 **Outbound HTTP** — scaffold with `--http` for an `infra/gateways.py`, the
 conventional home for third-party API clients. Map gateway responses into *your*
 domain types before they cross back into `app/`.
@@ -1183,6 +1196,25 @@ public.try_decode(value)   # -> None for a malformed id, so the route can 404
 Obfuscation, not authorisation — keep checking access on every read. It raises rather
 than colliding once the table outgrows `mod`, so pick `mod` well above any row count
 you expect to reach.
+
+Both ends of the round trip are wired for you, so no handler has to remember either:
+
+```python
+ORDER_IDS = IDEncryption(mod=10_000_019, coff=387_241, offset=100_000)
+
+class OrderOut(BaseIDOutput):          # outbound: the serialiser encodes `id`
+    __encryption__ = ORDER_IDS
+
+OrderID = Annotated[int, Depends(decode_path_id(ORDER_IDS, "Order"))]
+
+@router.get("/{id}", response_model=APIResponse[OrderOut, None])
+async def get(id: OrderID, service: FromDishka[IOrderService]):   # inbound: a row id
+    ...
+```
+
+The route speaks public ids, the service speaks row ids, and a public id that does
+not decode answers **404** — a forged id must be indistinguishable from one that
+never existed, or the endpoint becomes an oracle for valid ids.
 
 ### Other utilities
 
@@ -1255,7 +1287,7 @@ next test's search.
 
 ## Configuration reference
 
-`config.yml` (copy from `config.yml.sample`; gitignored). All ten sections are
+`config.yml` (copy from `config.yml.sample`; gitignored). All eleven sections are
 required.
 
 | Section | Keys |
@@ -1270,6 +1302,7 @@ required.
 | `crypto` | `encryption_key`, `password_salt` |
 | `storage` | `path`, `temp_dir`, `max_file_size`, `allowed_extensions` |
 | `csrf` | `secret_key` |
+| `logging` | `level`, `format` (`console` \| `json`), `service` |
 
 ---
 
@@ -1308,6 +1341,9 @@ usually means something silently stops being discovered.
 8. **Never call `commit()` in a service.** The request scope owns the transaction.
 9. **New feature = new module.** If you find yourself editing framework code under
    `src/core` or `src/web` to add a feature, stop and reconsider.
+10. **Type parameters are declared inline** — `class Repo[T: BaseModel]`, not a
+    module-level `TypeVar` plus `Generic[T]`. The bound belongs at the class that
+    enforces it.
 
 ---
 
