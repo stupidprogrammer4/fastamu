@@ -8,6 +8,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.core import resources
 from src.common.errors.base import APPException
+from src.common.errors.exceptions import TooManyRequestsException
 from src.common.errors.schemas import BaseErrorOut
 from src.common.enums import MediaType
 from src.core.logger import logger
@@ -16,11 +17,25 @@ from .response import APIResponse
 
 
 def external_error_handler(request: Request, exc: APPException) -> JSONResponse:
+    """Serialise a typed exception into the standard envelope.
+
+    A 429 also carries its budget as headers, so a route guard's refusal looks
+    identical to the middleware's — a client should not have to parse the body
+    to learn how long to wait.
+    """
     response_model = APIResponse.from_external_error(exc)
+    headers = None
+    if isinstance(exc, TooManyRequestsException):
+        headers = {
+            "Retry-After": str(exc.retry_after),
+            "RateLimit-Limit": str(exc.limit),
+            "RateLimit-Remaining": str(exc.remaining),
+        }
     return JSONResponse(
         content=response_model.model_dump(exclude_defaults=True),
         status_code=exc.status_code,
-        media_type=MediaType.JSON
+        media_type=MediaType.JSON,
+        headers=headers,
     )
 
 
@@ -83,7 +98,14 @@ def csrf_error_handler(request: Request, exc: CsrfProtectError) -> JSONResponse:
 
 
 def unexcepted_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception(exc)
+    # the route is half the story of a 500; log it with the traceback
+    logger.error(
+        "unhandled error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=exc,
+    )
     response_model = APIResponse.get_server_error()
     return JSONResponse(
         content=response_model.model_dump(exclude_defaults=True),
