@@ -41,6 +41,7 @@ class Scope(StrEnum):
     STORAGE = "storage"
     SYSTEM = "system"
     JOBS = "jobs"
+    MESSAGES = "messages"
 
 
 class Principal:
