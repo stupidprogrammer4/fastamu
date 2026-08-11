@@ -1,4 +1,4 @@
-from typing import Any, Sequence, TypeVar, get_args, get_origin
+from typing import Any, Callable, Sequence, TypeVar, get_args, get_origin
 
 from src.common.bases.results import BatchResultType
 from src.common.errors.exceptions import NotFoundException, ValidationException
@@ -99,6 +99,20 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
         founded_objs: Sequence[TIDModel],
         loc: list[str] | None = None,
     ) -> BatchResultType[TIDModel, ValidationException]:
+        """Split a batch of ids into the rows that exist and one error per id
+        that does not, so a partial batch reports what it dropped instead of
+        failing whole.
+
+        Args:
+            input_ids (Sequence[int]): The ids that were asked for.
+            founded_objs (Sequence[TIDModel]): The rows that came back.
+            loc (list[str] | None): Where the ids sat in the request body.
+        Returns:
+            (BatchResultType): The found rows, their ids, and the misses.
+        Raises:
+            ValidationException: Nothing was found — there is no partial
+                success to report, so the whole input is rejected.
+        """
         founded_ids = {o.id: o for o in founded_objs}
 
         items, errors, ids = [], [], []
@@ -112,6 +126,58 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
                     ValidationException(
                         message=(
                             f"Cannot find {self.__model_name__} with id {id}"
+                        ),
+                        message_code=resources.NOT_FOUND_ERROR,
+                        loc=base_loc + [idx],
+                    )
+                )
+
+        if not items:
+            raise ValidationException.get_invalid_input(errors)
+
+        return BatchResultType(items=items, errors=errors, item_ids=set(ids))
+
+    def _func_check_batch_data(
+        self,
+        input_values: Sequence[Any],
+        founded_objs: Sequence[TIDModel],
+        key: Callable[[TIDModel], Any],
+        identifier: str,
+        loc: list[str] | None = None,
+    ) -> BatchResultType[TIDModel, ValidationException]:
+        """`_check_batch_data`, for a batch keyed on something other than the
+        id — a slug, a code, an external reference.
+
+        `key` reads that field off a found row so the two sides can be matched;
+        `identifier` names it in the error message and in the default `loc`.
+        The ids on the result are still the row ids, because that is what the
+        caller writes with.
+
+        Args:
+            input_values (Sequence[Any]): The values that were asked for.
+            founded_objs (Sequence[TIDModel]): The rows that came back.
+            key (Callable[[TIDModel], Any]): Reads the matched field off a row.
+            identifier (str): The field's name, for the message and the `loc`.
+            loc (list[str] | None): Where the values sat in the request body.
+        Returns:
+            (BatchResultType): The found rows, their ids, and the misses.
+        Raises:
+            ValidationException: Nothing was found.
+        """
+        founded_values = {key(o): o for o in founded_objs}
+
+        items, errors, ids = [], [], []
+        base_loc = loc or [f"{self.__model_name__.lower()}_{identifier}s"]
+        for idx, value in enumerate(set(input_values)):
+            if value in founded_values:
+                items.append(founded_values[value])
+                ids.append(founded_values[value].id)
+            else:
+                errors.append(
+                    ValidationException(
+                        message=(
+                            f"Cannot find {self.__model_name__} with "
+                            f"{identifier} {value}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,
                         loc=base_loc + [idx],
