@@ -157,7 +157,7 @@ src/
 │
 ├── manager.py       # The scaffolding CLI
 └── modules/         # Your features live here — grouped or not
-    └── ops/{jobs,storage,system}/   # Reference modules — see below
+    └── ops/{jobs,messages,storage,system}/   # Reference modules — see below
 ```
 
 **Dependency direction is strictly inward.** `routers` / `tasks` / `app` / `infra`
@@ -1319,6 +1319,26 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
   router (per-route guards with one unauthenticated route), a settings sub-section
   re-provided as its own injectable type, `PagedType` + `PagerMeta`, and a
   module-scoped `resources.py`.
+- **`ops/messages`** — the fullest use of the framework's moving parts: queue an
+  SMS, hand it to a provider in the background, record what happened. Shows the
+  **event bus** end to end (typed payload, one handler per event, a batch that
+  costs one event rather than a hundred), **public ids** on the wire via
+  `BaseIDOutput` + `decode_path_id`, a gateway layer where a dead provider is a
+  value rather than a raise, and an APP-scoped service that opens its own
+  request scopes so a slow provider never sits on a pooled connection.
+
+  ```
+  PUT   /messages/providers          register a provider + credentials (upsert by code)
+  PATCH /messages/providers/active   switch the provider in use
+  PUT   /messages/patterns           map a key (otp) to the provider's template
+  POST  /messages                    queue one — answers before anything is sent
+  GET   /messages?status=failed      the log, paged
+  POST  /messages/{id}/retry         owe a failed one again
+  ```
+
+  Out of the box the `console` provider "delivers" to the log, so the module
+  works with nothing configured. The three real gateways (Kavenegar, Melipayamak,
+  SMS.ir) need the optional extra: `pip install -e ".[sms]"`.
 - **`ops/jobs`** — inspecting in-flight taskiq jobs.
 - **`ops/system`** — health/info endpoints; the smallest possible module.
 
