@@ -65,7 +65,7 @@ behave as one thing.
 | HTTP, validation, OpenAPI | **FastAPI** | Auto-included routers, a uniform response envelope, typed error handlers, offline (CDN-free) Swagger UI |
 | Dependency injection | **dishka** | A `CoreProvider` with the whole infra layer pre-wired; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes shared identically by the web app *and* the task worker |
 | Background jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, per-projection queues, retry + logging middleware |
-| Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Generic `PGRepository` hierarchy built on `RETURNING`, patch-semantics writes, single-query pagination, bulk upsert/update helpers, a `UnitOfWork` bound to the request |
+| Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Generic `PGRepository` hierarchy built on `RETURNING`, patch-semantics writes, statement-agnostic pagination, bulk upsert/update helpers, a `UnitOfWork` bound to the request |
 | Read side / search | **Elasticsearch DSL** (async) | `ESRepository`, index auto-creation on boot, and `@project` / `@batch_project` / `@unproject` decorators that keep the read model in sync with every write |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
@@ -443,8 +443,11 @@ class BrandRepository(PGIDRepository[BrandModel]):
         return await self._paginate(stmt, (page - 1) * per_page, per_page)
 ```
 
-`_paginate` runs the page **and** its total in a single query, using a
-`count(*) OVER ()` window — no second round-trip.
+`_paginate` returns the page **and** the total match count. The count is its own
+statement (the filters wrapped in a subquery, ordering dropped), which costs a
+round-trip and buys a paginator that behaves the same whatever select you hand it —
+a window function riding along on the page would have to be added to your statement,
+breaking `scalars()` and mis-counting anything that is not a plain `select(Model)`.
 
 ### 5. Logic — `app/services.py`
 
@@ -665,7 +668,7 @@ create(data: TModel) -> TModel
 bulk_create(data: Sequence[TModel]) -> Sequence[TModel]
 get_all() -> Sequence[TModel]
 get_all_stream(yield_per: int = 100) -> AsyncIterator[TModel]   # server-side cursor
-_paginate(stmt, offset, limit) -> PagedType[TModel]             # page + total, one query
+_paginate(stmt, offset, limit) -> PagedType[TModel]             # page + total match count
 _upsert_stmt(data, index_elements) -> ReturningInsert           # INSERT … ON CONFLICT DO UPDATE
 _bulk_update_stmt(data, key) -> ReturningUpdate                 # many rows, one UPDATE via a VALUES grid
 ```

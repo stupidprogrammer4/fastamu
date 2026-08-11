@@ -140,13 +140,21 @@ class PGRepository[TModel: BaseModel](PGReader):
     async def _paginate(
         self, stmt: Select[Any], offset: int, limit: int
     ) -> PagedType[TModel]:
-        """Run one filtered/ordered ``select(Model)`` as a page, counting the
-        whole match set in the same statement.
+        """Run one filtered/ordered ``select(Model)`` as a page, plus a count
+        of the whole match set.
 
-        A ``count(*) OVER ()`` window carries the pre-limit total alongside the
-        page rows, so the page and its total come back in a single query. The
-        base select must select the model only and already carry its filters
-        and ordering; offset/limit are applied here.
+        The count is its own statement — the filters wrapped in a subquery,
+        with the ordering dropped because nothing is returned to order. The
+        alternative, a ``count(*) OVER ()`` window riding along on the page,
+        saves a round trip but has to be added to the caller's select: that
+        turns every row into a ``(Model, total)`` tuple, so ``scalars()`` stops
+        working, and any statement that is not a plain ``select(Model)`` —
+        `DISTINCT`, a `GROUP BY`, an eager load — counts something other than
+        what it returns. One extra query buys a paginator that behaves the same
+        whatever statement it is handed.
+
+        The base select must already carry its filters and ordering;
+        offset/limit are applied here.
 
         Args:
             stmt (Select[Any]): The filtered, ordered ``select(Model)``.
@@ -155,12 +163,13 @@ class PGRepository[TModel: BaseModel](PGReader):
         Returns:
             (PagedType[TModel]): The page rows and the total match count.
         """
-        total = func.count().over().label("total")
-        paged = stmt.add_columns(total).offset(offset).limit(limit)
+        counted = select(func.count()).select_from(
+            stmt.order_by(None).subquery()
+        )
+        total_items = await self.session.scalar(counted) or 0
+        paged = stmt.offset(offset).limit(limit)
         result = await self.session.execute(paged)
-        rows = result.unique().all()
-        items = [row[0] for row in rows]
-        total_items = rows[0][-1] if rows else 0
+        items = list(result.unique().scalars().all())
         return PagedType(items=items, total_items=total_items)
 
     def _values_grid(self, data: Sequence[SupportsToRow]) -> Values:
