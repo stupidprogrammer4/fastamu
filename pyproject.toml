@@ -64,6 +64,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The three real SMS gateways in the `messages` reference module. Optional on
+# purpose: the console gateway needs nothing, so a clone boots without this.
+sms = [
+    "sms-providers-sdk @ git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master",
+]
 dev = [
     "pytest==9.0.1",
     "pytest-asyncio==1.3.0",
