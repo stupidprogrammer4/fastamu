@@ -6,6 +6,7 @@ from taskiq_redis import RedisScheduleSource
 
 from src.core.config import Settings, get_settings
 from src.infra.es.client import ESClient
+from src.infra.http.connection import HTTPConnection
 from src.infra.postgres.connection import PGConnection
 from src.infra.postgres.uow import PGUnitOfWork
 from src.infra.redis.client import RedisClient
@@ -66,3 +67,18 @@ class CoreProvider(Provider):
             yield client
         finally:
             await client.close()
+
+    @provide(scope=Scope.APP)
+    async def http(self, settings: Settings) -> AsyncIterator[HTTPConnection]:
+        connection = HTTPConnection(
+            max_connections=settings.http.max_connections,
+            max_keepalive_connections=settings.http.max_keepalive_connections,
+            keepalive_expiry=settings.http.keepalive_expiry,
+            timeout=settings.http.timeout,
+            connect_timeout=settings.http.connect_timeout,
+            follow_redirects=settings.http.follow_redirects,
+        )
+        try:
+            yield connection
+        finally:
+            await connection.close()

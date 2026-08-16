@@ -41,6 +41,17 @@ class RedisConfig(BaseModel):
     health_check_interval: int = Field(ge=0)
 
 
+class HTTPConfig(BaseModel):
+    """The outbound client's pool and timeouts — see `HTTPConnection`."""
+
+    max_connections: int = Field(ge=1)
+    max_keepalive_connections: int = Field(ge=0)
+    keepalive_expiry: float = Field(ge=0)
+    timeout: float = Field(gt=0)
+    connect_timeout: float = Field(gt=0)
+    follow_redirects: bool = True
+
+
 class RateLimitRule(BaseModel):
     """One budget: `limit` calls per `window_seconds`."""
 
@@ -116,6 +127,7 @@ class Settings(BaseModel):
     storage: StorageConfig
     csrf: CSRFConfig
     es: ESConfig
+    http: HTTPConfig
     logging: LoggingConfig
 
 

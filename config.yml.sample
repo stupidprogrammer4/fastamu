@@ -64,6 +64,14 @@ es:
   verify_certs: false
   ca_certs: null
 
+http:
+  max_connections: 100
+  max_keepalive_connections: 20
+  keepalive_expiry: 30.0
+  timeout: 15.0
+  connect_timeout: 5.0
+  follow_redirects: true
+
 logging:
   level: "INFO"
   format: "console"      # "json" in production
