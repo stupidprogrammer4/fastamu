@@ -987,8 +987,13 @@ payload is refused at registration, not on a worker already holding the job.
 
 The payload is what the event *means*, not a copy of the row — a handler that needs
 the current state should still re-read it, because a job runs some time after the
-fact. Emitting an event nobody subscribes to is a silent no-op. Declare the event
-name constants in `events.py` so emitters and handlers meet on the same vocabulary.
+fact. Emitting an event nobody subscribes to is a silent no-op.
+
+Declare the event **name** as a constant in the emitting module's
+`config/constants.py` and import it from there on both sides — an event belongs to
+the module that raises it, not to the bus. `ops/messages` is the worked example:
+`MESSAGE_QUEUED` sits beside that module's id encryptions, and its handler in
+`tasks/send.py` imports the same constant.
 
 ---
 

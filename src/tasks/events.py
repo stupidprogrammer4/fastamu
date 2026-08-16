@@ -8,8 +8,10 @@ from dishka.integrations.taskiq import FromDishka, inject
 
 from src.common.bases.events import EventHandler, EventInput
 
-# the shared event vocabulary (emitters and handlers meet on these names)
-METAL_PRICE_UPDATED = "metal_price_updated"
+# The event vocabulary is not declared here. An event belongs to the module
+# that emits it, so its name lives in that module's `config/constants.py`
+# (see `ops/messages`) and subscribers import it from there — the bus stays
+# the mechanism, and knows none of the names.
 
 
 class EventBus:
