@@ -69,6 +69,7 @@ behave as one thing.
 | Read side / search | **Elasticsearch DSL** (async) | `ESRepository`, index auto-creation on boot, and `@project` / `@batch_project` / `@unproject` decorators that keep the read model in sync with every write |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
+| Outbound HTTP | **httpx** | One pooled client for the process, plus a `BaseGateway` that owns base url, headers and per-API timeouts |
 | Logging | **Rich / orjson** | One switch between Rich console output and ECS-shaped JSON lines, a request id on every record, and uvicorn/gunicorn/taskiq adopted into the same handler |
 | Spreadsheets | **openpyxl / xlsxwriter** | Async reader/writer that offloads to a `ProcessPool` so a large workbook never blocks the event loop |
 | Validation vocabulary | **pydantic v2** | A shared library of semantic type aliases (`RialType`, `SlugType`, `MobileType`, …) |
@@ -138,6 +139,7 @@ src/
 │   │                # column types
 │   ├── es/          # client, repository, analyzers
 │   ├── redis/       # pooled async client
+│   ├── http/        # pooled httpx client + BaseGateway
 │   ├── ratelimit/   # sliding-window limiter, bucket keys, the route guard
 │   └── excel/       # ProcessPool-backed reader / writer
 │
@@ -1152,9 +1154,32 @@ and a service line look alike and carry the same request id. Anything you attach
 logger.info("charged %s", order.id, extra={"amount": order.total})
 ```
 
-**Outbound HTTP** — scaffold with `--http` for an `infra/gateways.py`, the
-conventional home for third-party API clients. Map gateway responses into *your*
-domain types before they cross back into `app/`.
+**Outbound HTTP** — `HTTPConnection` is one pooled `httpx.AsyncClient` for the whole
+process, injected like any other infra. A gateway that builds its own client per
+call re-runs DNS and the TLS handshake every time and leaks sockets on the way out,
+which is how a third-party API that was fine in development starts timing out under
+load. Both timeouts come from `http` in `config.yml` — `connect_timeout` separately
+from the total, because a dead host holding a task before it is even talking is the
+failure a total timeout notices far too late.
+
+Scaffold with `--http` to get an `infra/gateways.py` with a `BaseGateway` subclass
+ready to fill in:
+
+```python
+class RatesGateway(BaseGateway):
+    __base_url__ = "https://api.example.com/v1"
+    default_timeout = 5.0          # this API only; otherwise the config default
+
+    async def rate(self, symbol: str) -> Rate:
+        resp = await self.get("/rates", params={"symbol": symbol})
+        resp.raise_for_status()
+        return Rate(**resp.json())          # ← map before it crosses into app/
+```
+
+The base owns the base url (an absolute path is left alone, so an API that hands
+back full `next` links keeps working), the header layering, and the timeout. It does
+not own what a response *means*: map it into **your** domain types in the gateway, so
+nothing above `infra/` ends up parsing a third party's JSON shape.
 
 ### Security helpers
 
@@ -1295,7 +1320,7 @@ next test's search.
 
 ## Configuration reference
 
-`config.yml` (copy from `config.yml.sample`; gitignored). All eleven sections are
+`config.yml` (copy from `config.yml.sample`; gitignored). All twelve sections are
 required.
 
 | Section | Keys |
@@ -1306,6 +1331,7 @@ required.
 | `redis` | `url`, `max_connections`, `socket_timeout`, `socket_connect_timeout`, `health_check_interval` |
 | `rate_limit` | `enabled`, `trusted_proxies`, `general` (`limit`, `window_seconds`), `rules` (name → rule) |
 | `es` | `hosts`, `username`, `password`, `api_key`, `verify_certs`, `ca_certs` |
+| `http` | `max_connections`, `max_keepalive_connections`, `keepalive_expiry`, `timeout`, `connect_timeout`, `follow_redirects` |
 | `jwt` | `algorithm`, `secret_key`, `access_token_expire_minutes`, `refresh_token_expire_minutes`, `api_secret` |
 | `crypto` | `encryption_key`, `password_salt` |
 | `storage` | `path`, `temp_dir`, `max_file_size`, `allowed_extensions` |
