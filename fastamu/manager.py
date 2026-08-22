@@ -31,20 +31,47 @@ Usage::
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import typer
 
 from fastamu.common.utils.string_utils import pluralize
+from fastamu.core.config import get_settings
 
-app = typer.Typer(help="goldis project CLI", no_args_is_help=True)
+app = typer.Typer(help="Fastamu project CLI", no_args_is_help=True)
 
-MODULES_DIR = Path(__file__).resolve().parent / "modules"
+
+def _target_package() -> tuple[str, Path]:
+    """Where a scaffolded module goes: the first package in `app.modules`.
+
+    Read from the config.yml of the project you are standing in, so the
+    generated imports carry your package name and the files land in your tree
+    — never inside the installed framework.
+
+    Returns:
+        (tuple[str, Path]): The dotted package and its directory.
+    """
+    try:
+        packages = get_settings().app.modules
+    except FileNotFoundError:
+        raise typer.BadParameter(
+            "no config.yml here — run this inside a project "
+            "(or create one with `fastamu new <name>`)"
+        ) from None
+    name = packages[0]
+    try:
+        package = importlib.import_module(name)
+    except ModuleNotFoundError:
+        raise typer.BadParameter(
+            f"app.modules names {name!r}, which is not importable from here"
+        ) from None
+    return name, Path(next(iter(package.__path__)))
 
 
 @app.callback()
 def _main() -> None:
-    """goldis project CLI."""
+    """Fastamu project CLI."""
 
 
 def _split(name: str) -> tuple[str, str]:
@@ -90,7 +117,7 @@ def _pluralize(snake: str) -> str:
 
 
 def _render(
-    tpl: str, pascal: str, snake: str, plural: str, dotted: str
+    tpl: str, pascal: str, snake: str, plural: str, dotted: str, pkg: str
 ) -> str:
     """Fill a template.
 
@@ -101,6 +128,7 @@ def _render(
         plural (str): Folder / route name (``products``).
         dotted (str): Dotted path under the app's modules package
             (``catalog.products`` or ``products``).
+        pkg (str): The app's modules package, for the generated imports.
     Returns:
         (str): The rendered file body.
     """
@@ -109,6 +137,7 @@ def _render(
         .replace("<<PL>>", plural)
         .replace("<<S>>", snake)
         .replace("<<M>>", dotted)
+        .replace("<<PKG>>", pkg)
     )
 
 
@@ -150,8 +179,8 @@ class <<P>>Document(AsyncDocument):
 
 INTERFACES = """from typing import Protocol
 
-from fastamu.modules.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
-from fastamu.modules.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
+from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
 class I<<P>>Service(Protocol):
@@ -165,9 +194,9 @@ class I<<P>>Service(Protocol):
 """
 
 SERVICES = """from fastamu.common.bases.services import BaseIDService
-from fastamu.modules.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
-from fastamu.modules.<<M>>.domain.models import <<P>>Model
-from fastamu.modules.<<M>>.infra.repository import <<P>>Repository
+from <<PKG>>.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
+from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
 
 
 class <<P>>Service(BaseIDService[<<P>>Model]):
@@ -191,7 +220,7 @@ HELPERS = "# helper functions for the <<S>> module\n"
 
 REPOSITORY = """\
 from fastamu.infra.postgres.repository.base import PGIDRepository
-from fastamu.modules.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
 class <<P>>Repository(PGIDRepository[<<P>>Model]): ...
@@ -199,8 +228,8 @@ class <<P>>Repository(PGIDRepository[<<P>>Model]): ...
 
 REPOSITORY_CQRS = """from fastamu.infra.es.repository import ESRepository
 from fastamu.infra.postgres.repository.base import PGIDRepository
-from fastamu.modules.<<M>>.domain.documents import <<P>>Document
-from fastamu.modules.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.documents import <<P>>Document
+from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
 class <<P>>Repository(PGIDRepository[<<P>>Model]): ...
@@ -211,7 +240,7 @@ class <<P>>ESRepository(ESRepository[<<P>>Document]): ...
 
 PROJECTIONS = """\
 from fastamu.common.bases.projection import AbstractESProjection
-from fastamu.modules.<<M>>.infra.repository import (
+from <<PKG>>.<<M>>.infra.repository import (
     <<P>>ESRepository,
     <<P>>Repository,
 )
@@ -247,9 +276,9 @@ EXPORTERS = "# excel/file exporters for the <<S>> module\n"
 
 PROVIDERS = """from dishka import Provider, Scope, provide
 
-from fastamu.modules.<<M>>.app.services import <<P>>Service
-from fastamu.modules.<<M>>.infra.repository import <<P>>Repository
-from fastamu.modules.<<M>>.interfaces import I<<P>>Service
+from <<PKG>>.<<M>>.app.services import <<P>>Service
+from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
+from <<PKG>>.<<M>>.interfaces import I<<P>>Service
 
 
 class <<P>>Provider(Provider):
@@ -261,13 +290,13 @@ class <<P>>Provider(Provider):
 
 PROVIDERS_CQRS = """from dishka import Provider, Scope, provide
 
-from fastamu.modules.<<M>>.app.services import <<P>>Service
-from fastamu.modules.<<M>>.infra.projections import <<P>>Projection
-from fastamu.modules.<<M>>.infra.repository import (
+from <<PKG>>.<<M>>.app.services import <<P>>Service
+from <<PKG>>.<<M>>.infra.projections import <<P>>Projection
+from <<PKG>>.<<M>>.infra.repository import (
     <<P>>ESRepository,
     <<P>>Repository,
 )
-from fastamu.modules.<<M>>.interfaces import I<<P>>Service
+from <<PKG>>.<<M>>.interfaces import I<<P>>Service
 
 
 class <<P>>Provider(Provider):
@@ -279,10 +308,10 @@ class <<P>>Provider(Provider):
     <<S>>_service = provide(<<P>>Service, provides=I<<P>>Service)
 """
 
-COMMANDS = """from fastamu.modules.<<M>>.domain.dtos import <<P>>Create
-from fastamu.modules.<<M>>.domain.models import <<P>>Model
-from fastamu.modules.<<M>>.infra.projections import <<P>>Projection
-from fastamu.modules.<<M>>.infra.repository import <<P>>Repository
+COMMANDS = """from <<PKG>>.<<M>>.domain.dtos import <<P>>Create
+from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.infra.projections import <<P>>Projection
+from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
 from fastamu.tasks.projection import project
 
 
@@ -296,7 +325,7 @@ class <<P>>CreateCommand:
 """
 
 QUERIES = """\
-from fastamu.modules.<<M>>.infra.repository import <<P>>ESRepository
+from <<PKG>>.<<M>>.infra.repository import <<P>>ESRepository
 
 
 class <<P>>SearchQuery:
@@ -339,7 +368,7 @@ class <<P>>Out(BaseOutput): ...
 
 CONTEXT_READERS = """\
 from fastamu.infra.postgres.repository.base import PGReader
-from fastamu.modules.<<M>>.domain.context import <<P>>Context
+from <<PKG>>.<<M>>.domain.context import <<P>>Context
 
 
 class <<P>>Reader(PGReader):
@@ -355,8 +384,8 @@ class <<P>>Reader(PGReader):
 
 CONTEXT_INTERFACES = """from typing import Protocol
 
-from fastamu.modules.<<M>>.domain.dtos import <<P>>Input
-from fastamu.modules.<<M>>.domain.schemas import <<P>>Out
+from <<PKG>>.<<M>>.domain.dtos import <<P>>Input
+from <<PKG>>.<<M>>.domain.schemas import <<P>>Out
 
 
 class I<<P>>Service(Protocol):
@@ -364,10 +393,10 @@ class I<<P>>Service(Protocol):
 """
 
 CONTEXT_SERVICES = """\
-from fastamu.modules.<<M>>.domain.context import <<P>>Context
-from fastamu.modules.<<M>>.domain.dtos import <<P>>Input
-from fastamu.modules.<<M>>.domain.schemas import <<P>>Out
-from fastamu.modules.<<M>>.infra.readers import <<P>>Reader
+from <<PKG>>.<<M>>.domain.context import <<P>>Context
+from <<PKG>>.<<M>>.domain.dtos import <<P>>Input
+from <<PKG>>.<<M>>.domain.schemas import <<P>>Out
+from <<PKG>>.<<M>>.infra.readers import <<P>>Reader
 
 
 class <<P>>Service:
@@ -392,9 +421,9 @@ class <<P>>Service:
 
 CONTEXT_PROVIDERS = """from dishka import Provider, Scope, provide
 
-from fastamu.modules.<<M>>.app.services import <<P>>Service
-from fastamu.modules.<<M>>.infra.readers import <<P>>Reader
-from fastamu.modules.<<M>>.interfaces import I<<P>>Service
+from <<PKG>>.<<M>>.app.services import <<P>>Service
+from <<PKG>>.<<M>>.infra.readers import <<P>>Reader
+from <<PKG>>.<<M>>.interfaces import I<<P>>Service
 
 
 class <<P>>Provider(Provider):
@@ -502,7 +531,8 @@ def module(
     folder = snake if context else _pluralize(snake)
     dotted = f"{group}.{folder}" if group else folder
 
-    parent_dir = MODULES_DIR / group if group else MODULES_DIR
+    pkg, modules_dir = _target_package()
+    parent_dir = modules_dir / group if group else modules_dir
     module_dir = parent_dir / folder
     if module_dir.exists():
         typer.secho(
@@ -512,7 +542,7 @@ def module(
         raise typer.Exit(code=1)
 
     parent_dir.mkdir(parents=True, exist_ok=True)
-    (MODULES_DIR / "__init__.py").touch(exist_ok=True)
+    (modules_dir / "__init__.py").touch(exist_ok=True)
     (parent_dir / "__init__.py").touch(exist_ok=True)
 
     for rel, tpl in _layout(
@@ -521,7 +551,8 @@ def module(
         path = module_dir / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            _render(tpl, pascal, snake, folder, dotted), encoding="utf-8"
+            _render(tpl, pascal, snake, folder, dotted, pkg),
+            encoding="utf-8",
         )
 
     kind = "context" if context else "CQRS" if cqrs else "CRUD"
