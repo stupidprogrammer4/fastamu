@@ -7,8 +7,8 @@ ignoring it behind a load balancer would count every caller in one bucket.
 
 from starlette.requests import Request
 
-from src.core.config import get_settings
-from src.infra.ratelimit import keys
+from fastamu.core.config import get_settings
+from fastamu.infra.ratelimit import keys
 
 
 def make_request(peer: str | None, forwarded: str | None = None) -> Request:

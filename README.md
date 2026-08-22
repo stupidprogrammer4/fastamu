@@ -19,7 +19,7 @@ registering it anywhere. There is no `app_registry.py`, no aggregator module, no
 Adding a feature is one command and one folder.
 
 ```bash
-python -m src.manager module catalog.product --cqrs
+fastamu module catalog.product --cqrs
 # ✓ created CQRS module 'catalog.products' at src/modules/catalog/products
 ```
 
@@ -97,11 +97,11 @@ cp config.yml.sample config.yml
 alembic upgrade head
 
 # 4) API
-fastapi dev src/web/app.py          # or: uvicorn src.web.app:app --reload
+fastapi dev fastamu/web/app.py          # or: uvicorn fastamu.web.app:app --reload
 
 # 5) Worker + scheduler (separate processes)
-taskiq worker    src.tasks.broker:broker
-taskiq scheduler src.tasks.scheduler:scheduler
+taskiq worker    fastamu.tasks.broker:broker
+taskiq scheduler fastamu.tasks.scheduler:scheduler
 ```
 
 Swagger UI is served at **`/docs`**, self-hosted from `/static/swagger` — no CDN,
@@ -169,8 +169,8 @@ all depend on `domain`; `domain` knows nothing about HTTP, SQL or Elasticsearch.
 
 ## The core idea: a module
 
-A feature is a **module**: `src/modules/<name>/`. Modules may be filed under a
-**group** — `src/modules/<group>/<name>/` — but a group is nothing more than a
+A feature is a **module**: `fastamu/modules/<name>/`. Modules may be filed under a
+**group** — `fastamu/modules/<group>/<name>/` — but a group is nothing more than a
 namespace folder, and it is entirely optional. `modules/pricing/` and
 `modules/catalog/products/` are both perfectly ordinary modules; group things
 when grouping earns its keep, not because the layout demands it.
@@ -257,10 +257,10 @@ mud — and what makes any module extractable into its own service later.
 ## The discovery contract
 
 This is the single most important section. There is **no registration anywhere**;
-the bootstrapper ([src/core/bootstrap.py](src/core/bootstrap.py)) finds your code
-by walking `src.modules` and looking for exactly five paths.
+the bootstrapper ([fastamu/core/bootstrap.py](fastamu/core/bootstrap.py)) finds your code
+by walking the app's modules package and looking for exactly five paths.
 
-A package under `src/modules/` is recognised as a **module** if — and only if — it
+A package under `fastamu/modules/` is recognised as a **module** if — and only if — it
 contains a `domain/` or an `app/` sub-package. Anything else is treated as a
 **group** and scanned one level deeper. That's the whole rule — and it is why a
 group is optional: `modules/pricing/` is found by the same rule that finds
@@ -301,13 +301,13 @@ folder, the router prefix, the tags and the table name, while class names stay
 singular.
 
 ```bash
-python -m src.manager module product                   # CRUD, no group
-python -m src.manager module catalog.product           # CRUD, filed under catalog/
-python -m src.manager module catalog.product --cqrs    # + ES read model, projection, commands/queries
-python -m src.manager module pricing --context         # pure logic: context + reader, no models
-python -m src.manager module catalog.product --tasks   # + tasks/
-python -m src.manager module catalog.product --http    # + infra/gateways.py
-python -m src.manager module catalog.product --excel   # + infra/exporters.py
+fastamu module product                   # CRUD, no group
+fastamu module catalog.product           # CRUD, filed under catalog/
+fastamu module catalog.product --cqrs    # + ES read model, projection, commands/queries
+fastamu module pricing --context         # pure logic: context + reader, no models
+fastamu module catalog.product --tasks   # + tasks/
+fastamu module catalog.product --http    # + infra/gateways.py
+fastamu module catalog.product --excel   # + infra/exporters.py
 ```
 
 Flags compose freely (`--cqrs --tasks --excel`); `--context` is the one exclusion
@@ -319,7 +319,7 @@ What `catalog.product` produces:
 
 | | |
 |---|---|
-| Folder | `src/modules/catalog/products/` |
+| Folder | `fastamu/modules/catalog/products/` |
 | Classes | `ProductModel`, `ProductCreate`, `ProductUpdate`, `ProductOut`, `ProductRepository`, `ProductService`, `IProductService`, `ProductProvider` |
 | Table | `tbl_products` |
 | Router | `APIRouter(prefix="/products", tags=["products"])` |
@@ -328,7 +328,7 @@ What `pricing --context` produces:
 
 | | |
 |---|---|
-| Folder | `src/modules/pricing/` — **not** pluralised; an engine is not a collection |
+| Folder | `fastamu/modules/pricing/` — **not** pluralised; an engine is not a collection |
 | Classes | `PricingContext`, `PricingInput`, `PricingOut`, `PricingReader`, `PricingService`, `IPricingService`, `PricingProvider` |
 | Table | none — no `domain/models.py`, no `domain/documents.py` |
 | Router | `APIRouter(prefix="/pricing", tags=["pricing"])` |
@@ -344,19 +344,19 @@ wiring is done, the logic is yours.
 Let's build `catalog.brand` as a plain CRUD module. Start with the scaffold:
 
 ```bash
-python -m src.manager module catalog.brand
+fastamu module catalog.brand
 ```
 
 ### 1. The table — `domain/models.py`
 
 Inherit `BaseIDTimestampModel` and you get `id`, `created_at`, `updated_at` and an
 auto-derived table name (`tbl_brands`). Columns are declared with the **field
-factories** from [src/infra/postgres/types.py](src/infra/postgres/types.py), which
+factories** from [fastamu/infra/postgres/types.py](fastamu/infra/postgres/types.py), which
 default to `NOT NULL` — nullability is opt-in, not opt-out.
 
 ```python
-from src.infra.postgres.models.base import BaseIDTimestampModel
-from src.infra.postgres.types import BoolField, CharField
+from fastamu.infra.postgres.models.base import BaseIDTimestampModel
+from fastamu.infra.postgres.types import BoolField, CharField
 
 
 class BrandModel(BaseIDTimestampModel, table=True):
@@ -382,12 +382,12 @@ Field factories: `IDField`, `SmallIntField`, `IntField`, `BigIntField`, `BoolFie
 ### 2. Validated input — `domain/dtos.py`
 
 DTOs are **plain pydantic**, never SQLModel: input validation must not depend on
-the ORM. Draw the field types from [src/common/types.py](src/common/types.py) so
+the ORM. Draw the field types from [fastamu/common/types.py](fastamu/common/types.py) so
 validation rules stay consistent across the codebase.
 
 ```python
-from src.common.bases.dtos import BaseDTO
-from src.common.types import SlugType, StrType
+from fastamu.common.bases.dtos import BaseDTO
+from fastamu.common.types import SlugType, StrType
 
 
 class BrandCreate(BaseDTO):
@@ -408,7 +408,7 @@ semantics** — a field the client never sent is never written. Pass
 ### 3. Wire output — `domain/schemas.py`
 
 ```python
-from src.common.bases.schemas import BaseOutput
+from fastamu.common.bases.schemas import BaseOutput
 
 
 class BrandOut(BaseOutput):
@@ -429,9 +429,9 @@ Inherit and you get the whole CRUD surface for free.
 ```python
 from sqlmodel import col, select
 
-from src.common.bases.results import PagedType
-from src.infra.postgres.repository.base import PGIDRepository
-from src.modules.catalog.brands.domain.models import BrandModel
+from fastamu.common.bases.results import PagedType
+from fastamu.infra.postgres.repository.base import PGIDRepository
+from fastamu.modules.catalog.brands.domain.models import BrandModel
 
 
 class BrandRepository(PGIDRepository[BrandModel]):
@@ -457,12 +457,12 @@ Business rules live here, and only here. `BaseIDService` reads the model off the
 generic parameter and gives you guards that raise the framework's typed errors.
 
 ```python
-from src.common.bases.services import BaseIDService
-from src.common.errors.exceptions import ConflictException
-from src.core import resources
-from src.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from src.modules.catalog.brands.domain.models import BrandModel
-from src.modules.catalog.brands.infra.repository import BrandRepository
+from fastamu.common.bases.services import BaseIDService
+from fastamu.common.errors.exceptions import ConflictException
+from fastamu.core import resources
+from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
+from fastamu.modules.catalog.brands.domain.models import BrandModel
+from fastamu.modules.catalog.brands.infra.repository import BrandRepository
 
 
 class BrandService(BaseIDService[BrandModel]):
@@ -506,8 +506,8 @@ Other modules may only ever see this.
 ```python
 from typing import Protocol
 
-from src.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from src.modules.catalog.brands.domain.models import BrandModel
+from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
+from fastamu.modules.catalog.brands.domain.models import BrandModel
 
 
 class IBrandService(Protocol):
@@ -522,9 +522,9 @@ class IBrandService(Protocol):
 ```python
 from dishka import Provider, Scope, provide
 
-from src.modules.catalog.brands.app.services import BrandService
-from src.modules.catalog.brands.infra.repository import BrandRepository
-from src.modules.catalog.brands.interfaces import IBrandService
+from fastamu.modules.catalog.brands.app.services import BrandService
+from fastamu.modules.catalog.brands.infra.repository import BrandRepository
+from fastamu.modules.catalog.brands.interfaces import IBrandService
 
 
 class BrandProvider(Provider):
@@ -548,12 +548,12 @@ to append to.
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends
 
-from src.common.types import IdType
-from src.modules.catalog.brands.domain.dtos import BrandCreate
-from src.modules.catalog.brands.domain.schemas import BrandOut
-from src.modules.catalog.brands.interfaces import IBrandService
-from src.web.dependencies import Scope, require_access
-from src.web.response import APIResponse
+from fastamu.common.types import IdType
+from fastamu.modules.catalog.brands.domain.dtos import BrandCreate
+from fastamu.modules.catalog.brands.domain.schemas import BrandOut
+from fastamu.modules.catalog.brands.interfaces import IBrandService
+from fastamu.web.dependencies import Scope, require_access
+from fastamu.web.response import APIResponse
 
 router = APIRouter(
     prefix="/brands",
@@ -592,11 +592,11 @@ Two things make this work: **`route_class=DishkaRoute`** (required for
 ```bash
 alembic revision --autogenerate -m "add brands"
 alembic upgrade head
-fastapi dev src/web/app.py
+fastapi dev fastamu/web/app.py
 ```
 
 `POST /brands` is live. At no point did you edit a file outside
-`src/modules/catalog/brands/`.
+`fastamu/modules/catalog/brands/`.
 
 ---
 
@@ -607,7 +607,7 @@ dishka is the spine. Two scopes matter:
 - **`Scope.APP`** — created once per process (connection pools, clients).
 - **`Scope.REQUEST`** — created per HTTP request *and* per task execution.
 
-`CoreProvider` ([src/core/provider.py](src/core/provider.py)) makes the whole infra
+`CoreProvider` ([fastamu/core/provider.py](fastamu/core/provider.py)) makes the whole infra
 layer injectable out of the box:
 
 | Inject this | Scope | What you get |
@@ -765,7 +765,7 @@ get the codes `route_not_found` and `method_not_allowed` instead of a bare
 internals never leak.
 
 `message_code` is a stable, machine-readable string that clients switch on. Global
-codes live in [src/core/resources.py](src/core/resources.py); each module ships its
+codes live in [fastamu/core/resources.py](fastamu/core/resources.py); each module ships its
 own `resources.py` for module-specific codes.
 
 Every log line inside a request is stamped with a request id (taken from an inbound
@@ -776,7 +776,7 @@ so a 500 in your logs maps to the exact client call.
 
 ## Authentication and scopes
 
-[src/web/dependencies.py](src/web/dependencies.py) ships a **deliberately generic**
+[fastamu/web/dependencies.py](fastamu/web/dependencies.py) ships a **deliberately generic**
 auth layer so the framework has no identity module baked in. It validates a bearer
 JWT and checks a `scopes` claim:
 
@@ -814,7 +814,7 @@ headers, so a client can pace itself instead of discovering the wall.
 asks for it by name, like any other dependency:
 
 ```python
-from src.infra.ratelimit.dependencies import by_ip, rate_limit
+from fastamu.infra.ratelimit.dependencies import by_ip, rate_limit
 
 router = APIRouter(prefix="/auth", dependencies=[rate_limit("login")])   # whole router
 
@@ -842,7 +842,7 @@ which is what a test suite wants.
 a sequence of them and spends one call from each:
 
 ```python
-from src.infra.ratelimit.dependencies import by_body_field, by_ip, rate_limit
+from fastamu.infra.ratelimit.dependencies import by_body_field, by_ip, rate_limit
 
 login_rate_limit = rate_limit(
     "login", (by_ip, by_body_field("username")), closed_when_down=True
@@ -883,7 +883,7 @@ are kept per Redis url in `_limiters` — clear it between tests that swap store
 
 ## Background tasks and scheduling
 
-The broker ([src/tasks/broker.py](src/tasks/broker.py)) is a Redis-streams taskiq
+The broker ([fastamu/tasks/broker.py](fastamu/tasks/broker.py)) is a Redis-streams taskiq
 broker that **builds the same dishka container as the web app**. So a task gets its
 dependencies injected exactly like a route handler does.
 
@@ -893,8 +893,8 @@ which registers it:
 ```python
 from dishka.integrations.taskiq import FromDishka, inject
 
-from src.modules.catalog.brands.interfaces import IBrandService
-from src.tasks.broker import broker
+from fastamu.modules.catalog.brands.interfaces import IBrandService
+from fastamu.tasks.broker import broker
 
 
 @broker.task(
@@ -928,7 +928,7 @@ Rules that matter:
   a question asked within minutes or not at all. Keeping them forever leaks Redis
   memory, and since Redis runs `noeviction` by default, a full Redis refuses writes:
   the next *enqueue* is what fails, so the queue stalls, not just the cache. Raise
-  `result_ex_time` in [src/tasks/broker.py](src/tasks/broker.py) if you need to read
+  `result_ex_time` in [fastamu/tasks/broker.py](fastamu/tasks/broker.py) if you need to read
   results back later.
 
 ### Scheduling
@@ -945,19 +945,19 @@ Two sources are wired into the scheduler, and you can use either:
 The worker and the scheduler are separate processes:
 
 ```bash
-taskiq worker    src.tasks.broker:broker
-taskiq scheduler src.tasks.scheduler:scheduler
+taskiq worker    fastamu.tasks.broker:broker
+taskiq scheduler fastamu.tasks.scheduler:scheduler
 ```
 
 ### The event bus
 
 For fan-out across modules without coupling them,
-[src/tasks/events.py](src/tasks/events.py) provides a small event bus on top of the
+[fastamu/tasks/events.py](fastamu/tasks/events.py) provides a small event bus on top of the
 same broker. Subscribe a handler class to an event name:
 
 ```python
-from src.common.bases.events import EventHandler, EventInput
-from src.tasks.events import on
+from fastamu.common.bases.events import EventHandler, EventInput
+from fastamu.tasks.events import on
 
 
 class BrandDeactivated(EventInput):      # the payload, a plain pydantic model
@@ -977,7 +977,7 @@ class ReindexBrandListings(EventHandler[BrandDeactivated]):
 and emit from anywhere:
 
 ```python
-from src.tasks.events import emit
+from fastamu.tasks.events import emit
 
 await emit("brand_deactivated", BrandDeactivated(brand_id=brand.id, reason="manual"))
 ```
@@ -1056,7 +1056,7 @@ After `execute` returns, the decorator reads the id off the result and dispatche
 **background taskiq job** on a per-projection queue that reindexes that entity. The
 HTTP response is not blocked by Elasticsearch, and a slow index never slows a write.
 
-Five decorators, all from `src/tasks/projection.py`:
+Five decorators, all from `fastamu/tasks/projection.py`:
 
 | Decorator | Use on | Dispatches |
 |---|---|---|
@@ -1107,7 +1107,7 @@ unlike `save()`, which replaces the whole document.
 
 Reads go through `ESRepository[Doc]`: `save`, `bulk_insert`, `bulk_update`, `get`,
 `update`, `delete`, `exists`, and `search()` returning an async DSL `Search`. A shared
-`persian_analyzer` is available in [src/infra/es/analyzers.py](src/infra/es/analyzers.py)
+`persian_analyzer` is available in [fastamu/infra/es/analyzers.py](fastamu/infra/es/analyzers.py)
 — just use it as a field analyzer and the index picks it up on creation.
 
 > **Know the consistency model.** Projection dispatch happens *after* the write
@@ -1129,7 +1129,7 @@ parsing or generating a workbook is blocking CPU work that must never touch the 
 loop. Rows are typed: declare an `ExcelRow` and columns map by field order.
 
 ```python
-from src.infra.excel.row import ExcelRow, Row
+from fastamu.infra.excel.row import ExcelRow, Row
 
 
 class BrandRow(ExcelRow):
@@ -1186,8 +1186,8 @@ nothing above `infra/` ends up parsing a third party's JSON shape.
 
 ### Security helpers
 
-[src/common/utils/jwt_utils.py](src/common/utils/jwt_utils.py) and
-[src/common/utils/crypto_utils.py](src/common/utils/crypto_utils.py) are
+[fastamu/common/utils/jwt_utils.py](fastamu/common/utils/jwt_utils.py) and
+[fastamu/common/utils/crypto_utils.py](fastamu/common/utils/crypto_utils.py) are
 **config-agnostic on purpose**: the caller passes the secret, the algorithm and the
 expiry (wire them from `JWTConfig` / `CryptoConfig`). That keeps `common` free of a
 `core.config` import and leaves both files unit-testable without a `config.yml`.
@@ -1218,7 +1218,7 @@ payload = decode_token(token, cfg.secret_key, expected_type=TokenType.ACCESS)
 A malformed stored hash is a non-match, never an exception — a legacy row cannot take
 a login endpoint down.
 
-**`IDEncryption`** ([src/common/bases/encryption.py](src/common/bases/encryption.py))
+**`IDEncryption`** ([fastamu/common/bases/encryption.py](fastamu/common/bases/encryption.py))
 — exposes a serial primary key as a public id that doesn't announce your row count
 (`/orders/42` says how many orders exist; `/orders/43` is a valid guess). It is a
 modular multiplication, so it is reversible, stateless and needs no extra column:
@@ -1393,7 +1393,7 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
 These are the conventions the framework and the codebase assume. Breaking them
 usually means something silently stops being discovered.
 
-1. **Absolute imports from `src...`** — always.
+1. **Absolute imports from `fastamu...` and your own app package** — always.
 2. **Every `__init__.py` is empty.** Import from the specific file, never from a
    package root. The bootstrapper relies on this for `routers/` and `tasks/`.
 3. **Modules talk through `I*Service` Protocols, never by importing each other.**
@@ -1407,7 +1407,7 @@ usually means something silently stops being discovered.
    serialisation.
 8. **Never call `commit()` in a service.** The request scope owns the transaction.
 9. **New feature = new module.** If you find yourself editing framework code under
-   `src/core` or `src/web` to add a feature, stop and reconsider.
+   `fastamu/core` or `fastamu/web` to add a feature, stop and reconsider.
 10. **Type parameters are declared inline** — `class Repo[T: BaseModel]`, not a
     module-level `TypeVar` plus `Generic[T]`. The bound belongs at the class that
     enforces it.

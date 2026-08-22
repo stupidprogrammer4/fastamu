@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from src.common.errors.exceptions import ConflictException
-from src.infra.postgres.models.base import BaseIDModel
-from src.infra.postgres.repository.base import PGIDRepository
+from fastamu.common.errors.exceptions import ConflictException
+from fastamu.infra.postgres.models.base import BaseIDModel
+from fastamu.infra.postgres.repository.base import PGIDRepository
 
 
 class WidgetModel(BaseIDModel):

@@ -3,7 +3,7 @@ and talks to it through the unit of work. Marked `integration` by path."""
 
 import pytest
 
-from src.infra.postgres.uow import PGUnitOfWork
+from fastamu.infra.postgres.uow import PGUnitOfWork
 
 
 @pytest.mark.usefixtures("migrated_test_db")

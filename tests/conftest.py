@@ -19,15 +19,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
-import src.tasks.broker  # noqa: F401
-from src.common.bases.passwords import PasswordHasher
-from src.core.bootstrap import get_bootstrapper
-from src.core.config import Settings
-from src.infra.es.client import ESClient
-from src.infra.http.connection import HTTPConnection
-from src.infra.postgres.connection import PGConnection
-from src.infra.postgres.uow import PGUnitOfWork
-from src.infra.redis.client import RedisClient
+import fastamu.tasks.broker  # noqa: F401
+from fastamu.common.bases.passwords import PasswordHasher
+from fastamu.core.bootstrap import get_bootstrapper
+from fastamu.core.config import Settings
+from fastamu.infra.es.client import ESClient
+from fastamu.infra.http.connection import HTTPConnection
+from fastamu.infra.postgres.connection import PGConnection
+from fastamu.infra.postgres.uow import PGUnitOfWork
+from fastamu.infra.redis.client import RedisClient
 
 
 class _NullScheduleSource(ScheduleSource):

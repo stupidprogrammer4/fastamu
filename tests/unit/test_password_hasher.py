@@ -4,8 +4,8 @@ off the event loop."""
 
 import threading
 
-from src.common.bases.passwords import PasswordHasher
-from src.common.utils import crypto_utils
+from fastamu.common.bases.passwords import PasswordHasher
+from fastamu.common.utils import crypto_utils
 
 
 async def test_a_password_verifies_against_its_own_hash() -> None:

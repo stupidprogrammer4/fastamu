@@ -1,8 +1,8 @@
 """An enum is a vocabulary two sides have to agree on. `FaStrEnum` keeps the
 wire value and the label together so a client never ships its own copy."""
 
-from src.common.bases.schemas import EnumGroupOut, EnumOut
-from src.common.enums import FaStrEnum
+from fastamu.common.bases.schemas import EnumGroupOut, EnumOut
+from fastamu.common.enums import FaStrEnum
 
 
 class Status(FaStrEnum):

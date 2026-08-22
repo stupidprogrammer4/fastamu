@@ -18,8 +18,8 @@ if config.config_file_name is not None:
 # Load every module's models so 'autogenerate' sees the full schema.
 from sqlmodel import SQLModel  # noqa: E402
 
-from src.core.bootstrap import get_bootstrapper  # noqa: E402
-from src.core.config import get_settings  # noqa: E402
+from fastamu.core.bootstrap import get_bootstrapper  # noqa: E402
+from fastamu.core.config import get_settings  # noqa: E402
 
 get_bootstrapper().boot_sqlmodels()
 target_metadata = SQLModel.metadata

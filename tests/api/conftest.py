@@ -1,6 +1,6 @@
 """A live app over the test container.
 
-The app is built the way `src/web/app.py` builds it — routers off the
+The app is built the way `fastamu/web/app.py` builds it — routers off the
 bootstrapper, the framework's exception handlers, dishka wired in — but on the
 test settings, so a route test exercises the real stack (validation, the
 envelope, the error handlers) against the test database rather than a mock.
@@ -15,10 +15,10 @@ from dishka.integrations.fastapi import FastapiProvider, setup_dishka
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-import src.tasks.broker  # noqa: F401
-from src.core.bootstrap import get_bootstrapper
-from src.core.config import Settings
-from src.web.error_handlers import setup_exception_handlers
+import fastamu.tasks.broker  # noqa: F401
+from fastamu.core.bootstrap import get_bootstrapper
+from fastamu.core.config import Settings
+from fastamu.web.error_handlers import setup_exception_handlers
 from tests.conftest import core_provider_of, test_settings_of
 
 

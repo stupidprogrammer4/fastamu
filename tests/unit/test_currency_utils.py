@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.common.utils import currency_utils as cu
+from fastamu.common.utils import currency_utils as cu
 
 
 @pytest.mark.parametrize(

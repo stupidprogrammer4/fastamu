@@ -80,10 +80,10 @@ dev = [
 ]
 
 [project.scripts]
-fastamu = "src.manager:app"
+fastamu = "fastamu.manager:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["fastamu"]
 
 # pytest configuration lives in pytest.ini (single source of truth — pytest.ini
 # takes precedence over pyproject, so do not re-add [tool.pytest.ini_options]).
@@ -97,10 +97,10 @@ select = ["E", "F", "I", "W"]
 ignore = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["src"]
+known-first-party = ["fastamu"]
 
 [tool.pyright]
-include = ["src"]
+include = ["fastamu"]
 pythonVersion = "3.13"
 # "basic" is pragmatic for an existing codebase; tighten to "strict" per
 # package as it's hardened. The rules below are the type-safety floor.
@@ -111,4 +111,4 @@ reportUnnecessaryTypeIgnoreComment = "warning"
 reportImplicitOverride = "none"
 
 [tool.fastapi]
-entrypoint = "src.web.app:app"
+entrypoint = "fastamu.web.app:app"

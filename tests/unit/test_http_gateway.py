@@ -4,8 +4,8 @@ before httpx ever sees it — the url, the headers, and whose timeout wins."""
 import httpx
 import pytest
 
-from src.infra.http.connection import HTTPConnection
-from src.infra.http.gateway import BaseGateway, user_agent
+from fastamu.infra.http.connection import HTTPConnection
+from fastamu.infra.http.gateway import BaseGateway, user_agent
 
 
 class Rates(BaseGateway):
