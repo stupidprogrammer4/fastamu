@@ -1,6 +1,32 @@
 from enum import StrEnum
 
 
+class FaStrEnum(StrEnum):
+    """A `StrEnum` that also carries the label a person should read.
+
+    The wire value and the display text are two different things, and keeping
+    them in two places is how a client ends up shipping its own copy of your
+    vocabulary — one that drifts the moment a member is added::
+
+        class Status(FaStrEnum):
+            PENDING = ("pending", "در انتظار")
+
+        Status.PENDING == "pending"   # still a str, still the wire value
+        Status.PENDING.fa             # "در انتظار"
+
+    A member declared with a bare value keeps the value as its own label, so
+    the second element is optional.
+    """
+
+    fa: str
+
+    def __new__(cls, value: str, fa: str = "") -> "FaStrEnum":
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.fa = fa or value
+        return member
+
+
 class SortOrder(StrEnum):
     ASC = "asc"
     DESC = "desc"
