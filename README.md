@@ -1293,12 +1293,13 @@ placeholder `sqlalchemy.url` in `alembic.ini` alone — it is the sentinel that 
 
 `pytest.ini` sets `asyncio_mode = auto` — every `async def` test just runs, no
 marker needed. Tests are auto-marked by folder: `tests/unit` → `unit`,
-`tests/integration` → `integration`.
+`tests/integration` → `integration`, `tests/api` → `api`.
 
 ```bash
 pytest                      # everything
-pytest -m "not integration" # fast, no external services
+pytest -m unit              # fast, no external services
 pytest -m integration       # against the real test database
+pytest -m api               # drives the live ASGI app
 ```
 
 Fixtures in [tests/conftest.py](tests/conftest.py):
@@ -1311,6 +1312,15 @@ Fixtures in [tests/conftest.py](tests/conftest.py):
 | `clean_db` | Empties every discovered table **and read-model index** between tests |
 | `es` | An `ESClient` on the configured hosts |
 | `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and a hermetic schedule source that never touches Redis |
+| `anonymous` (in `tests/api`) | An `AsyncClient` over the live app — bootstrapped routers, the framework's error handlers, the same container — with no credentials |
+
+`test_settings_of()` and `core_provider_of()` are plain functions, not fixtures, so
+a suite can build its own container from the same wiring — that is how
+[tests/api/conftest.py](tests/api/conftest.py) mounts the app. Test settings turn
+rate limiting **off**: a suite hits a route far faster than any real client, and a
+test failing on a budget it never meant to exercise teaches nothing. A test *about*
+limiting turns it back on for itself, since the guards read whichever settings their
+own container holds.
 
 Because the container discovers providers through the same bootstrapper, a new
 module is testable through DI with **no edit to `conftest.py`** — and for the same
