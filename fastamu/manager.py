@@ -32,14 +32,19 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import sys
 from pathlib import Path
 
 import typer
 
+from fastamu import scaffold
 from fastamu.common.utils.string_utils import pluralize
 from fastamu.core.config import get_settings
 
 app = typer.Typer(help="Fastamu project CLI", no_args_is_help=True)
+
+RED = typer.colors.RED
+GREEN = typer.colors.GREEN
 
 
 def _target_package() -> tuple[str, Path]:
@@ -60,6 +65,12 @@ def _target_package() -> tuple[str, Path]:
             "(or create one with `fastamu new <name>`)"
         ) from None
     name = packages[0]
+    # a console script does not put the working directory on the path, and a
+    # project is not necessarily installed yet — the directory you are
+    # standing in is the project root, so treat it as one
+    cwd = str(Path.cwd())
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
     try:
         package = importlib.import_module(name)
     except ModuleNotFoundError:
@@ -559,6 +570,44 @@ def module(
     typer.secho(
         f"✓ created {kind} module '{dotted}' at {module_dir}",
         fg=typer.colors.GREEN,
+    )
+
+
+@app.command()
+def new(
+    name: str = typer.Argument(..., help="project name, e.g. shop or my-shop"),
+    directory: str = typer.Option(
+        "",
+        "--dir",
+        help="where to create it (default: ./<name>)",
+    ),
+) -> None:
+    """Start a project on Fastamu.
+
+    Writes only what is yours: a package for your modules, the config the
+    framework reads, alembic wiring and a test suite. The framework itself
+    stays where pip put it, so there is no vendored copy to keep in step —
+    upgrading is `pip install -U fastamu`.
+    """
+    package = name.strip().replace("-", "_").replace(" ", "_").lower()
+    if not package.isidentifier():
+        raise typer.BadParameter(
+            f"{name!r} does not make a python package name"
+        )
+
+    root = Path(directory) if directory else Path(package)
+    if root.exists() and any(root.iterdir()):
+        typer.secho(f"{root} already exists and is not empty", fg=RED)
+        raise typer.Exit(code=1)
+
+    scaffold.write(root, package, name)
+    typer.secho(f"✓ created project '{name}' at {root}", fg=GREEN)
+    typer.echo(
+        f"\n  cd {root}\n"
+        '  pip install -e ".[dev]"\n'
+        "  # fill in config.yml, then:\n"
+        "  alembic upgrade head\n"
+        "  uvicorn fastamu.web.app:app --reload\n"
     )
 
 
