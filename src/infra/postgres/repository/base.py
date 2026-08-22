@@ -1,3 +1,4 @@
+import re
 from typing import (
     Any,
     AsyncIterator,
@@ -22,12 +23,17 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import Result
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
+from sqlalchemy.sql.base import Executable
 from sqlalchemy.sql.dml import ReturningInsert, ReturningUpdate
 from sqlmodel import col
 
 from src.common.bases.dtos import SupportsToRow
 from src.common.bases.results import PagedType
+from src.common.errors.exceptions import ConflictException
+from src.core import resources
 
 from ..models.base import (
     BaseIDModel,
@@ -55,6 +61,8 @@ class PGRepository[TModel: BaseModel](PGReader):
     __model_name__: str
 
     _managed_columns = frozenset({"created_at", "updated_at"})
+    # postgres unique_violation
+    _unique_violation = "23505"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -75,6 +83,75 @@ class PGRepository[TModel: BaseModel](PGReader):
                 cls.__model_name__ = model_cls.__name__.removesuffix("Model")
                 break
 
+    def _unique_dict(self, detail: str) -> dict[str, Any]:
+        """Read which columns collided out of postgres's own message.
+
+        The driver hands back ``Key (code, tenant_id)=(abc, 3) already
+        exists``; the client wants to know *which* fields it has to change, so
+        the pair is parsed back into a dict. A message that does not match (a
+        different locale, a future wording) yields an empty dict rather than a
+        guess — the 409 is still correct, it just carries less detail.
+
+        Args:
+            detail (str): The `detail` line from the driver's error.
+        Returns:
+            (dict[str, Any]): Column name -> the value that already exists.
+        """
+        found = re.match(r"Key \((.+)\)=\((.+)\) already exists", detail)
+        if found is None:
+            return {}
+        names = [name.strip() for name in found.group(1).split(",")]
+        values = [value.strip() for value in found.group(2).split(",")]
+        return dict(zip(names, values))
+
+    def _as_conflict(self, error: IntegrityError) -> ConflictException | None:
+        """Turn a unique violation into the framework's 409, or leave it alone.
+
+        Only SQLSTATE 23505 is ours to translate: a foreign-key or check
+        violation is a bug in the caller, not a duplicate the client can fix,
+        and swallowing it into a 409 would tell them to change a field that was
+        never the problem.
+
+        Args:
+            error (IntegrityError): The error SQLAlchemy raised.
+        Returns:
+            (ConflictException | None): The 409, or None to re-raise as is.
+        """
+        cause = getattr(error.orig, "__cause__", None)
+        if getattr(cause, "sqlstate", None) != self._unique_violation:
+            return None
+        unique_dict = self._unique_dict(getattr(cause, "detail", "") or "")
+        name = self.__model_name__
+        return ConflictException(
+            message=f"Another {name} already holds these values",
+            message_code=resources.CONFILICT_ERROR.format(name.lower()),
+            unique_dict=unique_dict,
+        )
+
+    async def _write(self, stmt: Executable) -> Result[Any]:
+        """Run a statement that writes, answering a duplicate with a 409.
+
+        Every write goes through here so no repository has to remember: a
+        unique index is a rule the client broke, and it should read as one
+        (409, naming the fields) instead of the 500 an untranslated
+        `IntegrityError` becomes.
+
+        Args:
+            stmt (Executable): The INSERT/UPDATE/DELETE to run.
+        Returns:
+            (Result[Any]): The statement's result.
+        Raises:
+            ConflictException: A unique index refused the write.
+        """
+        try:
+            result = await self.session.execute(stmt)
+        except IntegrityError as error:
+            conflict = self._as_conflict(error)
+            if conflict is None:
+                raise
+            raise conflict from error
+        return result
+
     async def create(self, data: TModel) -> TModel:
         """
         Create a new record.
@@ -89,7 +166,7 @@ class PGRepository[TModel: BaseModel](PGReader):
             .values(**data.to_row())
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalar_one()
 
     async def bulk_create(self, data: Sequence[TModel]) -> Sequence[TModel]:
@@ -107,7 +184,7 @@ class PGRepository[TModel: BaseModel](PGReader):
             .values([d.to_row() for d in data])
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalars().all()
 
     async def get_all_stream(
@@ -307,7 +384,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             .where(col(self.__model__.id) == id)
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalar_one_or_none()
 
     async def update_row_by_id(
@@ -347,7 +424,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             .values(**row)
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_ids(self, ids: list[int]) -> Sequence[TIDModel]:
@@ -382,7 +459,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             .values(**row)
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalars().all()
 
     async def delete_by_ids(self, ids: Sequence[int]) -> Sequence[TIDModel]:
@@ -399,7 +476,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             .where(col(self.__model__.id).in_(ids))
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalars().all()
 
     async def upsert_by_id(self, id: int, row: dict[str, Any]) -> TIDModel:
@@ -421,7 +498,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             )
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalar_one()
 
 
@@ -476,7 +553,7 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
             )
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalars().all()
 
     async def update_by_date_range(
@@ -501,7 +578,7 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
             .values(**data.to_row())
             .returning(self.__model__)
         )
-        result = await self.session.execute(stmt)
+        result = await self._write(stmt)
         return result.scalars().all()
 
 
