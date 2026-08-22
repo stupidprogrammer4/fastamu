@@ -4,6 +4,7 @@ from dishka import Provider, Scope, provide
 from taskiq import ScheduleSource
 from taskiq_redis import RedisScheduleSource
 
+from src.common.bases.passwords import PasswordHasher
 from src.core.config import Settings, get_settings
 from src.infra.es.client import ESClient
 from src.infra.http.connection import HTTPConnection
@@ -16,6 +17,10 @@ class CoreProvider(Provider):
     @provide(scope=Scope.APP)
     def settings(self) -> Settings:
         return get_settings()
+
+    @provide(scope=Scope.APP)
+    def password_hasher(self, settings: Settings) -> PasswordHasher:
+        return PasswordHasher(settings.crypto.password_salt)
 
     @provide(scope=Scope.APP)
     def postgresql(self, settings: Settings) -> PGConnection:
