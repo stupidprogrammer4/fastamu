@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from functools import lru_cache
 from math import ceil
 
 from throttled.asyncio import RateLimiterType, Throttled
@@ -130,6 +129,30 @@ class RateLimiter:
         )
 
 
-@lru_cache
+_limiters: dict[str, RateLimiter] = {}
+
+
+def limiter_for(settings: Settings) -> RateLimiter:
+    """The limiter for these settings, made once and kept.
+
+    Keyed by the redis url rather than cached per process, so a test that
+    points the app at another redis — or at other budgets — gets its own
+    counters instead of inheriting whichever limiter happened to be built
+    first.
+
+    Args:
+        settings (Settings): The settings the limiter should read.
+    Returns:
+        (RateLimiter): The limiter for that store.
+    """
+    limiter = _limiters.get(settings.redis.url)
+    if limiter is None:
+        limiter = RateLimiter(settings)
+        _limiters[settings.redis.url] = limiter
+    return limiter
+
+
 def get_limiter() -> RateLimiter:
-    return RateLimiter(get_settings())
+    """The limiter for the app's own settings — for callers with no container
+    to ask, such as the middleware."""
+    return limiter_for(get_settings())

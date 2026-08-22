@@ -842,12 +842,15 @@ which is what a test suite wants.
 a sequence of them and spends one call from each:
 
 ```python
-async def by_username(request: Request) -> str:
-    body = await request.json()
-    return f"username:{str(body.get('username', '')).strip().lower() or 'unknown'}"
+from src.infra.ratelimit.dependencies import by_body_field, by_ip, rate_limit
 
-login_rate_limit = rate_limit("login", (by_ip, by_username), closed_when_down=True)
+login_rate_limit = rate_limit(
+    "login", (by_ip, by_body_field("username")), closed_when_down=True
+)
 ```
+
+`by_body_field` covers the common case; write your own `KeyPart` for anything else
+(an admin id, an API key, a tenant) — it is just `async (Request) -> str`.
 
 `by_ip` alone lets a botnet spread one account's password guesses across a thousand
 addresses; `by_username` alone lets one address walk a user list. Charging both meters
@@ -870,11 +873,11 @@ A refusal is a `TooManyRequestsException` (429) carrying `limit`, `remaining` an
 response. The route guard raises it; the middleware, which sits outside the exception
 handlers, assembles the identical body itself.
 
-> The limiter is process-global (`get_limiter()`), not a DI dependency — the
-> middleware runs outside the request scope and a `Depends` guard has no container.
-> Its Redis connections bind to the loop that first used them, so a test driving the
-> app across several event loops should set `enabled: false` or call
-> `get_limiter.cache_clear()`.
+A route guard reads its budgets from **the container serving the request**, falling
+back to `config.yml` when there is none (the middleware, which runs outside the
+request scope). So a test app built on other settings is limited by *its* rules:
+override `rate_limit` in a test provider and the guard follows, no patching. Limiters
+are kept per Redis url in `_limiters` — clear it between tests that swap stores.
 
 ---
 
