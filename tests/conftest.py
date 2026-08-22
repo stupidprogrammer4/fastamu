@@ -20,9 +20,11 @@ from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
 import src.tasks.broker  # noqa: F401
+from src.common.bases.passwords import PasswordHasher
 from src.core.bootstrap import get_bootstrapper
 from src.core.config import Settings
 from src.infra.es.client import ESClient
+from src.infra.http.connection import HTTPConnection
 from src.infra.postgres.connection import PGConnection
 from src.infra.postgres.uow import PGUnitOfWork
 from src.infra.redis.client import RedisClient
@@ -44,12 +46,16 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Auto-mark tests by their folder: tests/unit -> unit, tests/integration
     -> integration."""
+    folders = {
+        "/tests/integration/": pytest.mark.integration,
+        "/tests/unit/": pytest.mark.unit,
+        "/tests/api/": pytest.mark.api,
+    }
     for item in items:
         path = str(item.fspath).replace("\\", "/")
-        if "/tests/integration/" in path:
-            item.add_marker(pytest.mark.integration)
-        elif "/tests/unit/" in path:
-            item.add_marker(pytest.mark.unit)
+        for folder, mark in folders.items():
+            if folder in path:
+                item.add_marker(mark)
 
 
 def obj(**kwargs: Any) -> SimpleNamespace:
@@ -192,21 +198,55 @@ async def clean_db(pg: PGConnection, es: ESClient) -> None:
             )
 
 
-@pytest.fixture
-async def dishka_container(integration_settings: Settings, test_dsn: str):
-    test_settings = integration_settings.model_copy(
+def test_settings_of(settings: Settings, test_dsn: str) -> Settings:
+    """The settings a test runs under: the test database, and no rate limits.
+
+    Limits are off by default because a suite hits the same routes far faster
+    than any real client, and a test failing on a budget it never meant to
+    exercise teaches nothing. A test *about* limiting turns them back on for
+    itself — the guards read whichever settings their container holds.
+
+    Args:
+        settings (Settings): The settings loaded from config.yml.
+        test_dsn (str): The test database to point at.
+    Returns:
+        (Settings): A copy safe to run a suite against.
+    """
+    return settings.model_copy(
         deep=True,
         update={
-            "postgresql": integration_settings.postgresql.model_copy(
+            "postgresql": settings.postgresql.model_copy(
                 update={"dsn": test_dsn}
-            )
+            ),
+            "rate_limit": settings.rate_limit.model_copy(
+                update={"enabled": False}
+            ),
         },
     )
+
+
+def core_provider_of(test_settings: Settings) -> Provider:
+    """The infra layer, wired for a test: the test database on a small pool, a
+    schedule source that never reaches redis, and everything else as in
+    production.
+
+    A function rather than a fixture so an API-level conftest can build its own
+    container from the same wiring, instead of copying it.
+
+    Args:
+        test_settings (Settings): What the container should be built on.
+    Returns:
+        (Provider): The provider to hand to `make_async_container`.
+    """
 
     class TestCoreProvider(Provider):
         @provide(scope=Scope.APP)
         def settings(self) -> Settings:
             return test_settings
+
+        @provide(scope=Scope.APP)
+        def password_hasher(self, settings: Settings) -> PasswordHasher:
+            return PasswordHasher(settings.crypto.password_salt)
 
         @provide(scope=Scope.APP)
         def postgresql(self, settings: Settings) -> PGConnection:
@@ -226,6 +266,25 @@ async def dishka_container(integration_settings: Settings, test_dsn: str):
         @provide(scope=Scope.APP)
         def schedule_source(self) -> ScheduleSource:
             return _NullScheduleSource()
+
+        @provide(scope=Scope.APP)
+        async def http(
+            self, settings: Settings
+        ) -> AsyncIterator[HTTPConnection]:
+            connection = HTTPConnection(
+                max_connections=settings.http.max_connections,
+                max_keepalive_connections=(
+                    settings.http.max_keepalive_connections
+                ),
+                keepalive_expiry=settings.http.keepalive_expiry,
+                timeout=settings.http.timeout,
+                connect_timeout=settings.http.connect_timeout,
+                follow_redirects=settings.http.follow_redirects,
+            )
+            try:
+                yield connection
+            finally:
+                await connection.close()
 
         @provide(scope=Scope.APP)
         async def es(self, settings: Settings) -> AsyncIterator[ESClient]:
@@ -258,10 +317,16 @@ async def dishka_container(integration_settings: Settings, test_dsn: str):
             finally:
                 await client.close()
 
+    return TestCoreProvider()
+
+
+@pytest.fixture
+async def dishka_container(integration_settings: Settings, test_dsn: str):
     # Module providers are discovered automatically — new modules need no
     # edit here.
     container = make_async_container(
-        TestCoreProvider(), *get_bootstrapper().boot_providers()
+        core_provider_of(test_settings_of(integration_settings, test_dsn)),
+        *get_bootstrapper().boot_providers(),
     )
     try:
         yield container
