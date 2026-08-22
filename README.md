@@ -20,7 +20,7 @@ Adding a feature is one command and one folder.
 
 ```bash
 fastamu module catalog.product --cqrs
-# ✓ created CQRS module 'catalog.products' at src/modules/catalog/products
+# ✓ created CQRS module 'catalog.products' at shop/modules/catalog/products
 ```
 
 That's it. The router is live, the service is injectable, the table is in the next
@@ -84,39 +84,63 @@ behave as one thing.
 Elasticsearch is only needed if you use the CQRS read side.
 
 ```bash
-# 1) Environment
+# 1) Install the framework and start a project
 python3.13 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install fastamu
+fastamu new shop && cd shop
 
 # 2) Config — config.yml is gitignored; it holds your secrets
-cp config.yml.sample config.yml
 #    fill in: postgresql.dsn, postgresql.test_dsn, redis.url,
 #             taskiq.redis_url, jwt.secret_key, crypto.encryption_key
+pip install -e ".[dev]"
 
 # 3) Schema
 alembic upgrade head
 
-# 4) API
-fastapi dev fastamu/web/app.py          # or: uvicorn fastamu.web.app:app --reload
+# 4) API — your modules, the framework's app
+uvicorn fastamu.web.app:app --reload
 
 # 5) Worker + scheduler (separate processes)
 taskiq worker    fastamu.tasks.broker:broker
 taskiq scheduler fastamu.tasks.scheduler:scheduler
 ```
 
+`fastamu new` writes only what is yours — a package for your modules, the config
+the framework reads, alembic wiring and a test suite. **The framework stays in
+site-packages**: there is no vendored copy to keep in step, and upgrading is
+`pip install -U fastamu`.
+
+Working *on* Fastamu itself instead? Clone it and `pip install -e ".[dev]"` —
+its own `config.yml` points `app.modules` at `fastamu.modules`, so the `ops`
+reference modules are what boots.
+
 Swagger UI is served at **`/docs`**, self-hosted from `/static/swagger` — no CDN,
 so it works on an air-gapped box.
 
 > **`config.yml` is resolved relative to the current working directory.** Always
-> launch from the repo root. There is no `.env` / environment-variable override
+> launch from the project root. There is no `.env` / environment-variable override
 > layer: the YAML file is the single source of configuration.
 
 ---
 
 ## Project layout
 
+Two trees: the framework you installed, and the project you generated.
+
 ```
-src/
+# your project — everything here is yours
+shop/
+├── config.yml       # what the framework reads; app.modules points at yours
+├── alembic.ini  migrations/
+├── tests/           # the fixtures arrive with the package (see Testing)
+└── shop/
+    └── modules/     # your features — one folder each
+        └── catalog/products/…
+```
+
+```
+# the installed package — `import fastamu`
+fastamu/
 ├── common/          # Shared foundations — depend on nothing else in the app
 │   ├── bases/       # BaseService, BaseDTO, BaseOutput, BaseMeta, PagedType,
 │   │                # BatchResultType, AbstractESProjection, EventHandler,
@@ -157,9 +181,20 @@ src/
 │   ├── docs.py      # Offline Swagger UI
 │   └── middlewares/ # request-id + access logging, app-wide rate limit
 │
-├── manager.py       # The scaffolding CLI
-└── modules/         # Your features live here — grouped or not
+├── manager.py       # The CLI: `fastamu new`, `fastamu module`
+├── scaffold.py      # What `fastamu new` writes
+├── testing/         # The pytest plugin — fixtures for any project
+└── modules/
     └── ops/{jobs,messages,storage,system}/   # Reference modules — see below
+```
+
+Adopt the reference modules by naming the package in `config.yml`:
+
+```yaml
+app:
+  modules:
+    - "shop.modules"      # yours, always first
+    - "fastamu.modules"   # optional: adds ops/{jobs,messages,storage,system}
 ```
 
 **Dependency direction is strictly inward.** `routers` / `tasks` / `app` / `infra`
@@ -1302,7 +1337,10 @@ pytest -m integration       # against the real test database
 pytest -m api               # drives the live ASGI app
 ```
 
-Fixtures in [tests/conftest.py](tests/conftest.py):
+The fixtures arrive **with the package**: `fastamu.testing.fixtures` is registered
+as a pytest plugin, so a generated project has them with no conftest to copy and
+nothing to keep in step. Fastamu's own `tests/conftest.py` is empty for that reason
+— its suite runs on the same plugin yours does.
 
 | Fixture | Gives you |
 |---|---|
@@ -1333,11 +1371,12 @@ next test's search.
 
 ## Configuration reference
 
-`config.yml` (copy from `config.yml.sample`; gitignored). All twelve sections are
-required.
+`config.yml` (written by `fastamu new`, and gitignored — it holds your secrets).
+All thirteen sections are required.
 
 | Section | Keys |
 |---|---|
+| `app` | `modules` — the packages the bootstrapper scans, yours first |
 | `fastapi` | `title`, `description`, `version` |
 | `postgresql` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
 | `taskiq` | `redis_url`, `max_connection_pool_size` |
