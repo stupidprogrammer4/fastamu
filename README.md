@@ -1382,7 +1382,9 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
 
   Out of the box the `console` provider "delivers" to the log, so the module
   works with nothing configured. The three real gateways (Kavenegar, Melipayamak,
-  SMS.ir) need the optional extra: `pip install -e ".[sms]"`.
+  SMS.ir) need `sms-providers-sdk`, which is imported at call time and installed
+  separately:
+  `pip install "git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master"`.
 - **`ops/jobs`** — inspecting in-flight taskiq jobs.
 - **`ops/system`** — health/info endpoints; the smallest possible module.
 

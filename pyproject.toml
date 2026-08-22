@@ -64,11 +64,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The three real SMS gateways in the `messages` reference module. Optional on
-# purpose: the console gateway needs nothing, so a clone boots without this.
-sms = [
-    "sms-providers-sdk @ git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master",
-]
 dev = [
     "pytest==9.0.1",
     "pytest-asyncio==1.3.0",
@@ -81,6 +76,12 @@ dev = [
 
 [project.scripts]
 fastamu = "fastamu.manager:app"
+
+# the test harness ships with the package: any project that depends on
+# Fastamu gets pg / uow / clean_db / dishka_container / anonymous with no
+# conftest to copy
+[project.entry-points.pytest11]
+fastamu = "fastamu.testing.fixtures"
 
 [tool.hatch.build.targets.wheel]
 packages = ["fastamu"]

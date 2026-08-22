@@ -6,8 +6,12 @@ never an exception unwinding a send. That is the whole point of the boundary:
 `app/` decides what to record, `infra/` decides how to talk.
 
 Only the console gateway is built in. The three real ones go through
-`sms-providers-sdk`, an optional dependency imported at call time, so a clone
-with no SDK installed still boots, still queues, and still delivers to the log.
+`sms-providers-sdk`, imported at call time and not a declared dependency (it
+is a direct git reference, which a published package cannot carry), so an
+install without it still boots, still queues, and still delivers to the log::
+
+    pip install \
+      "git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master"
 """
 
 from abc import ABC, abstractmethod
