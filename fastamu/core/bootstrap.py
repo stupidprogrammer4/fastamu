@@ -1,6 +1,7 @@
 import importlib
 import inspect
 import pkgutil
+from collections.abc import Sequence
 from functools import cached_property, lru_cache
 
 from dishka import Provider
@@ -8,12 +9,26 @@ from elasticsearch import AsyncElasticsearch
 from elasticsearch.dsl import AsyncDocument
 from fastapi import APIRouter
 
+from fastamu.core.config import get_settings
 from fastamu.core.logger import logger
+
+DEFAULT_MODULES_PKG = "fastamu.modules"
 
 
 class Bootstrapper:
-    def __init__(self, base_pkg: str = "fastamu.modules") -> None:
-        self.base_pkg = base_pkg
+    """Finds everything a running app is made of, by walking packages.
+
+    `base_pkgs` are the roots it scans — your application's modules package,
+    and any package of modules you want to adopt (Fastamu's own `ops` group,
+    a shared library of modules across services). Nothing is registered
+    anywhere: a module is discovered because it is in one of these packages
+    and has the layout.
+    """
+
+    def __init__(
+        self, base_pkgs: Sequence[str] = (DEFAULT_MODULES_PKG,)
+    ) -> None:
+        self.base_pkgs = tuple(base_pkgs)
         self.providers_path = "providers"
         self.models_path = "domain.models"
         self.routers_path = "routers"
@@ -31,20 +46,22 @@ class Bootstrapper:
         so a group placed directly under ``base_pkg`` is scanned one level in.
         """
         modules = []
-        base = importlib.import_module(self.base_pkg)
-        for _, name, is_pkg in pkgutil.iter_modules(
-            base.__path__, prefix=self.base_pkg + "."
-        ):
-            if is_pkg:
+        for base_pkg in self.base_pkgs:
+            base = importlib.import_module(base_pkg)
+            for _, name, is_pkg in pkgutil.iter_modules(
+                base.__path__, prefix=base_pkg + "."
+            ):
+                if not is_pkg:
+                    continue
                 if self._is_module(name):
                     modules.append(name)
-                else:
-                    group = importlib.import_module(name)
-                    for _, sub_name, sub_is_pkg in pkgutil.iter_modules(
-                        group.__path__, prefix=name + "."
-                    ):
-                        if sub_is_pkg and self._is_module(sub_name):
-                            modules.append(sub_name)
+                    continue
+                group = importlib.import_module(name)
+                for _, sub_name, sub_is_pkg in pkgutil.iter_modules(
+                    group.__path__, prefix=name + "."
+                ):
+                    if sub_is_pkg and self._is_module(sub_name):
+                        modules.append(sub_name)
         return modules
 
     def _is_module(self, name: str) -> bool:
@@ -136,7 +153,7 @@ class Bootstrapper:
                         inspect.isclass(obj)
                         and issubclass(obj, Provider)
                         and obj is not Provider
-                        and obj.__module__.startswith(self.base_pkg)
+                        and obj.__module__.startswith(self.base_pkgs)
                     ):
                         providers.append(obj())
         return providers
@@ -193,5 +210,6 @@ class Bootstrapper:
 
 
 @lru_cache
-def get_bootstrapper():
-    return Bootstrapper()
+def get_bootstrapper() -> Bootstrapper:
+    """The bootstrapper for this app, reading `app.modules` from config.yml."""
+    return Bootstrapper(get_settings().app.modules)

@@ -8,6 +8,17 @@ import yaml
 from pydantic import BaseModel, Field
 
 
+class AppConfig(BaseModel):
+    """What this application *is* — the packages its modules live in.
+
+    The bootstrapper walks these and finds everything else. List your own
+    package first; add `fastamu.modules` to adopt the framework's `ops`
+    reference modules (jobs, messages, storage, system) as they are.
+    """
+
+    modules: list[str] = Field(min_length=1)
+
+
 class FastAPIConfig(BaseModel):
     title: str
     description: str
@@ -117,6 +128,7 @@ class LoggingConfig(BaseModel):
 
 
 class Settings(BaseModel):
+    app: AppConfig = AppConfig(modules=["fastamu.modules"])
     fastapi: FastAPIConfig
     taskiq: TaskiqConfig
     postgresql: PostgreSQLConfig

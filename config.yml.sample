@@ -1,3 +1,7 @@
+app:
+  modules:
+    - "fastamu.modules"
+
 fastapi:
   title: "Fastamu"
   description: "A FastAPI + dishka + taskiq modular-monolith template."
