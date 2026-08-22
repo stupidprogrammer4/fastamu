@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from redis.exceptions import ResponseError
 from taskiq import AsyncResultBackend, ScheduleSource
@@ -62,7 +63,29 @@ class JobService:
             status.error = (
                 str(result.error) if result.error is not None else None
             )
+            if not result.is_err:
+                status.result = result.return_value
         return status
+
+    async def get_result(self, task_id: str) -> Any:
+        """Get what one finished job returned, and nothing else.
+
+        For a caller that queued work and is polling for the answer, rather
+        than for a dashboard showing how the job went.
+
+        Args:
+            task_id (str): The job's task id (returned when it was enqueued).
+        Returns:
+            (Any): What the task returned, or None while it is unfinished or
+                if it failed.
+        """
+        ready = await self.result_backend.is_result_ready(task_id)
+        if not ready:
+            return None
+        result = await self.result_backend.get_result(task_id, with_logs=False)
+        if result.is_err:
+            return None
+        return result.return_value
 
     async def overview(self) -> JobsOverviewOut:
         """Get an overview of the task system: scheduled + running jobs +

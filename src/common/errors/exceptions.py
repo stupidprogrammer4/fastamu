@@ -67,7 +67,12 @@ class UnAuthorizedException(APPException[UnAuthorizedErrorOut]):
 
 
 class ForbiddenException(APPException[ForbiddenErrorOut]):
-    def __init__(self, message: str, message_code: str, user_id: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        message_code: str,
+        user_id: int | None = None,
+    ) -> None:
         super().__init__(message, message_code, HTTPStatus.FORBIDDEN)
         self.user_id = user_id
 

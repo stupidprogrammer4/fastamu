@@ -25,7 +25,7 @@ class NotFoundErrorOut(BaseErrorOut):
 
 
 class ForbiddenErrorOut(BaseErrorOut):
-    user_id: int
+    user_id: int | None = None
 
 
 class UnAuthorizedErrorOut(BaseErrorOut):

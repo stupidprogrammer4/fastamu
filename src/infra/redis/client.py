@@ -45,5 +45,16 @@ class RedisClient:
             decode_responses=True,
         )
 
+    async def ping(self) -> bool:
+        """
+        Ask redis whether it is answering — for a health endpoint, or a test
+        that would rather skip than fail against a store that is not there.
+
+        Returns:
+            (bool): Whether it answered.
+        """
+        pong = await resolve(self.client.ping())
+        return bool(pong)
+
     async def close(self) -> None:
         await self.client.aclose()

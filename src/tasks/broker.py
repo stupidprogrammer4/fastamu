@@ -21,7 +21,7 @@ broker = RedisStreamBroker(
     RedisAsyncResultBackend(
         settings.taskiq.redis_url,
         prefix_str="taskiq_result",
-        result_ex_time=60,
+        result_ex_time=86_400,
     )
 )
 

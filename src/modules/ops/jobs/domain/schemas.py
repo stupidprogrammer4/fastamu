@@ -1,3 +1,5 @@
+from typing import Any
+
 from src.common.bases.schemas import BaseOutput
 
 
@@ -10,6 +12,7 @@ class JobStatusOut(BaseOutput):
     is_ready: bool
     is_err: bool | None = None
     error: str | None = None
+    result: Any | None = None
 
 
 class ScheduledJobOut(BaseOutput):
