@@ -16,6 +16,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.types import Enum as SAEnum
@@ -39,6 +40,8 @@ class ColumnKwargs(TypedDict, total=False):
     default: Any
     insert_default: Any
     onupdate: Any
+    # SQL, not a literal: "now()" is the call, and a literal string must
+    # carry its own quotes ("'pending'") or be a SQLAlchemy construct
     server_default: Any
     server_onupdate: Any
     doc: str
@@ -63,6 +66,12 @@ def _split_kwargs(
         for key in _FIELD_MANAGED_KEYS
         if key in column_kwargs
     }
+    # a bare string reaches postgres quoted as a literal, so server_default
+    # ="now()" would default the column to the seven characters "now()"
+    # rather than the time. Wrapping it makes it the SQL it was written as.
+    server_default = column_kwargs.get("server_default")
+    if isinstance(server_default, str):
+        column_kwargs["server_default"] = text(server_default)
     return field_kwargs, column_kwargs
 
 
