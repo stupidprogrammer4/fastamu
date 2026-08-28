@@ -6,7 +6,7 @@ from taskiq import AsyncResultBackend, ScheduleSource
 
 from fastamu.core.logger import logger
 from fastamu.infra.redis.client import RedisClient
-from fastamu.modules.ops.jobs.domain.schemas import (
+from fastamu.modules.ops.jobs.routers.schemas import (
     JobsOverviewOut,
     JobStatusOut,
     RunningJobOut,

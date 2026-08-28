@@ -10,8 +10,8 @@ from fastapi.responses import StreamingResponse
 
 from fastamu.common.bases.schemas import BaseMeta, PagerMeta
 from fastamu.common.types import PageType, PerPageType
-from fastamu.modules.ops.storage.domain.schemas import MediaOut
 from fastamu.modules.ops.storage.interfaces import IMediaService
+from fastamu.modules.ops.storage.routers.schemas import MediaOut
 from fastamu.web.dependencies import Scope, require_access
 from fastamu.web.response import APIResponse
 

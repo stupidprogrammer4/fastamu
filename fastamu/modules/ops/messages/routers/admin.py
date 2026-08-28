@@ -15,15 +15,15 @@ from fastamu.modules.ops.messages.domain.dtos import (
     SmsProviderUpsert,
     SmsSend,
 )
-from fastamu.modules.ops.messages.domain.schemas import (
-    MessageOut,
-    SmsPatternOut,
-    SmsProviderOut,
-)
 from fastamu.modules.ops.messages.interfaces import (
     IMessageService,
     ISMSPatternService,
     ISMSProviderService,
+)
+from fastamu.modules.ops.messages.routers.schemas import (
+    MessageOut,
+    SmsPatternOut,
+    SmsProviderOut,
 )
 from fastamu.web.dependencies import Scope, require_access
 from fastamu.web.response import APIResponse

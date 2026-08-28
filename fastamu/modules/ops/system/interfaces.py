@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from fastamu.modules.ops.system.domain.schemas import HealthOut, SystemInfoOut
+from fastamu.modules.ops.system.routers.schemas import HealthOut, SystemInfoOut
 
 
 class ISystemService(Protocol):

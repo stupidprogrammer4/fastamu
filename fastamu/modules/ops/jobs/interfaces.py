@@ -1,6 +1,6 @@
 from typing import Any, Protocol
 
-from fastamu.modules.ops.jobs.domain.schemas import (
+from fastamu.modules.ops.jobs.routers.schemas import (
     JobsOverviewOut,
     JobStatusOut,
     RunningJobOut,

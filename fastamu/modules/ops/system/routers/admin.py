@@ -3,8 +3,8 @@
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends
 
-from fastamu.modules.ops.system.domain.schemas import HealthOut, SystemInfoOut
 from fastamu.modules.ops.system.interfaces import ISystemService
+from fastamu.modules.ops.system.routers.schemas import HealthOut, SystemInfoOut
 from fastamu.web.dependencies import Scope, require_access
 from fastamu.web.response import APIResponse
 

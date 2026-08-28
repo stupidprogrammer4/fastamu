@@ -4,12 +4,12 @@ per-task status lookup."""
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends
 
-from fastamu.modules.ops.jobs.domain.schemas import (
+from fastamu.modules.ops.jobs.interfaces import IJobService
+from fastamu.modules.ops.jobs.routers.schemas import (
     JobsOverviewOut,
     JobStatusOut,
     RunningJobOut,
 )
-from fastamu.modules.ops.jobs.interfaces import IJobService
 from fastamu.web.dependencies import Scope, require_access
 from fastamu.web.response import APIResponse
 

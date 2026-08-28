@@ -9,7 +9,7 @@ from fastamu.core.logger import logger
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.postgres.connection import PGConnection
 from fastamu.infra.redis.client import RedisClient
-from fastamu.modules.ops.system.domain.schemas import (
+from fastamu.modules.ops.system.routers.schemas import (
     ComponentHealthOut,
     HealthOut,
     SystemInfoOut,
