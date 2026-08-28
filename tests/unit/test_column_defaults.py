@@ -6,20 +6,23 @@ from datetime import datetime
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from fastamu.infra.postgres.models.base import BaseIDModel
-from fastamu.infra.postgres.types import CharField, TimestampField
+from fastamu.common.bases.models import BaseIDModel
+from fastamu.common.bases.types import CharField, TimestampField
+from fastamu.infra.postgres.models.base import BaseTable
 
 
-class DefaultsModel(BaseIDModel, table=True):
-    __tablename__ = "tbl_column_default_probe"
-
+class DefaultsModel(BaseIDModel):
     stamped: datetime = TimestampField(server_default="now()")
     label: str = CharField(20, server_default="'pending'")
 
 
+class DefaultsTable(DefaultsModel, BaseTable, table=True):
+    __tablename__ = "tbl_column_default_probe"
+
+
 def ddl() -> str:
     return str(
-        CreateTable(DefaultsModel.__table__).compile(
+        CreateTable(DefaultsTable.__table__).compile(
             dialect=postgresql.dialect()
         )
     )

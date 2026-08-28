@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from fastamu.common.bases.models import BaseIDModel
 from fastamu.common.errors.exceptions import ConflictException
-from fastamu.infra.postgres.models.base import BaseIDModel
 from fastamu.infra.postgres.repository.base import PGIDRepository
 
 

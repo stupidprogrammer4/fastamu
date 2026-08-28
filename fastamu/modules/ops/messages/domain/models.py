@@ -1,9 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy.orm import declared_attr
-
-from fastamu.infra.postgres.models.base import BaseIDTimestampModel
-from fastamu.infra.postgres.types import (
+from fastamu.common.bases.models import BaseIDTimestampModel
+from fastamu.common.bases.types import (
     BoolField,
     CharField,
     JSONBField,
@@ -19,16 +17,12 @@ from fastamu.modules.ops.messages.domain.enums import (
 )
 
 
-class SMSProviderModel(BaseIDTimestampModel, table=True):
+class SMSProviderModel(BaseIDTimestampModel):
     """A provider you can send through, and the credentials to do it.
 
     One row per code, so rotating a key is an upsert rather than a second row,
     and `is_active` marks the one messages actually leave through.
     """
-
-    @declared_attr.directive
-    def __tablename__(cls) -> str:
-        return "tbl_sms_providers"
 
     title: str = CharField(55)
     code: ProviderCode = CharField(35, unique=True)
@@ -36,22 +30,18 @@ class SMSProviderModel(BaseIDTimestampModel, table=True):
     is_active: bool = BoolField(default=False)
 
 
-class SMSPatternModel(BaseIDTimestampModel, table=True):
+class SMSPatternModel(BaseIDTimestampModel):
     """The provider-side template one message key is sent through.
 
     Providers register approved templates and address them by name; this maps
     a key your code knows (`otp`) to whatever the current provider calls it.
     """
 
-    @declared_attr.directive
-    def __tablename__(cls) -> str:
-        return "tbl_sms_patterns"
-
     key: PatternKey = CharField(35, unique=True)
     pattern: str = CharField(100)
 
 
-class MessageModel(BaseIDTimestampModel, table=True):
+class MessageModel(BaseIDTimestampModel):
     """One message owed to one recipient, and what became of it.
 
     The row is written before anything is sent, so a message that never leaves

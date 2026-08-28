@@ -1,12 +1,12 @@
 from typing import Any, Callable, Sequence, TypeVar, get_args, get_origin
 
+from fastamu.common.bases.models import BaseIDModel, BaseModel
 from fastamu.common.bases.results import BatchResultType
 from fastamu.common.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
 from fastamu.core import resources
-from fastamu.infra.postgres.models.base import BaseIDModel, BaseModel
 
 
 class BaseService[TModel: BaseModel]:

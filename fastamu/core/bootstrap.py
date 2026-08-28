@@ -30,7 +30,7 @@ class Bootstrapper:
     ) -> None:
         self.base_pkgs = tuple(base_pkgs)
         self.providers_path = "providers"
-        self.models_path = "domain.models"
+        self.tables_path = "infra.tables"
         self.routers_path = "routers"
         self.doc_path = "domain.documents"
         self.tasks_path = "tasks"
@@ -135,12 +135,15 @@ class Bootstrapper:
         return routers
 
     def boot_sqlmodels(self) -> None:
-        """
-        Models are implicitly registered when submodules are imported
-        via the cached_property. We just need to access self.submodules.
+        """Import every module's ``infra/tables.py``, which is what registers
+        its tables on ``SQLModel.metadata``.
+
+        Only the table files: a domain model declares fields and maps to
+        nothing, so importing `domain/models.py` would add no metadata. This is
+        what alembic autogenerate and the test schema both read.
         """
         for module_name in self.submodules:
-            self.import_module(f"{module_name}.{self.models_path}")
+            self.import_module(f"{module_name}.{self.tables_path}")
 
     def boot_providers(self) -> list[Provider]:
         """Find and instantiate all subclasses of dishka.Provider."""

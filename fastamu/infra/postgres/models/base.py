@@ -1,39 +1,24 @@
-from datetime import datetime
-from typing import Any
-
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import declared_attr
 from sqlmodel import SQLModel
 
-from fastamu.common.utils import date_utils
 from fastamu.common.utils.string_utils import pluralize
-from fastamu.infra.postgres.types import IDField, TimestampField
 
 
-class BaseModel(AsyncAttrs, SQLModel):
+class BaseTable(AsyncAttrs, SQLModel):
+    """What turns a domain model into a table.
+
+    A table class is the model plus this base, declared in `infra/tables.py`::
+
+        class BrandTable(BrandModel, BaseTable, table=True):
+            pass
+
+    It is the whole persistence declaration: the table name (derived from the
+    class, so `BrandTable` is `tbl_brands`), any constraints and indexes, and
+    the ORM machinery. Nothing in `domain/` or `app/` imports it — they speak
+    the model, and only the repository knows which table carries it.
+    """
+
     @declared_attr.directive
     def __tablename__(cls) -> str:
-        return f"tbl_{pluralize(cls.__name__.removesuffix('Model').lower())}"
-
-    def to_row(self, *, exclude_unset: bool = True) -> dict[str, Any]:
-        """Convert the model into a column -> value dict for SQL writes.
-
-        ``exclude_unset`` (default) keeps only the explicitly-set fields, which
-        gives correct PATCH semantics on updates and lets defaults fill the
-        rest on inserts. Pass ``exclude_unset=False`` for a full dump."""
-        return self.model_dump(exclude_unset=exclude_unset)
-
-
-class BaseIDModel(BaseModel):
-    id: int = IDField()
-
-
-class BaseTimestampModel(BaseModel):
-    created_at: datetime = TimestampField(server_default="NOW()")
-    updated_at: datetime = TimestampField(
-        server_default="NOW()", onupdate=lambda: date_utils.utc_now()
-    )
-
-
-class BaseIDTimestampModel(BaseIDModel, BaseTimestampModel):
-    pass
+        return f"tbl_{pluralize(cls.__name__.removesuffix('Table').lower())}"

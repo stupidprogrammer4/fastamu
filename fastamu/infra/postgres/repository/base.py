@@ -31,16 +31,16 @@ from sqlalchemy.sql.dml import ReturningInsert, ReturningUpdate
 from sqlmodel import col
 
 from fastamu.common.bases.dtos import SupportsToRow
-from fastamu.common.bases.results import PagedType
-from fastamu.common.errors.exceptions import ConflictException
-from fastamu.core import resources
-
-from ..models.base import (
+from fastamu.common.bases.models import (
     BaseIDModel,
     BaseIDTimestampModel,
     BaseModel,
     BaseTimestampModel,
 )
+from fastamu.common.bases.results import PagedType
+from fastamu.common.errors.exceptions import ConflictException
+from fastamu.core import resources
+
 from ..uow import PGUnitOfWork
 
 
@@ -57,8 +57,17 @@ class PGReader:
 
 
 class PGRepository[TModel: BaseModel](PGReader):
+    """The write side, declared against a model and executed against a table.
+
+    A repository names the **model** it serves — ``PGRepository[BrandModel]``
+    — and finds the table itself. That keeps the persistence class out of every
+    signature above it: a service asks for a `BrandModel` and gets one, whether
+    the row came from `BrandTable` or was built by hand in a test.
+    """
+
     __model__: type[TModel]
     __model_name__: str
+    __table__: type[Any]
 
     _managed_columns = frozenset({"created_at", "updated_at"})
     # postgres unique_violation
@@ -82,6 +91,36 @@ class PGRepository[TModel: BaseModel](PGReader):
                 cls.__model__ = model_cls
                 cls.__model_name__ = model_cls.__name__.removesuffix("Model")
                 break
+
+    def __getattr__(self, name: str) -> Any:
+        # resolved on first use, not at class creation: infra/tables.py is
+        # imported by the bootstrapper, which may not have run when a
+        # repository class is defined
+        if name != "__table__":
+            raise AttributeError(name)
+        found = self._tabled(type(self).__model__)
+        if found is None:
+            raise AttributeError(
+                f"{type(self).__name__} serves "
+                f"{type(self).__model__.__name__}, which no table subclasses "
+                f"— declare one in the module's infra/tables.py"
+            )
+        type(self).__table__ = found
+        return found
+
+    @classmethod
+    def _tabled(cls, model: type) -> Any:
+        """Find the table class that carries `model`, at any depth."""
+        found = None
+        for sub in model.__subclasses__():
+            if getattr(sub, "model_config", {}).get("table"):
+                found = sub
+                break
+            deeper = cls._tabled(sub)
+            if deeper is not None:
+                found = deeper
+                break
+        return found
 
     def _unique_dict(self, detail: str) -> dict[str, Any]:
         """Read which columns collided out of postgres's own message.
@@ -162,9 +201,9 @@ class PGRepository[TModel: BaseModel](PGReader):
             (TModel): Created record.
         """
         stmt = (
-            insert(self.__model__)
+            insert(self.__table__)
             .values(**data.to_row())
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalar_one()
@@ -180,9 +219,9 @@ class PGRepository[TModel: BaseModel](PGReader):
             (Sequence[TModel]): Created records.
         """
         stmt = (
-            insert(self.__model__)
+            insert(self.__table__)
             .values([d.to_row() for d in data])
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalars().all()
@@ -198,7 +237,7 @@ class PGRepository[TModel: BaseModel](PGReader):
         Returns:
             (AsyncIterator[TModel]): Async iterator of records.
         """
-        stmt = select(self.__model__).execution_options(yield_per=yield_per)
+        stmt = select(self.__table__).execution_options(yield_per=yield_per)
         stream = await self.session.stream_scalars(stmt)
         async for row in stream:
             yield row
@@ -210,7 +249,7 @@ class PGRepository[TModel: BaseModel](PGReader):
         Returns:
             (Sequence[TModel]): All records.
         """
-        stmt = select(self.__model__)
+        stmt = select(self.__table__)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -259,7 +298,7 @@ class PGRepository[TModel: BaseModel](PGReader):
         Returns:
             (Values): VALUES construct exposing its columns via ``.c``.
         """
-        mapper = inspect(self.__model__)
+        mapper = inspect(self.__table__)
         rows = [row.to_row(exclude_unset=True) for row in data]
         names = list(rows[0].keys())
         types = {name: mapper.columns[name].type for name in names}
@@ -299,12 +338,12 @@ class PGRepository[TModel: BaseModel](PGReader):
             if isinstance(data, SupportsToRow)
             else [row.to_row() for row in data]
         )
-        base = pg_insert(self.__model__).values(rows)
+        base = pg_insert(self.__table__).values(rows)
         set_keys = [name for name in rows[0] if name not in conflict_keys]
         set_: dict[str, Any] = {name: base.excluded[name] for name in set_keys}
         stmt = base.on_conflict_do_update(
             index_elements=list(index_elements), set_=set_
-        ).returning(self.__model__)
+        ).returning(self.__table__)
         return stmt
 
     def _bulk_update_stmt(
@@ -332,10 +371,10 @@ class PGRepository[TModel: BaseModel](PGReader):
         skip = self._managed_columns | {key_name}
         set_keys = [name for name in grid.c.keys() if name not in skip]
         stmt = (
-            update(self.__model__)
+            update(self.__table__)
             .where(key == grid.c[key_name])
             .values({name: grid.c[name] for name in set_keys})
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         return stmt
 
@@ -366,7 +405,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (Optional[TIDModel]): Found record or None.
         """
-        stmt = select(self.__model__).where(col(self.__model__.id) == id)
+        stmt = select(self.__table__).where(col(self.__table__.id) == id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -380,9 +419,9 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             (Optional[TIDModel]): Deleted record or None.
         """
         stmt = (
-            delete(self.__model__)
-            .where(col(self.__model__.id) == id)
-            .returning(self.__model__)
+            delete(self.__table__)
+            .where(col(self.__table__.id) == id)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalar_one_or_none()
@@ -419,10 +458,10 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             (Optional[TIDModel]): Updated record or None.
         """
         stmt = (
-            update(self.__model__)
-            .where(col(self.__model__.id) == id)
+            update(self.__table__)
+            .where(col(self.__table__.id) == id)
             .values(**row)
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalar_one_or_none()
@@ -436,7 +475,7 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (Sequence[TIDModel]): Found records.
         """
-        stmt = select(self.__model__).where(col(self.__model__.id).in_(ids))
+        stmt = select(self.__table__).where(col(self.__table__.id).in_(ids))
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -454,10 +493,10 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             (Sequence[TIDModel]): Updated records.
         """
         stmt = (
-            update(self.__model__)
-            .where(col(self.__model__.id).in_(ids))
+            update(self.__table__)
+            .where(col(self.__table__.id).in_(ids))
             .values(**row)
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalars().all()
@@ -472,9 +511,9 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             (Sequence[TIDModel]): Deleted records.
         """
         stmt = (
-            delete(self.__model__)
-            .where(col(self.__model__.id).in_(ids))
-            .returning(self.__model__)
+            delete(self.__table__)
+            .where(col(self.__table__.id).in_(ids))
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalars().all()
@@ -491,12 +530,12 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
             (TIDModel): Created or updated record.
         """
         stmt = (
-            pg_insert(self.__model__)
+            pg_insert(self.__table__)
             .values(id=id, **row)
             .on_conflict_do_update(
-                index_elements=[col(self.__model__.id)], set_=row
+                index_elements=[col(self.__table__.id)], set_=row
             )
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalar_one()
@@ -522,10 +561,10 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
             (AsyncIterator[TTimestampModel]): Async iterator of records.
         """
         stmt = (
-            select(self.__model__)
+            select(self.__table__)
             .where(
-                col(self.__model__.created_at) >= start,
-                col(self.__model__.created_at) <= end,
+                col(self.__table__.created_at) >= start,
+                col(self.__table__.created_at) <= end,
             )
             .execution_options(yield_per=yield_per)
         )
@@ -546,12 +585,12 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
             (Sequence[TTimestampModel]): Deleted records.
         """
         stmt = (
-            delete(self.__model__)
+            delete(self.__table__)
             .where(
-                col(self.__model__.created_at) >= start,
-                col(self.__model__.created_at) <= end,
+                col(self.__table__.created_at) >= start,
+                col(self.__table__.created_at) <= end,
             )
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalars().all()
@@ -570,13 +609,13 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
             (Sequence[TTimestampModel]): Updated records.
         """
         stmt = (
-            update(self.__model__)
+            update(self.__table__)
             .where(
-                col(self.__model__.created_at) >= start,
-                col(self.__model__.created_at) <= end,
+                col(self.__table__.created_at) >= start,
+                col(self.__table__.created_at) <= end,
             )
             .values(**data.to_row())
-            .returning(self.__model__)
+            .returning(self.__table__)
         )
         result = await self._write(stmt)
         return result.scalars().all()

@@ -1,11 +1,8 @@
-from fastamu.infra.postgres.models.base import BaseIDTimestampModel
-from fastamu.infra.postgres.types import BigIntField, CharField
+from fastamu.common.bases.models import BaseIDTimestampModel
+from fastamu.common.bases.types import BigIntField, CharField
 
 
-class MediaModel(BaseIDTimestampModel, table=True):
-    # "media" is already plural — skip the auto-pluralised name.
-    __tablename__ = "tbl_media"  # pyright: ignore[reportAssignmentType]
-
+class MediaModel(BaseIDTimestampModel):
     backend: str = CharField(20)
     path: str = CharField(255, unique=True)
     filename: str = CharField(255)
