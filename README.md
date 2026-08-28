@@ -142,7 +142,8 @@ shop/
 # the installed package — `import fastamu`
 fastamu/
 ├── common/          # Shared foundations — depend on nothing else in the app
-│   ├── bases/       # BaseService, BaseDTO, BaseOutput, BaseMeta, PagedType,
+│   ├── bases/       # models.py (entity bases) + types.py (field factories),
+│   │                # BaseService, BaseDTO, BaseOutput, BaseMeta, PagedType,
 │   │                # BatchResultType, AbstractESProjection, EventHandler,
 │   │                # IDEncryption
 │   ├── errors/      # APPException hierarchy + the *ErrorOut wire schemas
@@ -159,8 +160,7 @@ fastamu/
 │   └── resources.py # Global message codes
 │
 ├── infra/           # Adapters to the outside world
-│   ├── postgres/    # model bases, repository bases, connection, uow,
-│   │                # column types
+│   ├── postgres/    # BaseTable, repository bases, connection, uow
 │   ├── es/          # client, repository, analyzers
 │   ├── redis/       # pooled async client
 │   ├── http/        # pooled httpx client + BaseGateway
@@ -212,18 +212,18 @@ when grouping earns its keep, not because the layout demands it.
 
 ```
 modules/[<group>/]<name>/
-├── domain/         # The inward core — no I/O
-│   ├── models.py       # SQLModel tables            (write model)
-│   ├── dtos.py         # BaseDTO                    (validated input)
-│   ├── schemas.py      # BaseOutput                 (wire output)
+├── domain/         # The inward core — no I/O, and no idea one exists
+│   ├── models.py       # your entities: fields only  (no table, no ORM)
+│   ├── dtos.py         # BaseDTO                     (validated input)
 │   ├── enums.py
-│   └── documents.py    # AsyncDocument  (CQRS only) (ES read model)
+│   └── documents.py    # AsyncDocument  (CQRS only)  (ES read model)
 ├── app/            # Business logic
 │   ├── services.py
 │   ├── helpers.py
 │   ├── commands.py     # (CQRS only) writes that trigger projections
 │   └── queries.py      # (CQRS only) reads that hit Elasticsearch
 ├── infra/          # This module's adapters
+│   ├── tables.py       # the SQLModel tables carrying domain/models.py
 │   ├── repository.py
 │   ├── projections.py  # (CQRS only)
 │   ├── gateways.py     # (--http)  outbound HTTP clients
@@ -254,7 +254,6 @@ modules/pricing/
 ├── domain/
 │   ├── context.py   # PricingContext — the facts, frozen
 │   ├── dtos.py      # PricingInput
-│   ├── schemas.py   # PricingOut
 │   └── enums.py
 ├── app/services.py  # the engine
 ├── infra/readers.py # PricingReader — pulls only the columns it needs
@@ -305,7 +304,7 @@ group is optional: `modules/pricing/` is found by the same rule that finds
 |---|---|---|
 | **Routers** | `<module>/routers/*.py` | Every module-level `APIRouter` instance (deduped), then `app.include_router(...)` |
 | **Providers** | `<module>/providers.py` | Every `dishka.Provider` subclass, instantiated and merged into the container |
-| **Tables** | `<module>/domain/models.py` | Imported so `SQLModel` tables register on the shared metadata (this is what Alembic autogenerate sees) |
+| **Tables** | `<module>/infra/tables.py` | Imported so the `table=True` classes register on the shared metadata (this is what Alembic autogenerate sees). Only this file — a `domain/models.py` maps to nothing |
 | **ES documents** | `<module>/domain/documents.py` | Every `AsyncDocument` subclass; its index is created on app startup if missing |
 | **Tasks** | `<module>/tasks/*.py` | Imported so `@broker.task` registers each task on the broker |
 
@@ -314,7 +313,7 @@ Consequences worth internalising:
 - **`routers/` and `tasks/` are packages whose `__init__.py` stays empty.** The
   bootstrapper imports each *file* inside them. Re-exporting from `__init__.py`
   is not just unnecessary, it is against the convention.
-- **`providers.py` and `domain/models.py` are single files**, not packages.
+- **`providers.py`, `domain/models.py` and `infra/tables.py` are single files**, not packages.
 - **Every one of these is optional.** A module with no `tasks/` folder simply has
   no tasks. A missing file is skipped silently; a file that *exists but fails to
   import* raises loudly (for routers), so typos don't silently unmount your API.
@@ -365,7 +364,7 @@ What `pricing --context` produces:
 |---|---|
 | Folder | `fastamu/modules/pricing/` — **not** pluralised; an engine is not a collection |
 | Classes | `PricingContext`, `PricingInput`, `PricingOut`, `PricingReader`, `PricingService`, `IPricingService`, `PricingProvider` |
-| Table | none — no `domain/models.py`, no `domain/documents.py` |
+| Table | none — no `infra/tables.py`, no `domain/documents.py` |
 | Router | `APIRouter(prefix="/pricing", tags=["pricing"])` |
 
 The group folder is created on first use. Generated files are correctly layered
@@ -382,23 +381,27 @@ Let's build `catalog.brand` as a plain CRUD module. Start with the scaffold:
 fastamu module catalog.brand
 ```
 
-### 1. The table — `domain/models.py`
+### 1. The model — `domain/models.py`
 
-Inherit `BaseIDTimestampModel` and you get `id`, `created_at`, `updated_at` and an
-auto-derived table name (`tbl_brands`). Columns are declared with the **field
-factories** from [fastamu/infra/postgres/types.py](fastamu/infra/postgres/types.py), which
-default to `NOT NULL` — nullability is opt-in, not opt-out.
+A model declares **fields and nothing else**. It is not the table: no `table=True`,
+no ORM base, no `__tablename__`. That is what keeps `domain/` honest — it names
+what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
-from fastamu.infra.postgres.models.base import BaseIDTimestampModel
-from fastamu.infra.postgres.types import BoolField, CharField
+from fastamu.common.bases.models import BaseIDTimestampModel
+from fastamu.common.bases.types import BoolField, CharField
 
 
-class BrandModel(BaseIDTimestampModel, table=True):
+class BrandModel(BaseIDTimestampModel):
     name: str = CharField(35, index=True)
     slug: str = CharField(55, unique=True)
     is_active: bool = BoolField(default=True)
 ```
+
+`BaseIDTimestampModel` contributes `id`, `created_at` and `updated_at`. Columns use
+the **field factories** from
+[fastamu/common/bases/types.py](fastamu/common/bases/types.py), which default to
+`NOT NULL` — nullability is opt-in, not opt-out.
 
 Bases: `BaseModel` (bare), `BaseIDModel`, `BaseTimestampModel`,
 `BaseIDTimestampModel`.
@@ -408,9 +411,28 @@ Field factories: `IDField`, `SmallIntField`, `IntField`, `BigIntField`, `BoolFie
 `TimestampField` (timezone-aware), `JSONBField`, `ArrayField` (optional GIN index),
 `EnumField` (native PG enum), `ComputedField` (generated column), `ForeignKeyField`.
 
+### 1b. The table — `infra/tables.py`
+
+One line maps the model onto a real table. This file is the *only* place that
+knows a database exists, and the only one the bootstrapper imports for metadata:
+
+```python
+from fastamu.infra.postgres.models.base import BaseTable
+from shop.modules.catalog.brands.domain.models import BrandModel
+
+
+class BrandTable(BrandModel, BaseTable, table=True):
+    pass
+```
+
+Constraints and indexes that span columns live here too — `__table_args__`, a
+`UniqueConstraint`, an explicit `__tablename__`. Repositories are still declared
+against the **model** (`PGIDRepository[BrandModel]`) and find the table
+themselves, so no layer above `infra/` ever names `BrandTable`.
+
 > **Table naming gotcha.** `__tablename__` is derived as
-> `tbl_ + pluralize(ClassName.removesuffix("Model").lower())`. It does **not**
-> snake-case, so `ProductTagModel` becomes `tbl_producttags`. Multi-word models and
+> `tbl_ + pluralize(ClassName.removesuffix("Table").lower())`. It does **not**
+> snake-case, so `ProductTagTable` becomes `tbl_producttags`. Multi-word tables and
 > irregular plurals should set `__tablename__` explicitly — as `ops/storage` does
 > (`tbl_media`).
 
@@ -440,17 +462,30 @@ class BrandUpdate(BaseDTO):
 semantics** — a field the client never sent is never written. Pass
 `exclude_unset=False` on create to let defaults materialise.
 
-### 3. Wire output — `domain/schemas.py`
+### 3. Wire output — `routers/schemas.py`
+
+The shape a client sees is an HTTP concern, so it sits with the routes that
+serialise it. Because a model is now plain pydantic, an output can subclass one
+instead of restating its fields:
+
+```python
+from shop.modules.catalog.brands.domain.models import BrandModel
+
+
+class BrandOut(BrandModel):
+    pass
+```
+
+Add computed fields, or narrow to a subset by declaring only what you want — a
+schema that must differ from the model still starts from `BaseOutput`:
 
 ```python
 from fastamu.common.bases.schemas import BaseOutput
 
 
-class BrandOut(BaseOutput):
+class BrandSummaryOut(BaseOutput):
     id: int
     name: str
-    slug: str
-    is_active: bool
 ```
 
 `BaseOutput` is `from_attributes=True` and ships `from_obj()`, `from_objs()`,
@@ -585,7 +620,7 @@ from fastapi import APIRouter, Depends
 
 from fastamu.common.types import IdType
 from fastamu.modules.catalog.brands.domain.dtos import BrandCreate
-from fastamu.modules.catalog.brands.domain.schemas import BrandOut
+from fastamu.modules.catalog.brands.routers.schemas import BrandOut
 from fastamu.modules.catalog.brands.interfaces import IBrandService
 from fastamu.web.dependencies import Scope, require_access
 from fastamu.web.response import APIResponse
@@ -684,12 +719,18 @@ behaves identically whether it was called from an HTTP route or a background job
 
 ### Model bases
 
+In `fastamu.common.bases.models` — all pure, none of them a table:
+
 | Base | Adds |
 |---|---|
-| `BaseModel` | `to_row()`, and `__tablename__` auto-derived as `tbl_<plural>` |
+| `Base` | `to_row()`, `to_dict()`, `to_json()`, `patch()`, `from_obj()`, `from_objs()`, … |
+| `BaseModel` | nothing — the plain entity base |
 | `BaseIDModel` | `id` |
 | `BaseTimestampModel` | `created_at`, `updated_at` (DB-managed) |
 | `BaseIDTimestampModel` | all of the above — the usual choice |
+
+`BaseTable`, in `fastamu.infra.postgres.models.base`, is what turns one into a
+table, and it is the only base that carries a `__tablename__`.
 
 ### Repository bases
 
@@ -697,6 +738,11 @@ Pick by the shape of your model: `PGRepository[M]`, `PGIDRepository[M]`,
 `PGTimestampRepository[M]`, `PGTimestampIDRepository[M]`. Every write uses
 PostgreSQL `RETURNING`, so a create/update/delete hands you back the persisted row
 in one round-trip — no `refresh()`, no second SELECT.
+
+A repository is parameterised by the **model**, and locates the table that carries
+it — the class in `infra/tables.py` that subclasses it with `table=True`. Nothing
+above `infra/` mentions a table class, and a model that no table carries raises an
+error naming the file to declare it in.
 
 **`PGRepository`**
 
@@ -1442,17 +1488,20 @@ usually means something silently stops being discovered.
    guards belong in the service.
 5. **Input DTOs are `BaseDTO`** (pure pydantic). A repository accepts a model or a
    column dict — never a DTO.
-6. **What crosses a module boundary belongs to that module's domain** (its model,
+6. **`domain/` imports nothing from `infra/`.** A model declares fields; the table
+   that stores them is `infra/tables.py`'s business, and only a repository names
+   it.
+7. **What crosses a module boundary belongs to that module's domain** (its model,
    its `*Out`, its dataclass) — never another module's type.
-7. **Raise typed exceptions; never return an error shape.** The handlers own
+8. **Raise typed exceptions; never return an error shape.** The handlers own
    serialisation.
-8. **Never call `commit()` in a service.** The request scope owns the transaction.
-9. **New feature = new module.** If you find yourself editing framework code under
+9. **Never call `commit()` in a service.** The request scope owns the transaction.
+10. **New feature = new module.** If you find yourself editing framework code under
    `fastamu/core` or `fastamu/web` to add a feature, stop and reconsider.
-10. **Type parameters are declared inline** — `class Repo[T: BaseModel]`, not a
+11. **Type parameters are declared inline** — `class Repo[T: BaseModel]`, not a
     module-level `TypeVar` plus `Generic[T]`. The bound belongs at the class that
     enforces it.
-11. **The line is 79 columns.** `ruff check` and `ruff format` are the arbiters
+12. **The line is 79 columns.** `ruff check` and `ruff format` are the arbiters
     (config in `pyproject.toml`); the scaffolder's output already satisfies both.
 
 ---
