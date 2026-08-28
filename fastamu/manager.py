@@ -154,12 +154,21 @@ def _render(
 
 # --- templates --------------------------------------------------------------
 
-MODELS = """from fastamu.infra.postgres.models.base import BaseIDTimestampModel
+MODELS = """from fastamu.common.bases.models import BaseIDTimestampModel
 
 
-class <<P>>Model(BaseIDTimestampModel, table=True):
-    # table name auto-derives as "tbl_<<PL>>"; columns combine alias + factory
+class <<P>>Model(BaseIDTimestampModel):
+    # fields only — the table that carries them is in infra/tables.py
     ...
+"""
+
+TABLES = """from fastamu.infra.postgres.models.base import BaseTable
+from <<PKG>>.<<M>>.domain.models import <<P>>Model
+
+
+class <<P>>Table(<<P>>Model, BaseTable, table=True):
+    # the table name derives from the class: "tbl_<<PL>>"
+    pass
 """
 
 DTOS = """from fastamu.common.bases.dtos import BaseDTO
@@ -171,11 +180,13 @@ class <<P>>Create(BaseDTO): ...
 class <<P>>Update(BaseDTO): ...
 """
 
-SCHEMAS = """from fastamu.common.bases.schemas import BaseOutput
+SCHEMAS = """from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
-class <<P>>Out(BaseOutput):
-    id: int
+class <<P>>Out(<<P>>Model):
+    # subclasses the model, so the fields are declared once; narrow or add
+    # here for what the wire should actually carry
+    pass
 """
 
 ENUMS = "# enums for the <<S>> module\n"
@@ -396,7 +407,7 @@ class <<P>>Reader(PGReader):
 CONTEXT_INTERFACES = """from typing import Protocol
 
 from <<PKG>>.<<M>>.domain.dtos import <<P>>Input
-from <<PKG>>.<<M>>.domain.schemas import <<P>>Out
+from <<PKG>>.<<M>>.routers.schemas import <<P>>Out
 
 
 class I<<P>>Service(Protocol):
@@ -406,7 +417,7 @@ class I<<P>>Service(Protocol):
 CONTEXT_SERVICES = """\
 from <<PKG>>.<<M>>.domain.context import <<P>>Context
 from <<PKG>>.<<M>>.domain.dtos import <<P>>Input
-from <<PKG>>.<<M>>.domain.schemas import <<P>>Out
+from <<PKG>>.<<M>>.routers.schemas import <<P>>Out
 from <<PKG>>.<<M>>.infra.readers import <<P>>Reader
 
 
@@ -457,7 +468,7 @@ def _layout(
             "domain/__init__.py": "",
             "domain/context.py": CONTEXT,
             "domain/dtos.py": CONTEXT_DTOS,
-            "domain/schemas.py": CONTEXT_SCHEMAS,
+            "routers/schemas.py": CONTEXT_SCHEMAS,
             "domain/enums.py": ENUMS,
             "app/__init__.py": "",
             "app/services.py": CONTEXT_SERVICES,
@@ -474,8 +485,9 @@ def _layout(
             "providers.py": PROVIDERS_CQRS if cqrs else PROVIDERS,
             "domain/__init__.py": "",
             "domain/models.py": MODELS,
+            "infra/tables.py": TABLES,
             "domain/dtos.py": DTOS,
-            "domain/schemas.py": SCHEMAS,
+            "routers/schemas.py": SCHEMAS,
             "domain/enums.py": ENUMS,
             "app/__init__.py": "",
             "app/services.py": SERVICES,
