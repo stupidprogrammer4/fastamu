@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import declared_attr
 from sqlmodel import SQLModel
 
-from fastamu.common.utils.string_utils import pluralize
+from fastamu.common.utils.strings import pluralize, snake_case
 
 
 class BaseTable(AsyncAttrs, SQLModel):
@@ -21,4 +21,6 @@ class BaseTable(AsyncAttrs, SQLModel):
 
     @declared_attr.directive
     def __tablename__(cls) -> str:
-        return f"tbl_{pluralize(cls.__name__.removesuffix('Table').lower())}"
+        name = snake_case(cls.__name__.removesuffix("Table"))
+        prefix, separator, last_word = name.rpartition("_")
+        return f"tbl_{prefix}{separator}{pluralize(last_word)}"

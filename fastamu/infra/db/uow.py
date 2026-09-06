@@ -1,13 +1,13 @@
 from datetime import datetime
 
-from sqlalchemy import text
+from sqlalchemy import func, select
 
-from fastamu.infra.postgres.connection import PGConnection
+from fastamu.infra.db.connection import DBConnection
 
 
-class PGUnitOfWork:
-    def __init__(self, pg: PGConnection):
-        self.pg = pg
+class DBUnitOfWork:
+    def __init__(self, db: DBConnection):
+        self.db = db
         self._session = None
 
     @property
@@ -20,7 +20,7 @@ class PGUnitOfWork:
         return self._session
 
     async def begin(self):
-        self._session = self.pg.session_factory()
+        self._session = self.db.session_factory()
         return self
 
     async def close(self):
@@ -34,7 +34,7 @@ class PGUnitOfWork:
         await self.session.rollback()
 
     async def now(self) -> datetime:
-        result = await self.session.execute(text("SELECT NOW()"))
+        result = await self.session.execute(select(func.current_timestamp()))
         return result.scalar_one()
 
     async def __aenter__(self):
@@ -42,8 +42,10 @@ class PGUnitOfWork:
         return session
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            await self.rollback()
-        else:
-            await self.commit()
-        await self.close()
+        try:
+            if exc_type:
+                await self.rollback()
+            else:
+                await self.commit()
+        finally:
+            await self.close()
