@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1
+
+- Preserve Python defaults, nullable values and database-generated values in
+  field factories; string and enum server defaults accept bare literals.
+- Preserve first-seen batch input order and report the original input and
+  position for every missing item in linear time.
+- Add read-free Elasticsearch patch and bulk-delete operations, and serialize
+  full documents without dropping false or null values.
+- Add optional JWT audience validation.
+- Accept any Pydantic response payload and metadata, omit empty envelope fields
+  and normalize validation context for JSON output.
+- Run registered post-commit callbacks in `DBUnitOfWork` and discard them on
+  rollback while retaining guaranteed session cleanup.
+
 ## 0.3.0
 
 This release changes public import paths and configuration. Migrate consumers
