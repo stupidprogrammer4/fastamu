@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from fastamu import scaffold
-from fastamu.core.config import ProjectionConfig, Settings
+from fastamu.core.config import ProjectionConfig, Settings, get_settings
 from fastamu.manager import app
 
 
@@ -18,6 +18,7 @@ def test_minimal_project_omits_optional_backends_and_es():
     assert config.tasks.projection is None
     assert config.tasks.schedulers is None
     assert config.es is None
+    assert config.app.features == set()
     assert '"fastamu"' in files["pyproject.toml"]
 
 
@@ -42,6 +43,11 @@ def test_cli_features_add_independent_config_and_extras(tmp_path):
     assert config.tasks.projection.prefetch == 1
     assert config.tasks.events.broker == "rabbitmq"
     assert config.tasks.schedulers.broker == "redis"
+    assert {feature.value for feature in config.app.features} == {
+        "cqrs",
+        "events",
+        "scheduler",
+    }
     assert (
         "fastamu[cqrs,scheduler,events]"
         in (root / "pyproject.toml").read_text()
@@ -56,6 +62,44 @@ def test_projection_rejects_non_serial_prefetch_and_missing_es():
     raw.pop("es")
     with pytest.raises(ValidationError, match="requires es"):
         Settings.model_validate(raw)
+
+
+def test_feature_and_configuration_must_match():
+    raw = yaml.safe_load(scaffold.files("shop", "Shop")["config.yml"])
+    raw["app"]["features"] = ["events"]
+    with pytest.raises(ValidationError, match="configuration is missing"):
+        Settings.model_validate(raw)
+
+    raw["app"]["features"] = []
+    raw["tasks"]["events"] = {
+        "broker": "rabbitmq",
+        "url": "amqp://localhost",
+    }
+    with pytest.raises(ValidationError, match="requires enabling"):
+        Settings.model_validate(raw)
+
+
+def test_application_can_extend_the_framework_settings(monkeypatch, tmp_path):
+    package = tmp_path / "shop"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "config.py").write_text(
+        "from fastamu.core.config import Settings as FrameworkSettings\n"
+        "class Settings(FrameworkSettings):\n"
+        "    storefront: str\n"
+    )
+    raw = yaml.safe_load(scaffold.files("shop", "Shop")["config.yml"])
+    raw["app"]["settings"] = "shop.config.Settings"
+    raw["storefront"] = "goldis"
+    (tmp_path / "config.yml").write_text(yaml.safe_dump(raw))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    get_settings.cache_clear()
+
+    try:
+        assert get_settings().storefront == "goldis"
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_disabled_backends_are_not_imported_or_connected(monkeypatch):

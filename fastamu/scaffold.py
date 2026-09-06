@@ -12,6 +12,10 @@ from pathlib import Path
 CONFIG_YML = """app:
   modules:
     - "<<PKG>>.modules"
+  features:
+    - cqrs
+    - events
+    - scheduler
 
 fastapi:
   title: "<<NAME>>"
@@ -534,6 +538,15 @@ def files(
         path: render(body, package, name) for path, body in layout.items()
     }
     config = yaml.safe_load(rendered["config.yml"])
+    config["app"]["features"] = [
+        name
+        for name, enabled in (
+            ("cqrs", cqrs),
+            ("events", events),
+            ("scheduler", scheduler),
+        )
+        if enabled
+    ]
     if not cqrs:
         config.pop("es", None)
         config["tasks"].pop("projection", None)

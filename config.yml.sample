@@ -1,6 +1,10 @@
 app:
   modules:
   - fastamu.modules
+  features:
+  - cqrs
+  - events
+  - scheduler
 fastapi:
   title: Fastamu
   description: A FastAPI + dishka + taskiq modular-monolith template.

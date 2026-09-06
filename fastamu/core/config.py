@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from functools import lru_cache
+from importlib import import_module
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar, overload
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
+
+
+class Feature(StrEnum):
+    CQRS = "cqrs"
+    EVENTS = "events"
+    SCHEDULER = "scheduler"
 
 
 class AppConfig(BaseModel):
@@ -17,6 +25,8 @@ class AppConfig(BaseModel):
     """
 
     modules: list[str] = Field(min_length=1)
+    features: set[Feature] = Field(default_factory=set)
+    settings: str | None = None
 
 
 class FastAPIConfig(BaseModel):
@@ -161,6 +171,7 @@ class LoggingConfig(BaseModel):
     level: str
     format: Literal["console", "json"]
     service: str
+    index: str = Field(default="logs", min_length=1)
 
 
 class Settings(BaseModel):
@@ -179,15 +190,64 @@ class Settings(BaseModel):
     logging: LoggingConfig
 
     @model_validator(mode="after")
-    def validate_cqrs(self):
-        if self.tasks.projection is not None and self.es is None:
+    def validate_features(self):
+        configured = {
+            Feature.CQRS: self.tasks.projection is not None,
+            Feature.EVENTS: self.tasks.events is not None,
+            Feature.SCHEDULER: self.tasks.schedulers is not None,
+        }
+        for feature, present in configured.items():
+            enabled = feature in self.app.features
+            if enabled and not present:
+                raise ValueError(
+                    f"{feature.value} is enabled but its configuration "
+                    "is missing"
+                )
+            if present and not enabled:
+                raise ValueError(
+                    f"{feature.value} configuration requires enabling "
+                    "the feature"
+                )
+        if Feature.CQRS in self.app.features and self.es is None:
             raise ValueError("CQRS projection requires es configuration")
         return self
 
 
+SettingsT = TypeVar("SettingsT", bound=Settings)
+
+
+def _settings_model(raw: object) -> type[Settings]:
+    if not isinstance(raw, dict):
+        return Settings
+    app = raw.get("app")
+    if not isinstance(app, dict):
+        return Settings
+    dotted = app.get("settings")
+    if not dotted:
+        return Settings
+    if not isinstance(dotted, str) or "." not in dotted:
+        raise ValueError("app.settings must be a dotted model path")
+    module_name, class_name = dotted.rsplit(".", 1)
+    model = getattr(import_module(module_name), class_name)
+    if not isinstance(model, type) or not issubclass(model, Settings):
+        raise TypeError("app.settings must reference a Settings subclass")
+    return model
+
+
+@overload
+def get_settings() -> Settings: ...
+
+
+@overload
+def get_settings(model: type[SettingsT]) -> SettingsT: ...
+
+
 @lru_cache
-def get_settings() -> Settings:
+def get_settings(model: type[SettingsT] | None = None) -> SettingsT | Settings:
     path = Path("config.yml")
     with path.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
-    return Settings.model_validate(raw)
+    selected = model or _settings_model(raw)
+    if model is None and selected is not Settings:
+        return get_settings(selected)
+    return selected.model_validate(raw)
