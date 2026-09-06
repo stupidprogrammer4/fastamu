@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic import Field
 
-from fastamu.common.constants import (
+from fastamu.common.types.constants import (
     INT32_MAX,
     INT32_MIN,
     INT64_MAX,
