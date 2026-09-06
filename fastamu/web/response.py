@@ -3,13 +3,14 @@ from typing import Optional, Sequence, Union
 from fastapi.exceptions import RequestValidationError as PydanticError
 from pydantic import BaseModel
 
-from fastamu.common.bases.schemas import BaseMeta, BaseOutput
 from fastamu.common.errors.base import APPException
-from fastamu.common.errors.schemas import (
+from fastamu.common.errors.outputs import (
     BaseErrorOut,
     ValidationErrorOut,
     errors_types,
 )
+from fastamu.common.schemas.meta import BaseMeta
+from fastamu.common.schemas.outputs import BaseOutput
 from fastamu.core import resources
 
 ErrorType = Union[*errors_types]

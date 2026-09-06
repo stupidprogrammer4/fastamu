@@ -16,12 +16,12 @@ from dishka.integrations.fastapi import FromDishka, inject
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from fastamu.common.encryption import IDEncryption
 from fastamu.common.errors.exceptions import (
     NotFoundException,
     UnAuthorizedException,
 )
-from fastamu.common.utils import jwt_utils
+from fastamu.common.security import tokens
+from fastamu.common.security.ids import IDEncryption
 from fastamu.core import resources
 from fastamu.core.config import Settings
 
@@ -76,7 +76,7 @@ async def get_current_principal(
             message="missing authentication token",
             message_code=resources.MISSING_TOKEN,
         )
-    payload = jwt_utils.decode_token(
+    payload = tokens.decode_token(
         token,
         settings.jwt.secret_key,
         algorithm=settings.jwt.algorithm,

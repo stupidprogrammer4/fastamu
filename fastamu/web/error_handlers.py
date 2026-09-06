@@ -6,10 +6,10 @@ from fastapi.responses import JSONResponse
 from fastapi_csrf_protect.exceptions import CsrfProtectError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from fastamu.common.enums import MediaType
 from fastamu.common.errors.base import APPException
 from fastamu.common.errors.exceptions import TooManyRequestsException
-from fastamu.common.errors.schemas import BaseErrorOut
+from fastamu.common.errors.outputs import BaseErrorOut
+from fastamu.common.types.enums import MediaType
 from fastamu.core import resources
 from fastamu.core.logger import logger
 
