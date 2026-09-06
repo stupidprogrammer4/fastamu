@@ -6,18 +6,20 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from fastamu.common.bases.models import BaseIDModel
 from fastamu.common.errors.exceptions import ConflictException
-from fastamu.infra.postgres.repository.base import PGIDRepository
+from fastamu.common.models.base import BaseIDModel
+from fastamu.infra.db.repository import DBIDRepository
 
 
 class WidgetModel(BaseIDModel):
     code: str = ""
 
 
-class WidgetRepository(PGIDRepository[WidgetModel]):
+class WidgetRepository(DBIDRepository[WidgetModel]):
     def __init__(self) -> None:  # no unit of work; only the translation here
-        pass
+        from fastamu.infra.db.dialects.postgresql import PostgreSQLDialect
+
+        self.dialect = PostgreSQLDialect()
 
 
 def integrity_error(sqlstate: str, detail: str) -> IntegrityError:

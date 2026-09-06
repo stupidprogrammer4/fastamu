@@ -1,4 +1,3 @@
-import re
 from typing import (
     Any,
     AsyncIterator,
@@ -11,55 +10,54 @@ from typing import (
 
 from sqlalchemy import (
     Select,
-    Values,
-    column,
+    and_,
     delete,
     func,
     insert,
     inspect,
-    literal,
+    or_,
     select,
+    tuple_,
     update,
-    values,
 )
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Result
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 from sqlalchemy.sql.base import Executable
-from sqlalchemy.sql.dml import ReturningInsert, ReturningUpdate
 from sqlmodel import col
 
-from fastamu.common.bases.dtos import SupportsToRow
-from fastamu.common.bases.models import (
+from fastamu.common.errors.exceptions import ConflictException
+from fastamu.common.models.base import (
     BaseIDModel,
     BaseIDTimestampModel,
     BaseModel,
     BaseTimestampModel,
 )
-from fastamu.common.bases.results import PagedType
-from fastamu.common.errors.exceptions import ConflictException
+from fastamu.common.schemas.dtos import SupportsToRow
+from fastamu.common.schemas.results import PagedType
 from fastamu.core import resources
 
-from ..uow import PGUnitOfWork
+from .dialects import get_dialect
+from .uow import DBUnitOfWork
 
 
-class PGReader:
+class DBReader:
     """Read side for code that owns no table.
 
     A context module pulls a handful of columns to feed its logic; it has no
     model to bind, so it takes the unit of work and nothing else. Everything a
-    repository does on top of that is in ``PGRepository`` below.
+    repository does on top of that is in ``DBRepository`` below.
     """
 
-    def __init__(self, uow: PGUnitOfWork):
+    def __init__(self, uow: DBUnitOfWork):
         self.session = uow.session
+        self.dialect = get_dialect(self.session.get_bind().dialect.name)
 
 
-class PGRepository[TModel: BaseModel](PGReader):
+class DBRepository[TModel: BaseModel](DBReader):
     """The write side, declared against a model and executed against a table.
 
-    A repository names the **model** it serves — ``PGRepository[BrandModel]``
+    A repository names the **model** it serves — ``DBRepository[BrandModel]``
     — and finds the table itself. That keeps the persistence class out of every
     signature above it: a service asks for a `BrandModel` and gets one, whether
     the row came from `BrandTable` or was built by hand in a test.
@@ -70,8 +68,6 @@ class PGRepository[TModel: BaseModel](PGReader):
     __table__: type[Any]
 
     _managed_columns = frozenset({"created_at", "updated_at"})
-    # postgres unique_violation
-    _unique_violation = "23505"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -86,7 +82,7 @@ class PGRepository[TModel: BaseModel](PGReader):
             if isinstance(args[0], TypeVar):
                 continue
 
-            if isinstance(origin, type) and issubclass(origin, PGRepository):
+            if isinstance(origin, type) and issubclass(origin, DBRepository):
                 model_cls = args[0]
                 cls.__model__ = model_cls
                 cls.__model_name__ = model_cls.__name__.removesuffix("Model")
@@ -122,44 +118,10 @@ class PGRepository[TModel: BaseModel](PGReader):
                 break
         return found
 
-    def _unique_dict(self, detail: str) -> dict[str, Any]:
-        """Read which columns collided out of postgres's own message.
-
-        The driver hands back ``Key (code, tenant_id)=(abc, 3) already
-        exists``; the client wants to know *which* fields it has to change, so
-        the pair is parsed back into a dict. A message that does not match (a
-        different locale, a future wording) yields an empty dict rather than a
-        guess — the 409 is still correct, it just carries less detail.
-
-        Args:
-            detail (str): The `detail` line from the driver's error.
-        Returns:
-            (dict[str, Any]): Column name -> the value that already exists.
-        """
-        found = re.match(r"Key \((.+)\)=\((.+)\) already exists", detail)
-        if found is None:
-            return {}
-        names = [name.strip() for name in found.group(1).split(",")]
-        values = [value.strip() for value in found.group(2).split(",")]
-        return dict(zip(names, values))
-
     def _as_conflict(self, error: IntegrityError) -> ConflictException | None:
-        """Turn a unique violation into the framework's 409, or leave it alone.
-
-        Only SQLSTATE 23505 is ours to translate: a foreign-key or check
-        violation is a bug in the caller, not a duplicate the client can fix,
-        and swallowing it into a 409 would tell them to change a field that was
-        never the problem.
-
-        Args:
-            error (IntegrityError): The error SQLAlchemy raised.
-        Returns:
-            (ConflictException | None): The 409, or None to re-raise as is.
-        """
-        cause = getattr(error.orig, "__cause__", None)
-        if getattr(cause, "sqlstate", None) != self._unique_violation:
+        unique_dict = self.dialect.unique_values(error)
+        if unique_dict is None:
             return None
-        unique_dict = self._unique_dict(getattr(cause, "detail", "") or "")
         name = self.__model_name__
         return ConflictException(
             message=f"Another {name} already holds these values",
@@ -191,6 +153,117 @@ class PGRepository[TModel: BaseModel](PGReader):
             raise conflict from error
         return result
 
+    def _identity_filter(self, rows):
+        columns = list(inspect(self.__table__).primary_key)
+        if not columns:
+            raise ValueError("Repository tables require a primary key")
+        if len(columns) == 1:
+            return columns[0].in_(
+                [getattr(row, columns[0].key) for row in rows]
+            )
+        return tuple_(*columns).in_(
+            [
+                tuple(getattr(row, column.key) for column in columns)
+                for row in rows
+            ]
+        )
+
+    async def _reload(self, rows):
+        if not rows:
+            return []
+        result = await self.session.execute(
+            select(self.__table__)
+            .where(self._identity_filter(rows))
+            .execution_options(populate_existing=True)
+        )
+        return result.scalars().all()
+
+    async def _insert_rows(self, rows):
+        if self.dialect.returning:
+            result = await self._write(
+                insert(self.__table__).values(rows).returning(self.__table__)
+            )
+            return result.scalars().all()
+        # ORM collects generated primary keys without assuming contiguous IDs.
+        objects = [self.__table__(**row) for row in rows]
+        self.session.add_all(objects)
+        try:
+            await self.session.flush()
+        except IntegrityError as error:
+            conflict = self._as_conflict(error)
+            if conflict is None:
+                raise
+            raise conflict from error
+        return await self._reload(objects)
+
+    async def _mutate(self, stmt, where, *, deleting=False):
+        if self.dialect.returning:
+            result = await self._write(stmt.returning(self.__table__))
+            return result.scalars().all()
+        selected = await self.session.execute(
+            select(self.__table__).where(where).with_for_update()
+        )
+        rows = selected.scalars().all()
+        if not rows:
+            return []
+        await self._write(
+            stmt.where(self._identity_filter(rows)).execution_options(
+                synchronize_session=False
+            )
+        )
+        return rows if deleting else await self._reload(rows)
+
+    async def _upsert_rows(self, rows, keys):
+        if not keys:
+            raise ValueError("Upsert requires conflict keys")
+        if any(key not in row for row in rows for key in keys):
+            raise ValueError("Upsert rows must supply every conflict key")
+        stmt = self.dialect.upsert(self.__table__, rows, keys)
+        if self.dialect.returning:
+            result = await self._write(
+                stmt.returning(self.__table__).execution_options(
+                    populate_existing=True
+                )
+            )
+            return result.scalars().all()
+        await self._write(stmt)
+        where = or_(
+            *(
+                and_(
+                    *(getattr(self.__table__, key) == row[key] for key in keys)
+                )
+                for row in rows
+            )
+        )
+        result = await self.session.execute(
+            select(self.__table__)
+            .where(where)
+            .execution_options(populate_existing=True)
+        )
+        return result.scalars().all()
+
+    async def upsert_rows(self, data, index_elements):
+        if not data:
+            return []
+        return await self._upsert_rows(
+            self._rows(data), [self._column_key(key) for key in index_elements]
+        )
+
+    async def bulk_update_rows(self, data, key):
+        if not data:
+            return []
+        rows = self._rows(data)
+        key_name = self._column_key(key)
+        keys = [row[key_name] for row in rows]
+        if len(set(keys)) != len(keys):
+            raise ValueError("Bulk update keys must be unique")
+        stmt = self.dialect.bulk_update(
+            self.__table__, rows, key_name, self._managed_columns
+        )
+        return await self._mutate(
+            stmt, getattr(self.__table__, key_name).in_(keys)
+        )
+
     async def create(self, data: TModel) -> TModel:
         """
         Create a new record.
@@ -200,13 +273,8 @@ class PGRepository[TModel: BaseModel](PGReader):
         Returns:
             (TModel): Created record.
         """
-        stmt = (
-            insert(self.__table__)
-            .values(**data.to_row())
-            .returning(self.__table__)
-        )
-        result = await self._write(stmt)
-        return result.scalar_one()
+        rows = await self._insert_rows([data.to_row()])
+        return rows[0]
 
     async def bulk_create(self, data: Sequence[TModel]) -> Sequence[TModel]:
         """
@@ -218,13 +286,9 @@ class PGRepository[TModel: BaseModel](PGReader):
         Returns:
             (Sequence[TModel]): Created records.
         """
-        stmt = (
-            insert(self.__table__)
-            .values([d.to_row() for d in data])
-            .returning(self.__table__)
-        )
-        result = await self._write(stmt)
-        return result.scalars().all()
+        if not data:
+            return []
+        return await self._insert_rows([row.to_row() for row in data])
 
     async def get_all_stream(
         self, yield_per: int = 100
@@ -288,95 +352,37 @@ class PGRepository[TModel: BaseModel](PGReader):
         items = list(result.unique().scalars().all())
         return PagedType(items=items, total_items=total_items)
 
-    def _values_grid(self, data: Sequence[SupportsToRow]) -> Values:
-        """
-        Build a typed VALUES grid from model rows for FROM-clause joins.
-
-        Args:
-            data (Sequence[SupportsToRow]): Non-empty rows (models or DTOs);
-                their set columns and the model's column types define the grid.
-        Returns:
-            (Values): VALUES construct exposing its columns via ``.c``.
-        """
-        mapper = inspect(self.__table__)
+    @staticmethod
+    def _rows(data: Sequence[SupportsToRow]) -> list[dict[str, Any]]:
         rows = [row.to_row(exclude_unset=True) for row in data]
-        names = list(rows[0].keys())
-        types = {name: mapper.columns[name].type for name in names}
-        return values(
-            *(column(name, types[name]) for name in names),
-            name="bulk_values",
-        ).data(
-            [
-                tuple(literal(row[name], types[name]) for name in names)
-                for row in rows
-            ]
-        )
+        if not rows:
+            raise ValueError("At least one row is required")
+        if any(row.keys() != rows[0].keys() for row in rows):
+            raise ValueError("Batch rows must have the same columns")
+        return rows
 
-    def _upsert_stmt(
-        self,
-        data: SupportsToRow | Sequence[SupportsToRow],
-        index_elements: Sequence[Mapped[Any]],
-    ) -> ReturningInsert[tuple[TModel]]:
-        """
-        Build an INSERT ... ON CONFLICT DO UPDATE ... RETURNING the model.
+    def _values_grid(self, data: Sequence[SupportsToRow]):
+        return self.dialect.values_grid(self.__table__, self._rows(data))
 
-        Args:
-            data (SupportsToRow | Sequence[SupportsToRow]): One row or many to
-                insert.
-            index_elements (Sequence[Mapped[Any]]): Conflict-target columns as
-                model attributes (e.g. ``col(Model.field)``). On conflict every
-                inserted column except these is refreshed from the proposed
-                row.
-        Returns:
-            (ReturningInsert[tuple[TModel]]): The upsert statement.
-        """
-        conflict_keys = {
-            self._column_key(element) for element in index_elements
-        }
-        rows = (
-            [data.to_row()]
-            if isinstance(data, SupportsToRow)
-            else [row.to_row() for row in data]
-        )
-        base = pg_insert(self.__table__).values(rows)
-        set_keys = [name for name in rows[0] if name not in conflict_keys]
-        set_: dict[str, Any] = {name: base.excluded[name] for name in set_keys}
-        stmt = base.on_conflict_do_update(
-            index_elements=list(index_elements), set_=set_
+    def _upsert_stmt(self, data, index_elements):
+        rows = self._rows([data] if isinstance(data, SupportsToRow) else data)
+        keys = [self._column_key(key) for key in index_elements]
+        stmt = self.dialect.upsert(self.__table__, rows, keys)
+        if not self.dialect.returning:
+            raise NotImplementedError(
+                "Use upsert_rows() on dialects without RETURNING"
+            )
+        return stmt.returning(self.__table__)
+
+    def _bulk_update_stmt(self, data, key):
+        rows = self._rows(data)
+        if not self.dialect.returning:
+            raise NotImplementedError(
+                "Use bulk_update_rows() on dialects without RETURNING"
+            )
+        return self.dialect.bulk_update(
+            self.__table__, rows, self._column_key(key), self._managed_columns
         ).returning(self.__table__)
-        return stmt
-
-    def _bulk_update_stmt(
-        self,
-        data: Sequence[SupportsToRow],
-        key: Mapped[Any],
-    ) -> ReturningUpdate[tuple[TModel]]:
-        """
-        Build a bulk UPDATE that sets each row from a typed VALUES grid.
-
-        One statement updates every row: the grid is joined to the table on
-        ``key`` and the set columns are read per-row from the grid.
-
-        Args:
-            data (Sequence[SupportsToRow]): Non-empty rows (models or DTOs)
-                carrying the key plus the columns to write.
-            key (Mapped[Any]): The match column (e.g. ``col(Model.metal_id)``).
-                Every grid column except the key and DB-managed timestamps is
-                written per-row.
-        Returns:
-            (ReturningUpdate[tuple[TModel]]): The bulk update statement.
-        """
-        grid = self._values_grid(data)
-        key_name = self._column_key(key)
-        skip = self._managed_columns | {key_name}
-        set_keys = [name for name in grid.c.keys() if name not in skip]
-        stmt = (
-            update(self.__table__)
-            .where(key == grid.c[key_name])
-            .values({name: grid.c[name] for name in set_keys})
-            .returning(self.__table__)
-        )
-        return stmt
 
     @staticmethod
     def _column_key(element: Mapped[BaseModel]) -> str:
@@ -392,8 +398,8 @@ class PGRepository[TModel: BaseModel](PGReader):
         return element.key  # type: ignore
 
 
-class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
-    def __init__(self, uow: PGUnitOfWork):
+class DBIDRepository[TIDModel: BaseIDModel](DBRepository[TIDModel]):
+    def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
     async def get_by_id(self, id: int) -> Optional[TIDModel]:
@@ -418,13 +424,11 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (Optional[TIDModel]): Deleted record or None.
         """
-        stmt = (
-            delete(self.__table__)
-            .where(col(self.__table__.id) == id)
-            .returning(self.__table__)
+        where = col(self.__table__.id) == id
+        rows = await self._mutate(
+            delete(self.__table__).where(where), where, deleting=True
         )
-        result = await self._write(stmt)
-        return result.scalar_one_or_none()
+        return rows[0] if rows else None
 
     async def update_row_by_id(
         self, id: int, data: TIDModel
@@ -457,14 +461,11 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (Optional[TIDModel]): Updated record or None.
         """
-        stmt = (
-            update(self.__table__)
-            .where(col(self.__table__.id) == id)
-            .values(**row)
-            .returning(self.__table__)
+        where = col(self.__table__.id) == id
+        rows = await self._mutate(
+            update(self.__table__).where(where).values(**row), where
         )
-        result = await self._write(stmt)
-        return result.scalar_one_or_none()
+        return rows[0] if rows else None
 
     async def get_by_ids(self, ids: list[int]) -> Sequence[TIDModel]:
         """
@@ -492,14 +493,12 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (Sequence[TIDModel]): Updated records.
         """
-        stmt = (
-            update(self.__table__)
-            .where(col(self.__table__.id).in_(ids))
-            .values(**row)
-            .returning(self.__table__)
+        if not ids:
+            return []
+        where = col(self.__table__.id).in_(ids)
+        return await self._mutate(
+            update(self.__table__).where(where).values(**row), where
         )
-        result = await self._write(stmt)
-        return result.scalars().all()
 
     async def delete_by_ids(self, ids: Sequence[int]) -> Sequence[TIDModel]:
         """
@@ -510,13 +509,12 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (Sequence[TIDModel]): Deleted records.
         """
-        stmt = (
-            delete(self.__table__)
-            .where(col(self.__table__.id).in_(ids))
-            .returning(self.__table__)
+        if not ids:
+            return []
+        where = col(self.__table__.id).in_(ids)
+        return await self._mutate(
+            delete(self.__table__).where(where), where, deleting=True
         )
-        result = await self._write(stmt)
-        return result.scalars().all()
 
     async def upsert_by_id(self, id: int, row: dict[str, Any]) -> TIDModel:
         """
@@ -529,22 +527,16 @@ class PGIDRepository[TIDModel: BaseIDModel](PGRepository[TIDModel]):
         Returns:
             (TIDModel): Created or updated record.
         """
-        stmt = (
-            pg_insert(self.__table__)
-            .values(id=id, **row)
-            .on_conflict_do_update(
-                index_elements=[col(self.__table__.id)], set_=row
-            )
-            .returning(self.__table__)
-        )
-        result = await self._write(stmt)
-        return result.scalar_one()
+        if "id" in row and row["id"] != id:
+            raise ValueError("Conflicting id in upsert data")
+        rows = await self._upsert_rows([dict(row, id=id)], ["id"])
+        return rows[0]
 
 
-class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
-    PGRepository[TTimestampModel]
+class DBTimestampRepository[TTimestampModel: BaseTimestampModel](
+    DBRepository[TTimestampModel]
 ):
-    def __init__(self, uow: PGUnitOfWork):
+    def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
     async def get_stream_by_date_range(
@@ -584,16 +576,13 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
         Returns:
             (Sequence[TTimestampModel]): Deleted records.
         """
-        stmt = (
-            delete(self.__table__)
-            .where(
-                col(self.__table__.created_at) >= start,
-                col(self.__table__.created_at) <= end,
-            )
-            .returning(self.__table__)
+        where = and_(
+            col(self.__table__.created_at) >= start,
+            col(self.__table__.created_at) <= end,
         )
-        result = await self._write(stmt)
-        return result.scalars().all()
+        return await self._mutate(
+            delete(self.__table__).where(where), where, deleting=True
+        )
 
     async def update_by_date_range(
         self, start: str, end: str, data: BaseModel
@@ -608,21 +597,17 @@ class PGTimestampRepository[TTimestampModel: BaseTimestampModel](
         Returns:
             (Sequence[TTimestampModel]): Updated records.
         """
-        stmt = (
-            update(self.__table__)
-            .where(
-                col(self.__table__.created_at) >= start,
-                col(self.__table__.created_at) <= end,
-            )
-            .values(**data.to_row())
-            .returning(self.__table__)
+        where = and_(
+            col(self.__table__.created_at) >= start,
+            col(self.__table__.created_at) <= end,
         )
-        result = await self._write(stmt)
-        return result.scalars().all()
+        return await self._mutate(
+            update(self.__table__).where(where).values(**data.to_row()), where
+        )
 
 
-class PGTimestampIDRepository[TIDTimestampModel: BaseIDTimestampModel](
-    PGIDRepository[TIDTimestampModel], PGTimestampRepository[TIDTimestampModel]
+class DBTimestampIDRepository[TIDTimestampModel: BaseIDTimestampModel](
+    DBIDRepository[TIDTimestampModel], DBTimestampRepository[TIDTimestampModel]
 ):
-    def __init__(self, uow: PGUnitOfWork):
+    def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
