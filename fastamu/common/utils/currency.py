@@ -6,7 +6,7 @@ one storable integer or `Decimal`, and refuse anything that is not a number
 rather than silently coercing it — a price that quietly becomes `0` is worse
 than a failed import.
 
-`persian_utils` is the other half of the pair: this parses inbound text, that
+`utils.persian` is the other half of the pair: this parses inbound text, that
 formats outbound.
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from fastamu.common.utils import persian_utils
+from fastamu.common.utils import persian
 
 QuotedAmount = str | int | float | Decimal
 
@@ -24,7 +24,7 @@ def _normalize(value: QuotedAmount) -> str | None:
     `None` when the value was already numeric."""
     text = None
     if isinstance(value, str):
-        text = persian_utils.to_english_digits(value)
+        text = persian.to_english_digits(value)
         text = text.strip().replace(",", "").replace("،", "")
     return text
 

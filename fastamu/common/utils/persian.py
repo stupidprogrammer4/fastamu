@@ -2,8 +2,8 @@
 Persian (fa-IR) persentation helpers: digits, money, and Jalali date strings.
 
 -only — these produce human-facing strings, never values you store
-or compute on (store UTC + raw integer Rial; see `date_utils`). Timezone
-handling is delegated to `date_utils.from_db`, so the DB-is-UTC / app-tz
+or compute on (store UTC + raw integer Rial; see `utils.dates`). Timezone
+handling is delegated to `dates.from_db`, so the DB-is-UTC / app-tz
 convention holds: pass the app timezone (`ServerConfig.timezone`) to the date
 formatters.
 
@@ -19,7 +19,7 @@ from decimal import Decimal
 from persiantools import characters, digits
 from persiantools.jdatetime import JalaliDateTime
 
-from fastamu.common.utils.date_utils import from_db
+from fastamu.common.utils.dates import from_db
 
 THOUSANDS_SEP = "،"
 DECIMAL_SEP = "٫"  # U+066B ARABIC DECIMAL SEPARATOR

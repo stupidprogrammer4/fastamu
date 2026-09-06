@@ -6,7 +6,7 @@ Convention in this codebase:
   therefore treated as UTC.
 - The application's display timezone is configured (`ServerConfig.timezone`,
   e.g. ``Asia/Tehran``) and passed in here — this module stays config-agnostic
-  for the same reason as `jwt_utils` / `crypto_utils`.
+  for the same reason as `security.tokens` / `security.crypto`.
 
 So the two normal flows are:
 - reading:  ``from_db(row.created_at, tz)``    (UTC -> app tz)

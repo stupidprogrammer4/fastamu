@@ -1,6 +1,14 @@
 """Lightweight English string helpers (no external deps)."""
 
+import re
+
 _VOWELS = ("a", "e", "i", "o", "u")
+
+
+def snake_case(name: str) -> str:
+    """Separate CamelCase words while keeping acronyms together."""
+    name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
 
 
 def pluralize(word: str) -> str:
