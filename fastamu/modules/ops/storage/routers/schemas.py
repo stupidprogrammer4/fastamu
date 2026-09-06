@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import computed_field
 
-from fastamu.common.bases.schemas import BaseOutput
+from fastamu.common.schemas.outputs import BaseOutput
 
 
 class MediaOut(BaseOutput):

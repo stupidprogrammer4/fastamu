@@ -2,12 +2,12 @@ import mimetypes
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
-from fastamu.common.bases.results import PagedType
-from fastamu.common.bases.services import BaseIDService
 from fastamu.common.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from fastamu.common.schemas.results import PagedType
+from fastamu.common.services import BaseIDService
 from fastamu.core.config import StorageConfig
 from fastamu.modules.ops.storage import resources
 from fastamu.modules.ops.storage.app.helpers import StreamMeter

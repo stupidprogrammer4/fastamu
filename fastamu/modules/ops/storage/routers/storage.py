@@ -8,8 +8,8 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import StreamingResponse
 
-from fastamu.common.bases.schemas import BaseMeta, PagerMeta
-from fastamu.common.types import PageType, PerPageType
+from fastamu.common.schemas.meta import BaseMeta, PagerMeta
+from fastamu.common.types.aliases import PageType, PerPageType
 from fastamu.modules.ops.storage.interfaces import IMediaService
 from fastamu.modules.ops.storage.routers.schemas import MediaOut
 from fastamu.web.dependencies import Scope, require_access

@@ -1,11 +1,11 @@
 from sqlmodel import col, select
 
-from fastamu.common.bases.results import PagedType
-from fastamu.infra.postgres.repository.base import PGIDRepository
+from fastamu.common.schemas.results import PagedType
+from fastamu.infra.db.repository import DBIDRepository
 from fastamu.modules.ops.storage.domain.models import MediaModel
 
 
-class MediaRepository(PGIDRepository[MediaModel]):
+class MediaRepository(DBIDRepository[MediaModel]):
     async def get_by_hash(self, hash: str) -> MediaModel | None:
         """Get a media record by its content hash.
 

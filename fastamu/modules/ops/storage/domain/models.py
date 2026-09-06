@@ -1,5 +1,5 @@
-from fastamu.common.bases.fields import BigIntField, CharField
-from fastamu.common.bases.models import BaseIDTimestampModel
+from fastamu.common.models.base import BaseIDTimestampModel
+from fastamu.common.models.fields import BigIntField, CharField
 
 
 class MediaModel(BaseIDTimestampModel):

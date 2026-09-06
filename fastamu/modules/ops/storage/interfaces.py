@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from fastamu.common.bases.results import PagedType
+from fastamu.common.schemas.results import PagedType
 from fastamu.modules.ops.storage.domain.models import MediaModel
 
 

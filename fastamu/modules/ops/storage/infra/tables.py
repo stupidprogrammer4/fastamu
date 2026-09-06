@@ -1,4 +1,4 @@
-from fastamu.infra.postgres.models.base import BaseTable
+from fastamu.infra.db.table import BaseTable
 from fastamu.modules.ops.storage.domain.models import MediaModel
 
 
