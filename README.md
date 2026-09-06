@@ -55,7 +55,8 @@ migration, and the ES index is created on boot through discovery.
 
 Task backends are optional and configured independently under `tasks`:
 `events` uses FastStream, `projection` uses Taskiq/RabbitMQ, and `schedulers`
-uses Taskiq/Redis. Omit a section (or set it to null) to disable that backend.
+uses Taskiq/Redis. `app.features` is the enabled feature list; its entries must
+match the configured task sections.
 `fastamu new shop --cqrs --scheduler --events` selects the corresponding
 configuration and dependency extras. With no flags, none of these backends
 starts. Event consumers use `fastamu.tasks.events.app:app`.
@@ -1370,14 +1371,16 @@ next test's search.
 ## Configuration reference
 
 `config.yml` (written by `fastamu new`, and gitignored — it holds your secrets).
-All fourteen sections are required.
+The scaffold writes only the optional sections selected at project creation.
 
 | Section | Keys |
 |---|---|
-| `app` | `modules` — the packages the bootstrapper scans, yours first |
+| `app` | `modules` — packages the bootstrapper scans; `features` — enabled optional backends; `settings` — optional dotted path to an application `Settings` subclass |
 | `fastapi` | `title`, `description`, `version` |
 | `db` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
-| `scheduled` | `broker`, `url`, `max_connection_pool_size`, `result_ex_time` — Taskiq jobs and cron; retry is per-job, not configured here |
+| `tasks.events` | `broker`, `url`, `exchange` — optional FastStream events |
+| `tasks.projection` | `broker`, `url`, `prefetch`, `max_retries`, `retry_delay` — optional CQRS projections; requires `es` |
+| `tasks.schedulers` | `broker`, `url`, `max_connection_pool_size`, `result_ex_time` — optional Taskiq jobs and cron |
 | `redis` | `url`, `max_connections`, `socket_timeout`, `socket_connect_timeout`, `health_check_interval` |
 | `rate_limit` | `enabled`, `trusted_proxies`, `general` (`limit`, `window_seconds`), `rules` (name → rule) |
 | `es` | `hosts`, `username`, `password`, `api_key`, `verify_certs`, `ca_certs` |
@@ -1386,7 +1389,7 @@ All fourteen sections are required.
 | `crypto` | `encryption_key`, `password_salt` |
 | `storage` | `path`, `temp_dir`, `max_file_size`, `allowed_extensions` |
 | `csrf` | `secret_key` |
-| `logging` | `level`, `format` (`console` \| `json`), `service` |
+| `logging` | `level`, `format` (`console` \| `json`), `service`, `index` |
 
 ---
 
