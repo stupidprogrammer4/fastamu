@@ -2,6 +2,7 @@ import enum
 from typing import Any, Literal, TypedDict, Unpack
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     Column,
@@ -10,7 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    Index,
+    Identity,
     Integer,
     Numeric,
     SmallInteger,
@@ -18,7 +19,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Enum as SAEnum
 from sqlmodel import Field
 
@@ -85,9 +86,13 @@ def IDField(**kwargs: Unpack[ColumnKwargs]) -> Any:
     field_kwargs, column_kwargs = _split_kwargs(kwargs)
     field_kwargs.setdefault("primary_key", True)
     column_kwargs.setdefault("autoincrement", True)
+    id_type: Any = BigInteger().with_variant(Integer(), "sqlite")
     return Field(
         default=None,
-        sa_type=BigInteger,
+        sa_type=id_type,
+        sa_column_args=(Identity(),)
+        if column_kwargs.get("autoincrement") is not False
+        else (),
         sa_column_kwargs=column_kwargs,
         **field_kwargs,
     )
@@ -149,21 +154,15 @@ def TimestampField(**kwargs: Unpack[ColumnKwargs]) -> Any:
     )
 
 
-def JSONBField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(JSONB, **kwargs)
+def JSONField(**kwargs: Unpack[ColumnKwargs]) -> Any:
+    from fastamu.infra.db.dialects.oracle import OracleJSON
 
-
-def ArrayField(
-    item_type: Any = BigInteger,
-    *,
-    gin_index: str | None = None,
-    **kwargs: Unpack[ColumnKwargs],
-) -> Any:
-    kwargs.setdefault("nullable", False)
-    column = Column(ARRAY(item_type), **kwargs)
-    if gin_index:
-        Index(gin_index, column, postgresql_using="gin")
-    return Field(sa_column=column)
+    type_ = (
+        JSON()
+        .with_variant(JSONB(), "postgresql")
+        .with_variant(OracleJSON(), "oracle")
+    )
+    return _field(type_, **kwargs)
 
 
 def EnumField(

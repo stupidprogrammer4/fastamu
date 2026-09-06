@@ -18,8 +18,8 @@ from typing import Any, Self
 import orjson
 from sqlmodel import SQLModel
 
-from fastamu.common.bases.fields import IDField, TimestampField
-from fastamu.common.utils import date_utils
+from fastamu.common.models.fields import IDField, TimestampField
+from fastamu.common.utils import dates
 
 
 class Base(SQLModel):
@@ -89,9 +89,11 @@ class BaseIDModel(BaseModel):
 class BaseTimestampModel(BaseModel):
     # nullable on the model, NOT NULL in the table: the database fills both
     # stamps, so a row on its way *in* has neither
-    created_at: datetime | None = TimestampField(server_default="NOW()")
+    created_at: datetime | None = TimestampField(
+        server_default="CURRENT_TIMESTAMP"
+    )
     updated_at: datetime | None = TimestampField(
-        server_default="NOW()", onupdate=lambda: date_utils.utc_now()
+        server_default="CURRENT_TIMESTAMP", onupdate=lambda: dates.utc_now()
     )
 
 
