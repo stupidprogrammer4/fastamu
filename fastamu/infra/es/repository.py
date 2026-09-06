@@ -43,10 +43,18 @@ class ESRepository[TDoc: AsyncDocument]:
         """Create the index from the document's mapping."""
         await self.__document__.init(using=self._using)
 
-    async def save(self, doc: TDoc) -> TDoc:
+    async def save(self, doc: TDoc, **options: Any) -> TDoc:
         """Index a document — create, or full-replace by its id."""
-        await doc.save(using=self._using)
+        await doc.save(using=self._using, skip_empty=False, **options)
         return doc
+
+    async def patch_by_id(self, id: str, fields: dict[str, Any]) -> None:
+        """Update supplied fields without reading the document first."""
+        await self._using.update(
+            index=self.__document__.Index.name,
+            id=id,
+            doc=fields,
+        )
 
     async def bulk_insert(
         self, docs: Sequence[TDoc], *, refresh: bool = False
@@ -88,6 +96,29 @@ class ESRepository[TDoc: AsyncDocument]:
         ]
         updated, _ = await async_bulk(self._using, actions, refresh=refresh)
         return updated
+
+    async def bulk_delete(
+        self,
+        ids: Sequence[str],
+        *,
+        refresh: bool = False,
+    ) -> int:
+        """Delete many documents without reading them first."""
+        actions = [
+            {
+                "_op_type": "delete",
+                "_index": self.__document__.Index.name,
+                "_id": id,
+            }
+            for id in ids
+        ]
+        deleted, _ = await async_bulk(
+            self._using,
+            actions,
+            refresh=refresh,
+            raise_on_error=False,
+        )
+        return deleted
 
     async def get(self, id: str) -> TDoc | None:
         """Fetch by id, or ``None`` if it doesn't exist."""
