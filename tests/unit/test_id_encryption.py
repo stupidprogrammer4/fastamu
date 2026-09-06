@@ -3,7 +3,7 @@ one row's public id to another row."""
 
 import pytest
 
-from fastamu.common.encryption import IDEncryption
+from fastamu.common.security.ids import IDEncryption
 
 
 def test_every_id_in_range_maps_to_a_distinct_public_id() -> None:
