@@ -17,6 +17,8 @@ from decimal import Decimal, InvalidOperation
 from fastamu.common.utils import persian
 
 QuotedAmount = str | int | float | Decimal
+MAZANE_FACTOR = Decimal("4.331802")
+TROY_OUNCE_GRAMS = Decimal("31.1034768")
 
 
 def _normalize(value: QuotedAmount) -> str | None:
@@ -40,6 +42,26 @@ def round_rial(amount: int | float | Decimal) -> int:
     """Round to the nearest 10 rial — the smallest unit actually quoted."""
     rial = round(amount / 10) * 10
     return rial
+
+
+def to_mazane(per_gram: int) -> int:
+    """Convert a per-gram rial quote to an Iranian mazane quote."""
+    return round_rial(per_gram * MAZANE_FACTOR)
+
+
+def from_mazane(mazane: int) -> int:
+    """Convert an Iranian mazane quote to its per-gram rial quote."""
+    return round_rial(mazane / MAZANE_FACTOR)
+
+
+def from_usd(amount: Decimal, usd_rial: int) -> int:
+    """Convert an exact USD amount using a rial exchange rate."""
+    return round_rial(amount * Decimal(usd_rial))
+
+
+def with_bubble(intrinsic: int, bubble: int) -> int:
+    """Apply a positive or negative market bubble to intrinsic value."""
+    return round_rial(intrinsic + bubble)
 
 
 def to_rial(value: QuotedAmount) -> int:

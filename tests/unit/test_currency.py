@@ -38,6 +38,12 @@ def test_rounding_lands_on_the_smallest_quoted_unit() -> None:
     assert cu.round_rial(1236) == 1240
 
 
+def test_gold_and_exchange_rate_conversions_use_rial_rounding() -> None:
+    assert cu.from_mazane(cu.to_mazane(10_000_000)) == 10_000_000
+    assert cu.from_usd(Decimal("2.5"), 600_000) == 1_500_000
+    assert cu.with_bubble(10_000_000, -125_000) == 9_875_000
+
+
 @pytest.mark.parametrize("value", ["", "n/a", "12abc", None, True, object()])
 def test_a_non_numeric_amount_raises_instead_of_becoming_zero(value) -> None:
     with pytest.raises(ValueError):
