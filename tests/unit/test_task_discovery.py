@@ -36,6 +36,7 @@ def write_module(root, path, body):
 def test_missing_task_packages_are_optional(discovery):
     _, bootstrapper = discovery
     bootstrapper.boot_schedulers()
+    bootstrapper.boot_projections()
     assert bootstrapper.boot_subscribers() == []
     assert bootstrapper.boot_publishers() == []
 
@@ -81,13 +82,24 @@ def test_broken_import_is_not_silently_skipped(discovery):
         bootstrapper.boot_subscribers()
 
 
-def test_scaffold_creates_three_task_packages():
+def test_projection_discovery_imports_the_real_infrastructure_module(
+    discovery,
+):
+    root, bootstrapper = discovery
+    write_module(root, "infra/projections.py", "registered = True\n")
+
+    bootstrapper.boot_projections()
+
+    module = importlib.import_module("discovery_probe.infra.projections")
+    assert module.registered
+
+
+def test_scaffold_creates_scheduler_and_event_task_packages():
     files = _layout(
         cqrs=False, context=False, http=False, excel=False, tasks=True
     )
     for role in (
         "schedulers",
-        "projection",
         "events",
         "events/subscribers",
         "events/publishers",
@@ -95,3 +107,13 @@ def test_scaffold_creates_three_task_packages():
         assert files[f"tasks/{role}/__init__.py"] == ""
     assert "tasks/schedulers/jobs.py" in files
     assert "tasks/jobs.py" not in files
+    assert not any(path.startswith("tasks/projection") for path in files)
+
+
+def test_cqrs_scaffold_keeps_projections_beside_its_repositories():
+    files = _layout(
+        cqrs=True, context=False, http=False, excel=False, tasks=False
+    )
+
+    assert "infra/projections.py" in files
+    assert not any(path.startswith("tasks/") for path in files)

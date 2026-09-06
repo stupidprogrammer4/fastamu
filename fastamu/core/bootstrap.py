@@ -191,9 +191,10 @@ class Bootstrapper:
             )
 
     def boot_projections(self) -> None:
+        """Import projection classes from their infrastructure module."""
         for module_name in self.submodules:
-            self.import_package_modules(
-                f"{module_name}.tasks.projection", raise_nested=True
+            self.import_module(
+                f"{module_name}.infra.projections", raise_nested=True
             )
 
     def boot_subscribers(self) -> list:

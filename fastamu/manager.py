@@ -493,16 +493,14 @@ def _layout(
             files["domain/documents.py"] = DOCUMENTS
             files["app/commands.py"] = COMMANDS
             files["app/queries.py"] = QUERIES
-    if tasks or scheduler or subscriber or publisher or cqrs:
+            files["infra/projections.py"] = "# Projection definitions\n"
+    if tasks or scheduler or subscriber or publisher:
         files["tasks/__init__.py"] = ""
     if tasks or scheduler:
         files["tasks/schedulers/__init__.py"] = ""
         files["tasks/schedulers/jobs.py"] = TASKS
     if tasks or subscriber or publisher:
         files["tasks/events/__init__.py"] = ""
-    if tasks or cqrs:
-        files["tasks/projection/__init__.py"] = ""
-        files["tasks/projection/handlers.py"] = "# Projection definitions\n"
     if tasks or subscriber:
         files["tasks/events/subscribers/__init__.py"] = ""
     if tasks or publisher:
