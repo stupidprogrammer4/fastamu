@@ -12,10 +12,10 @@ plain pydantic type. And a module that owns logic rather than rows can declare
 models with no table at all.
 """
 
-import json
 from datetime import datetime
 from typing import Any, Self
 
+import orjson
 from sqlmodel import SQLModel
 
 from fastamu.common.bases.fields import IDField, TimestampField
@@ -59,16 +59,23 @@ class Base(SQLModel):
         return cls.model_validate_json(raw)
 
     @classmethod
+    def carried(cls, raw: str | bytes) -> Any:
+        """Decode a JSON payload without validating it into a model.
+
+        For the raw thing a queue, a cache or a webhook handed you, when you
+        want to look at it before deciding what it is. `orjson` parses it —
+        the same decoder the logger writes with, and several times faster than
+        the stdlib on the payload sizes that actually arrive.
+        """
+        return orjson.loads(raw)
+
+    @classmethod
     def from_obj(cls, obj: Any) -> Self:
         return cls.model_validate(obj)
 
     @classmethod
     def from_objs(cls, objs: Any) -> list[Self]:
         return [cls.model_validate(obj) for obj in objs]
-
-    @classmethod
-    def carried(cls, raw: str | bytes) -> Any:
-        return json.loads(raw)
 
 
 class BaseModel(Base):

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from math import ceil
-from typing import Any, ClassVar, Self, override
+from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 
@@ -10,50 +10,12 @@ from fastamu.common.bases.encryption import IDEncryption
 from fastamu.common.enums import FaStrEnum, FilterType
 
 
-class ExtraField[T]:
-    def __set_name__(self, owner: type, name: str) -> None:
-        self._name = name
-
-    def __set__(self, instance: object, value: T) -> None:
-        instance.__dict__[self._name] = value
-
-    def __get__(
-        self, instance: object | None, owner: type | None = None
-    ) -> T | None:
-        if instance is None:
-            return None
-        return instance.__dict__.get(self._name)
-
-
-class HookField[TIn, T]:
-    def __init__(self, hook: Callable[[TIn], T]) -> None:
-        super().__init__()
-        self.hook = hook
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self._name = name
-
-    def __set__(self, instance: object, value: TIn) -> None:
-        instance.__dict__[self._name] = self.hook(value)
-
-    def __get__(
-        self, instance: object | None, owner: type | None = None
-    ) -> T | None:
-        if instance is None:
-            return None
-        return instance.__dict__.get(self._name)
-
-
 class BaseOutput(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
-    def from_obj(
-        cls, model: Any, extra: dict[str, BaseModel] | None = None
-    ) -> Self:
-        return cls.model_validate(
-            model, context={"extra": extra} if extra else None
-        )
+    def from_obj(cls, model: Any) -> Self:
+        return cls.model_validate(model)
 
     @classmethod
     def from_objs(cls, models: Sequence[Any]) -> list[Self]:
@@ -66,18 +28,6 @@ class BaseOutput(BaseModel):
     @classmethod
     def from_dicts(cls, data: Sequence[Any]) -> list[Self]:
         return [cls.model_validate(item) for item in data]
-
-    @override
-    def model_post_init(self, context: Any) -> None:
-        if not isinstance(context, dict):
-            return
-        extra: dict[str, BaseModel] | None = context.get("extra")
-        if not extra:
-            return
-        model_fields = type(self).model_fields
-        for key, val in extra.items():
-            if key in model_fields:
-                setattr(self, key, val)
 
 
 class BaseIDOutput(BaseOutput):
