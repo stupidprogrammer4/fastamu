@@ -1,0 +1,167 @@
+import asyncio
+from collections.abc import AsyncIterator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from dishka import Provider, Scope, make_async_container, provide
+from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
+from taskiq import AckableMessage
+
+from fastamu.common.projections.base import (
+    AbstractBatchProjection,
+    AbstractProjection,
+    AbstractUnProjection,
+)
+from fastamu.common.projections.queue import (
+    BatchProjectionQueue,
+    ProjectionQueue,
+)
+from fastamu.core.config import ProjectionConfig
+from fastamu.tasks.projection import broker as broker_module
+from fastamu.tasks.projection import receiver as receiver_module
+from fastamu.tasks.projection import registry as registry_module
+from fastamu.tasks.projection.registry import ProjectionRegistry
+
+
+@pytest.fixture
+def runtime(monkeypatch):
+    config = ProjectionConfig(url="amqp://localhost", retry_delay=0.001)
+    settings = SimpleNamespace(tasks=SimpleNamespace(projection=config))
+    registry = ProjectionRegistry()
+    broker = broker_module.create_broker(config)
+    monkeypatch.setattr(broker_module, "broker", broker)
+    monkeypatch.setattr(registry_module, "registry", registry)
+    monkeypatch.setattr(registry_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(receiver_module, "get_settings", lambda: settings)
+    broker.kick = AsyncMock()
+    return registry, broker, config
+
+
+def define_projections():
+    class CreateProduct(AbstractProjection):
+        queue_name = "products"
+
+        async def _db_query(self, id):
+            return None
+
+        async def _es_query(self, document):
+            pass
+
+    class UpdateProduct(CreateProduct):
+        pass
+
+    class Order(CreateProduct):
+        queue_name = "orders"
+
+    class Batch(AbstractBatchProjection):
+        queue_name = "products"
+
+        async def _db_query(self, ids):
+            return []
+
+        async def _es_query(self, documents):
+            pass
+
+    class Remove(AbstractUnProjection):
+        queue_name = "products"
+
+        async def _es_query(self, id):
+            pass
+
+    return CreateProduct, UpdateProduct, Order, Batch, Remove
+
+
+def test_one_broker_multiple_queues_multiple_tasks_and_idempotent_build(
+    runtime,
+):
+    registry, broker, _ = runtime
+    classes = define_projections()
+    registry.build()
+    registry.build()
+    assert set(registry.queues) == {"products", "orders"}
+    assert len(broker._task_queues) == 2
+    assert len(broker.get_all_tasks()) == len(classes)
+    assert all(task.broker is broker for task in registry.tasks.values())
+    assert broker._qos == 1
+    assert all(
+        q.arguments["x-single-active-consumer"] for q in broker._task_queues
+    )
+
+
+async def test_publish_only_and_batch_is_one_message(runtime):
+    registry, broker, _ = runtime
+    single, _, _, batch, _ = define_projections()
+    registry.build()
+    await ProjectionQueue().queue(single, 7)
+    await BatchProjectionQueue().queue(batch, [1, 2, 1])
+    await BatchProjectionQueue().queue(batch, [])
+    messages = [
+        broker.formatter.loads(message=c.args[0].message)
+        for c in broker.kick.call_args_list
+    ]
+    assert [m.args for m in messages] == [[7], [[1, 2]]]
+    assert all(m.labels["queue_name"] == "products" for m in messages)
+
+
+async def test_retry_uses_fresh_dishka_scope_and_acks_after_cleanup(runtime):
+    registry, broker, _ = runtime
+    single, *_ = define_projections()
+    seen = []
+    instances = []
+
+    class Dependencies(Provider):
+        @provide(scope=Scope.REQUEST, provides=single)
+        async def projection(self) -> AsyncIterator[object]:
+            instance = single(None)
+            instances.append(instance)
+
+            async def project(id):
+                seen.append(id)
+                if len(instances) == 1:
+                    raise RuntimeError("temporary failure")
+
+            instance.project = project
+            try:
+                yield instance
+            finally:
+                seen.append("closed")
+
+    registry.build()
+    container = make_async_container(TaskiqProvider(), Dependencies())
+    setup_dishka(container, broker)
+    # Only the tested task has a provider; dependency resolution is lazy.
+    receiver = receiver_module.ProjectionReceiver(broker)
+    await ProjectionQueue().queue(single, 9)
+    ack = AsyncMock(side_effect=lambda: seen.append("ack"))
+    delivery = AckableMessage(
+        data=broker.kick.call_args.args[0].message, ack=ack
+    )
+    try:
+        await receiver.callback(delivery)
+        assert seen == [9, "closed", 9, "closed", "ack"]
+        assert instances[0] is not instances[1]
+    finally:
+        await container.close()
+
+
+async def test_exhaustion_keeps_delivery_unacked_until_cancelled(runtime):
+    registry, broker, config = runtime
+    config.max_retries = 0
+    single, *_ = define_projections()
+    registry.build()
+    receiver = receiver_module.ProjectionReceiver(broker)
+    await ProjectionQueue().queue(single, 1)
+    ack = AsyncMock()
+    delivery = AckableMessage(
+        data=broker.kick.call_args.args[0].message, ack=ack
+    )
+    pending = asyncio.create_task(receiver.callback(delivery))
+    try:
+        await asyncio.sleep(0.02)
+        assert not pending.done()
+        ack.assert_not_awaited()
+    finally:
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
