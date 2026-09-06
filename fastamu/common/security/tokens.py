@@ -95,10 +95,14 @@ def decode_token(
     *,
     algorithm: str = DEFAULT_ALGORITHM,
     expected_type: TokenType | None = None,
+    audience: str | None = None,
 ) -> dict[str, Any]:
     try:
         payload: dict[str, Any] = jwt.decode(
-            token, secret_key, algorithms=[algorithm]
+            token,
+            secret_key,
+            algorithms=[algorithm],
+            audience=audience,
         )
     except ExpiredSignatureError as exc:
         raise UnAuthorizedException(
