@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AppConfig(BaseModel):
@@ -25,12 +25,47 @@ class FastAPIConfig(BaseModel):
     version: str
 
 
-class TaskiqConfig(BaseModel):
-    redis_url: str
-    max_connection_pool_size: int
+type Broker = Literal["redis", "rabbitmq"]
+"""Supported broker names."""
 
 
-class PostgreSQLConfig(BaseModel):
+class EventsConfig(BaseModel):
+    """Connection settings for the event broker."""
+
+    broker: Broker
+    url: str = Field(min_length=1)
+
+
+class SchedulersConfig(BaseModel):
+    """Jobs and the cron that starts them, on whichever broker you name.
+
+    No retry policy here on purpose. Whether repeating a job is safe is a
+    property of the job, not of the framework, so a module declares its own
+    on the task it registers.
+    """
+
+    broker: Literal["redis"] = "redis"
+    url: str = Field(min_length=1)
+    max_connection_pool_size: int = Field(default=25, ge=1)
+    result_ex_time: int = Field(default=86_400, gt=0)
+
+
+class ProjectionConfig(BaseModel):
+    broker: Literal["rabbitmq"] = "rabbitmq"
+    url: str = Field(min_length=1)
+    prefetch: Literal[1] = 1
+    max_retries: int = Field(default=3, ge=0)
+    retry_delay: float = Field(default=1.0, gt=0)
+
+
+class TasksConfig(BaseModel):
+    # Omitted/null sections are disabled; no connection settings are required.
+    events: EventsConfig | None = None
+    projection: ProjectionConfig | None = None
+    schedulers: SchedulersConfig | None = None
+
+
+class DatabaseConfig(BaseModel):
     test_dsn: str
     dsn: str
     pool_timeout: int = Field(ge=0)
@@ -130,17 +165,23 @@ class LoggingConfig(BaseModel):
 class Settings(BaseModel):
     app: AppConfig = AppConfig(modules=["fastamu.modules"])
     fastapi: FastAPIConfig
-    taskiq: TaskiqConfig
-    postgresql: PostgreSQLConfig
+    tasks: TasksConfig = Field(default_factory=TasksConfig)
+    db: DatabaseConfig
     crypto: CryptoConfig
     redis: RedisConfig
     rate_limit: RateLimitConfig
     jwt: JWTConfig
     storage: StorageConfig
     csrf: CSRFConfig
-    es: ESConfig
+    es: ESConfig | None = None
     http: HTTPConfig
     logging: LoggingConfig
+
+    @model_validator(mode="after")
+    def validate_cqrs(self):
+        if self.tasks.projection is not None and self.es is None:
+            raise ValueError("CQRS projection requires es configuration")
+        return self
 
 
 @lru_cache

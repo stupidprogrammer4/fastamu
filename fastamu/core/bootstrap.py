@@ -33,7 +33,9 @@ class Bootstrapper:
         self.tables_path = "infra.tables"
         self.routers_path = "routers"
         self.doc_path = "domain.documents"
-        self.tasks_path = "tasks"
+        self.schedulers_path = "tasks.schedulers"
+        self.subscribers_path = "tasks.events.subscribers"
+        self.publishers_path = "tasks.events.publishers"
 
     @cached_property
     def submodules(self) -> list:
@@ -62,6 +64,8 @@ class Bootstrapper:
                 ):
                     if sub_is_pkg and self._is_module(sub_name):
                         modules.append(sub_name)
+        if get_settings().tasks.schedulers is None:
+            modules = [m for m in modules if m != "fastamu.modules.ops.jobs"]
         return modules
 
     def _is_module(self, name: str) -> bool:
@@ -85,7 +89,10 @@ class Bootstrapper:
         try:
             module = importlib.import_module(path)
         except ModuleNotFoundError as e:
-            if raise_nested and e.name != path:
+            missing_package = e.name and (
+                e.name == path or path.startswith(e.name + ".")
+            )
+            if raise_nested and not missing_package:
                 raise
         return module
 
@@ -176,11 +183,44 @@ class Bootstrapper:
                         es_documents.append(obj)
         return es_documents
 
-    def boot_tasks(self) -> None:
-        """Import each module's tasks files so their taskiq tasks register on
-        the broker."""
+    def boot_schedulers(self) -> None:
+        """Register Taskiq jobs from each module's tasks/schedulers package."""
         for module_name in self.submodules:
-            self.import_package_modules(f"{module_name}.{self.tasks_path}")
+            self.import_package_modules(
+                f"{module_name}.{self.schedulers_path}", raise_nested=True
+            )
+
+    def boot_projections(self) -> None:
+        for module_name in self.submodules:
+            self.import_package_modules(
+                f"{module_name}.tasks.projection", raise_nested=True
+            )
+
+    def boot_subscribers(self) -> list:
+        """Discover native FastStream routers without starting consumers."""
+        return self._boot_event_routers(self.subscribers_path)
+
+    def boot_publishers(self) -> list:
+        """Discover native FastStream routers without opening connections."""
+        return self._boot_event_routers(self.publishers_path)
+
+    def _boot_event_routers(self, path: str) -> list:
+        from faststream.rabbit import RabbitRouter
+        from faststream.redis import RedisRouter
+
+        routers = []
+        seen: set[int] = set()
+        for module_name in self.submodules:
+            files = self.import_package_modules(
+                f"{module_name}.{path}", raise_nested=True
+            )
+            for module in files:
+                for _, obj in inspect.getmembers(module):
+                    if isinstance(obj, (RabbitRouter, RedisRouter)):
+                        if id(obj) not in seen:
+                            seen.add(id(obj))
+                            routers.append(obj)
+        return routers
 
     async def boot_es_indices(self, es: AsyncElasticsearch) -> None:
         """Create each ES read-model index (with its mapping) if it's missing.
