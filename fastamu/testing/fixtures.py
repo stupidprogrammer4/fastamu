@@ -26,22 +26,22 @@ from asyncpg.exceptions import PostgresError
 from dishka import Provider, Scope, make_async_container, provide
 from dishka.integrations.fastapi import FastapiProvider, setup_dishka
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import MetaData, delete
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
-import fastamu.tasks.broker  # noqa: F401
-from fastamu.common.passwords import PasswordHasher
+from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import Settings
+from fastamu.infra.db.connection import DBConnection
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
-from fastamu.infra.postgres.connection import PGConnection
-from fastamu.infra.postgres.uow import PGUnitOfWork
 from fastamu.infra.redis.client import RedisClient
+from fastamu.web.ratelimit import RateLimitProvider
 
 
 class _NullScheduleSource(ScheduleSource):
@@ -96,15 +96,13 @@ def _load_settings() -> Settings:
 def integration_settings() -> Settings:
     settings = _load_settings()
     if settings is None:
-        pytest.skip(
-            "integration tests require config.yml with postgresql.test_dsn"
-        )
+        pytest.skip("integration tests require config.yml with db.test_dsn")
     return settings
 
 
 @pytest.fixture(scope="session")
 def test_dsn(integration_settings: Settings) -> str:
-    return integration_settings.postgresql.test_dsn
+    return integration_settings.db.test_dsn
 
 
 @pytest.fixture(scope="session")
@@ -118,7 +116,7 @@ def migrated_test_db(test_dsn: str) -> Iterator[None]:
     # only reaching the database is allowed to skip; a migration that fails
     # once we're connected is a real failure and must be reported as one
     try:
-        asyncio.run(_reset_public_schema(test_dsn))
+        asyncio.run(_reset_test_schema(test_dsn))
     except _UNREACHABLE as exc:
         pytest.skip(f"integration test database is not reachable: {exc}")
     command.upgrade(cfg, "head")
@@ -136,19 +134,26 @@ def migrated_test_db(test_dsn: str) -> Iterator[None]:
 _UNREACHABLE = (OSError, SQLAlchemyError, PostgresError)
 
 
-async def _reset_public_schema(dsn: str) -> None:
+async def _reset_test_schema(dsn: str) -> None:
     engine = create_async_engine(dsn, pool_size=1, max_overflow=0)
     try:
         async with engine.begin() as conn:
-            await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-            await conn.execute(text("CREATE SCHEMA public"))
+            if engine.dialect.name == "postgresql":
+                from fastamu.infra.db.dialects.postgresql import reset_schema
+
+                await reset_schema(conn)
+            else:
+                metadata = MetaData()
+                await conn.run_sync(metadata.reflect)
+                await conn.run_sync(metadata.drop_all)
+
     finally:
         await engine.dispose()
 
 
 @pytest.fixture
-async def pg(test_dsn: str) -> AsyncIterator[PGConnection]:
-    connection = PGConnection(
+async def pg(test_dsn: str) -> AsyncIterator[DBConnection]:
+    connection = DBConnection(
         dsn=test_dsn,
         pool_size=1,
         max_overflow=0,
@@ -162,13 +167,15 @@ async def pg(test_dsn: str) -> AsyncIterator[PGConnection]:
 
 
 @pytest.fixture
-async def uow(pg: PGConnection) -> AsyncIterator[PGUnitOfWork]:
-    async with PGUnitOfWork(pg) as unit:
+async def uow(pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
+    async with DBUnitOfWork(pg) as unit:
         yield unit
 
 
 @pytest.fixture
 async def es(integration_settings: Settings) -> AsyncIterator[ESClient]:
+    if integration_settings.es is None:
+        pytest.skip("Elasticsearch is disabled")
     client = ESClient(
         integration_settings.es.hosts,
         username=integration_settings.es.username,
@@ -184,20 +191,23 @@ async def es(integration_settings: Settings) -> AsyncIterator[ESClient]:
 
 
 @pytest.fixture
-async def clean_db(pg: PGConnection, es: ESClient) -> None:
+async def clean_db(pg: DBConnection, es: ESClient) -> None:
     """Empty every mapped table and read-model index (both discovered from the
     modules) between tests."""
     bootstrapper = get_bootstrapper()
     bootstrapper.boot_sqlmodels()
     tables = list(reversed(SQLModel.metadata.sorted_tables))
     if tables:
-        # one statement: a TRUNCATE per table costs a round-trip and an
-        # ACCESS EXCLUSIVE lock each, before every single test
-        names = ", ".join(f'"{table.name}"' for table in tables)
         async with pg.session_factory() as session:
-            await session.execute(
-                text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
-            )
+            if pg.dialect.name == "postgresql":
+                from fastamu.infra.db.dialects.postgresql import (
+                    truncate_tables,
+                )
+
+                await truncate_tables(session, tables)
+            else:
+                for table in tables:
+                    await session.execute(delete(table))
             await session.commit()
     # a projection outlives the row it came from, so a stale document would
     # answer the next test's search
@@ -229,9 +239,7 @@ def test_settings_of(settings: Settings, test_dsn: str) -> Settings:
     return settings.model_copy(
         deep=True,
         update={
-            "postgresql": settings.postgresql.model_copy(
-                update={"dsn": test_dsn}
-            ),
+            "db": settings.db.model_copy(update={"dsn": test_dsn}),
             "rate_limit": settings.rate_limit.model_copy(
                 update={"enabled": False}
             ),
@@ -263,18 +271,18 @@ def core_provider_of(test_settings: Settings) -> Provider:
             return PasswordHasher(settings.crypto.password_salt)
 
         @provide(scope=Scope.APP)
-        def postgresql(self, settings: Settings) -> PGConnection:
-            return PGConnection(
-                dsn=settings.postgresql.dsn,
+        def database(self, settings: Settings) -> DBConnection:
+            return DBConnection(
+                dsn=settings.db.dsn,
                 pool_size=2,
                 max_overflow=1,
-                pool_timeout=settings.postgresql.pool_timeout,
-                pool_recycle=settings.postgresql.pool_recycle,
+                pool_timeout=settings.db.pool_timeout,
+                pool_recycle=settings.db.pool_recycle,
             )
 
         @provide(scope=Scope.REQUEST)
-        async def uow(self, pg: PGConnection) -> AsyncIterator[PGUnitOfWork]:
-            async with PGUnitOfWork(pg) as unit:
+        async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
+            async with DBUnitOfWork(pg) as unit:
                 yield unit
 
         @provide(scope=Scope.APP)
@@ -302,6 +310,8 @@ def core_provider_of(test_settings: Settings) -> Provider:
 
         @provide(scope=Scope.APP)
         async def es(self, settings: Settings) -> AsyncIterator[ESClient]:
+            if settings.es is None:
+                raise RuntimeError("Elasticsearch is disabled")
             client = ESClient(
                 settings.es.hosts,
                 username=settings.es.username,
@@ -340,6 +350,7 @@ async def dishka_container(integration_settings: Settings, test_dsn: str):
     # edit here.
     container = make_async_container(
         core_provider_of(test_settings_of(integration_settings, test_dsn)),
+        RateLimitProvider(),
         *get_bootstrapper().boot_providers(),
     )
     try:
@@ -398,6 +409,7 @@ async def api_container(api_settings: Settings):
     container = make_async_container(
         FastapiProvider(),
         core_provider_of(api_settings),
+        RateLimitProvider(),
         *get_bootstrapper().boot_providers(),
     )
     try:

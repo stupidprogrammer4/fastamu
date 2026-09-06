@@ -28,7 +28,7 @@ target_metadata = SQLModel.metadata
 # programmatically (e.g. tests override it with the test DSN), keep that.
 _configured_url = config.get_main_option("sqlalchemy.url")
 if not _configured_url or _configured_url.startswith("driver://"):
-    config.set_main_option("sqlalchemy.url", get_settings().postgresql.dsn)
+    config.set_main_option("sqlalchemy.url", get_settings().db.dsn)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
