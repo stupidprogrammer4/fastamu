@@ -6,8 +6,8 @@ from datetime import datetime
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
+from fastamu.common.bases.fields import CharField, TimestampField
 from fastamu.common.bases.models import BaseIDModel
-from fastamu.common.bases.types import CharField, TimestampField
 from fastamu.infra.postgres.models.base import BaseTable
 
 

@@ -18,7 +18,7 @@ from typing import Any, Self
 
 from sqlmodel import SQLModel
 
-from fastamu.common.bases.types import IDField, TimestampField
+from fastamu.common.bases.fields import IDField, TimestampField
 from fastamu.common.utils import date_utils
 
 

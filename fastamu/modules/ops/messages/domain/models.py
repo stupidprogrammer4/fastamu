@@ -1,13 +1,13 @@
 from datetime import datetime
 
-from fastamu.common.bases.models import BaseIDTimestampModel
-from fastamu.common.bases.types import (
+from fastamu.common.bases.fields import (
     BoolField,
     CharField,
     JSONBField,
     TextField,
     TimestampField,
 )
+from fastamu.common.bases.models import BaseIDTimestampModel
 from fastamu.modules.ops.messages.domain.enums import (
     MessageChannel,
     MessageKind,

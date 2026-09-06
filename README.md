@@ -389,7 +389,7 @@ what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
 from fastamu.common.bases.models import BaseIDTimestampModel
-from fastamu.common.bases.types import BoolField, CharField
+from fastamu.common.bases.fields import BoolField, CharField
 
 
 class BrandModel(BaseIDTimestampModel):
@@ -400,7 +400,7 @@ class BrandModel(BaseIDTimestampModel):
 
 `BaseIDTimestampModel` contributes `id`, `created_at` and `updated_at`. Columns use
 the **field factories** from
-[fastamu/common/bases/types.py](fastamu/common/bases/types.py), which default to
+[fastamu/common/bases/fields.py](fastamu/common/bases/fields.py), which default to
 `NOT NULL` — nullability is opt-in, not opt-out.
 
 Bases: `BaseModel` (bare), `BaseIDModel`, `BaseTimestampModel`,
