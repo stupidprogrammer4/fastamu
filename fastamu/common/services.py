@@ -120,7 +120,10 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
 
         items, errors, ids = [], [], []
         base_loc = loc or [f"{self.__model_name__.lower()}_ids"]
-        for idx, id in enumerate(set(input_ids)):
+        positions = {}
+        for index, value in enumerate(input_ids):
+            positions.setdefault(value, index)
+        for id in dict.fromkeys(input_ids):
             if id in founded_ids:
                 items.append(founded_ids[id])
                 ids.append(id)
@@ -131,7 +134,8 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
                             f"Cannot find {self.__model_name__} with id {id}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,
-                        loc=base_loc + [idx],
+                        loc=base_loc + [positions[id]],
+                        input=id,
                     )
                 )
 
@@ -171,7 +175,10 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
 
         items, errors, ids = [], [], []
         base_loc = loc or [f"{self.__model_name__.lower()}_{identifier}s"]
-        for idx, value in enumerate(set(input_values)):
+        positions = {}
+        for index, value in enumerate(input_values):
+            positions.setdefault(value, index)
+        for value in dict.fromkeys(input_values):
             if value in founded_values:
                 items.append(founded_values[value])
                 ids.append(founded_values[value].id)
@@ -183,7 +190,8 @@ class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
                             f"{identifier} {value}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,
-                        loc=base_loc + [idx],
+                        loc=base_loc + [positions[value]],
+                        input=value,
                     )
                 )
 
