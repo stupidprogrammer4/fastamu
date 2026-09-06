@@ -2,8 +2,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from fastamu.common.bases.dtos import BaseDTO
-from fastamu.common.types import (
+from fastamu.common.schemas.dtos import BaseDTO
+from fastamu.common.types.aliases import (
     LStrType,
     MobileType,
     MStrType,

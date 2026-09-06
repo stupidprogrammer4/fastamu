@@ -1,11 +1,11 @@
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import true
+from sqlalchemy import ColumnElement, and_, true
 from sqlmodel import col, select, update
 
-from fastamu.common.bases.results import PagedType
-from fastamu.infra.postgres.repository.base import PGIDRepository
-from fastamu.infra.postgres.uow import PGUnitOfWork
+from fastamu.common.schemas.results import PagedType
+from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.modules.ops.messages.domain.context import (
     MessageContext,
     ProviderContext,
@@ -22,8 +22,8 @@ from fastamu.modules.ops.messages.domain.models import (
 )
 
 
-class SMSProviderRepository(PGIDRepository[SMSProviderModel]):
-    def __init__(self, uow: PGUnitOfWork):
+class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
+    def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
     async def get_by_id(
@@ -41,9 +41,9 @@ class SMSProviderRepository(PGIDRepository[SMSProviderModel]):
         Returns:
             (Optional[SMSProviderModel]): The provider, or None.
         """
-        stmt = select(SMSProviderModel).where(col(SMSProviderModel.id) == id)
+        stmt = select(self.__table__).where(col(self.__table__.id) == id)
         if is_active is not None:
-            stmt = stmt.where(col(SMSProviderModel.is_active).is_(is_active))
+            stmt = stmt.where(col(self.__table__.is_active).is_(is_active))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -62,11 +62,9 @@ class SMSProviderRepository(PGIDRepository[SMSProviderModel]):
         Returns:
             (Optional[SMSProviderModel]): The provider, or None.
         """
-        stmt = select(SMSProviderModel).where(
-            col(SMSProviderModel.code) == code
-        )
+        stmt = select(self.__table__).where(col(self.__table__.code) == code)
         if is_active is not None:
-            stmt = stmt.where(col(SMSProviderModel.is_active).is_(is_active))
+            stmt = stmt.where(col(self.__table__.is_active).is_(is_active))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -86,11 +84,11 @@ class SMSProviderRepository(PGIDRepository[SMSProviderModel]):
         Returns:
             (Sequence[SMSProviderModel]): The providers that match.
         """
-        stmt = select(SMSProviderModel)
+        stmt = select(self.__table__)
         if codes is not None:
-            stmt = stmt.where(col(SMSProviderModel.code).in_(list(codes)))
+            stmt = stmt.where(col(self.__table__.code).in_(list(codes)))
         if is_active is not None:
-            stmt = stmt.where(col(SMSProviderModel.is_active).is_(is_active))
+            stmt = stmt.where(col(self.__table__.is_active).is_(is_active))
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -104,11 +102,8 @@ class SMSProviderRepository(PGIDRepository[SMSProviderModel]):
         Returns:
             (SMSProviderModel): The written provider.
         """
-        stmt = self._upsert_stmt(row, [col(SMSProviderModel.code)])
-        result = await self.session.execute(
-            stmt, execution_options={"populate_existing": True}
-        )
-        return result.scalars().one()
+        rows = await self.upsert_rows([row], [col(self.__table__.code)])
+        return rows[0]
 
     async def update_is_active(
         self,
@@ -128,17 +123,18 @@ class SMSProviderRepository(PGIDRepository[SMSProviderModel]):
         Returns:
             (Sequence[SMSProviderModel]): The providers written.
         """
-        stmt = update(SMSProviderModel).values(is_active=is_active)
+        conditions: list[ColumnElement[bool]] = [true()]
         if exclude_id is not None:
-            stmt = stmt.where(col(SMSProviderModel.id) != exclude_id)
+            conditions.append(col(self.__table__.id) != exclude_id)
         if current is not None:
-            stmt = stmt.where(col(SMSProviderModel.is_active).is_(current))
-        result = await self.session.execute(stmt.returning(SMSProviderModel))
-        return result.scalars().all()
+            conditions.append(col(self.__table__.is_active).is_(current))
+        where = and_(*conditions)
+        stmt = update(self.__table__).where(where).values(is_active=is_active)
+        return await self._mutate(stmt, where)
 
 
-class SMSPatternRepository(PGIDRepository[SMSPatternModel]):
-    def __init__(self, uow: PGUnitOfWork):
+class SMSPatternRepository(DBIDRepository[SMSPatternModel]):
+    def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
     async def get_by_key(self, key: PatternKey) -> Optional[SMSPatternModel]:
@@ -150,7 +146,7 @@ class SMSPatternRepository(PGIDRepository[SMSPatternModel]):
         Returns:
             (Optional[SMSPatternModel]): The pattern, or None.
         """
-        stmt = select(SMSPatternModel).where(col(SMSPatternModel.key) == key)
+        stmt = select(self.__table__).where(col(self.__table__.key) == key)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -167,9 +163,9 @@ class SMSPatternRepository(PGIDRepository[SMSPatternModel]):
         Returns:
             (Sequence[SMSPatternModel]): The patterns that match.
         """
-        stmt = select(SMSPatternModel).order_by(col(SMSPatternModel.key))
+        stmt = select(self.__table__).order_by(col(self.__table__.key))
         if keys is not None:
-            stmt = stmt.where(col(SMSPatternModel.key).in_(list(keys)))
+            stmt = stmt.where(col(self.__table__.key).in_(list(keys)))
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -183,15 +179,12 @@ class SMSPatternRepository(PGIDRepository[SMSPatternModel]):
         Returns:
             (SMSPatternModel): The written pattern.
         """
-        stmt = self._upsert_stmt(row, [col(SMSPatternModel.key)])
-        result = await self.session.execute(
-            stmt, execution_options={"populate_existing": True}
-        )
-        return result.scalars().one()
+        rows = await self.upsert_rows([row], [col(self.__table__.key)])
+        return rows[0]
 
 
-class MessageRepository(PGIDRepository[MessageModel]):
-    def __init__(self, uow: PGUnitOfWork):
+class MessageRepository(DBIDRepository[MessageModel]):
+    def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
     async def bulk_update(
@@ -206,9 +199,7 @@ class MessageRepository(PGIDRepository[MessageModel]):
         Returns:
             (Sequence[MessageModel]): The written messages.
         """
-        stmt = self._bulk_update_stmt(items, col(MessageModel.id))
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return await self.bulk_update_rows(items, col(self.__table__.id))
 
     async def get_page(
         self,
@@ -230,11 +221,11 @@ class MessageRepository(PGIDRepository[MessageModel]):
         Returns:
             (PagedType[MessageModel]): The page and the total count.
         """
-        stmt = select(MessageModel).order_by(col(MessageModel.id).desc())
+        stmt = select(self.__table__).order_by(col(self.__table__.id).desc())
         if status is not None:
-            stmt = stmt.where(col(MessageModel.status) == status)
+            stmt = stmt.where(col(self.__table__.status) == status)
         if recipient is not None:
-            stmt = stmt.where(col(MessageModel.recipient) == recipient)
+            stmt = stmt.where(col(self.__table__.recipient) == recipient)
         return await self._paginate(stmt, offset, limit)
 
     async def get_context_by_id(
@@ -254,7 +245,9 @@ class MessageRepository(PGIDRepository[MessageModel]):
             (Optional[MessageContext]): The message and the provider joined to
                 it, or None when the message does not exist.
         """
-        stmt = self._context_stmt(is_active).where(col(MessageModel.id) == id)
+        stmt = self._context_stmt(is_active).where(
+            col(self.__table__.id) == id
+        )
         result = await self.session.execute(stmt)
         row = result.first()
         return None if row is None else self._context(row)
@@ -277,7 +270,7 @@ class MessageRepository(PGIDRepository[MessageModel]):
                 each with the provider joined to it.
         """
         stmt = self._context_stmt(is_active).where(
-            col(MessageModel.id).in_(list(ids))
+            col(self.__table__.id).in_(list(ids))
         )
         result = await self.session.execute(stmt)
         return [self._context(row) for row in result.all()]
@@ -287,17 +280,18 @@ class MessageRepository(PGIDRepository[MessageModel]):
         # the provider it has not been sent through yet, so the active one is
         # attached by the join condition itself and a message with no provider
         # still comes back
+        provider_table = self._tabled(SMSProviderModel)
         onclause = (
-            col(SMSProviderModel.is_active).is_(is_active)
+            col(provider_table.is_active).is_(is_active)
             if is_active is not None
             else true()
         )
         return select(
-            MessageModel,
-            col(SMSProviderModel.id).label("provider_id"),
-            col(SMSProviderModel.code).label("provider_code"),
-            col(SMSProviderModel.credentials).label("credentials"),
-        ).join(SMSProviderModel, onclause, isouter=True)
+            self.__table__,
+            col(provider_table.id).label("provider_id"),
+            col(provider_table.code).label("provider_code"),
+            col(provider_table.credentials).label("credentials"),
+        ).join(provider_table, onclause, isouter=True)
 
     def _context(self, row: Any) -> MessageContext:
         provider = None

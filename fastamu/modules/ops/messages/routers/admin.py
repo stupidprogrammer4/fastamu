@@ -6,7 +6,7 @@ from typing import Annotated
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, Query
 
-from fastamu.common.bases.schemas import BaseMeta, PagerMeta
+from fastamu.common.schemas.meta import BaseMeta, PagerMeta
 from fastamu.modules.ops.messages.config.dependencies import MessageID
 from fastamu.modules.ops.messages.domain.dtos import (
     MessageSearch,

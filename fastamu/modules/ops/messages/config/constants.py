@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, PlainSerializer
 
-from fastamu.common.encryption import IDEncryption
+from fastamu.common.security.ids import IDEncryption
 
 MESSAGE_ID_ENCRYPTION = IDEncryption(
     mod=99_999_989,
@@ -25,7 +25,3 @@ SMS_PROVIDER_ID_ENCRYPTION = IDEncryption(
 SmsProviderIDField = Annotated[
     int, PlainSerializer(SMS_PROVIDER_ID_ENCRYPTION.encode, return_type=int)
 ]
-
-# the event vocabulary — emitters and handlers meet on these names
-MESSAGE_QUEUED = "message_queued"
-MESSAGES_QUEUED = "messages_queued"

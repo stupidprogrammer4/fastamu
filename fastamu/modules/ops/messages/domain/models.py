@@ -1,13 +1,13 @@
 from datetime import datetime
 
-from fastamu.common.bases.fields import (
+from fastamu.common.models.base import BaseIDTimestampModel
+from fastamu.common.models.fields import (
     BoolField,
     CharField,
-    JSONBField,
+    JSONField,
     TextField,
     TimestampField,
 )
-from fastamu.common.bases.models import BaseIDTimestampModel
 from fastamu.modules.ops.messages.domain.enums import (
     MessageChannel,
     MessageKind,
@@ -26,7 +26,7 @@ class SMSProviderModel(BaseIDTimestampModel):
 
     title: str = CharField(55)
     code: ProviderCode = CharField(35, unique=True)
-    credentials: dict[str, str] = JSONBField(default=dict)
+    credentials: dict[str, str] = JSONField(default=dict)
     is_active: bool = BoolField(default=False)
 
 

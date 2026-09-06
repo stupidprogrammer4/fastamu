@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastamu.common.bases.schemas import BaseIDOutput, BaseOutput
+from fastamu.common.schemas.outputs import BaseIDOutput, BaseOutput
 from fastamu.modules.ops.messages.config.constants import (
     MESSAGE_ID_ENCRYPTION,
     SMS_PROVIDER_ID_ENCRYPTION,

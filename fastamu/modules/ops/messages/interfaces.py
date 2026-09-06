@@ -1,6 +1,6 @@
 from typing import Mapping, Protocol, Sequence
 
-from fastamu.common.bases.results import PagedType
+from fastamu.common.schemas.results import PagedType
 from fastamu.modules.ops.messages.domain.context import MessageContext
 from fastamu.modules.ops.messages.domain.dtos import (
     MessageSearch,

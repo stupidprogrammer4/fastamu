@@ -81,9 +81,9 @@ class SdkSmsGateway(AbstractSmsGateway):
     """
 
     def _sdk(self) -> Any:
-        import sms_providers_sdk
+        from importlib import import_module
 
-        return sms_providers_sdk
+        return import_module("sms_providers_sdk")
 
     async def send(self, recipient: str, body: str) -> SmsDeliveryResult:
         try:

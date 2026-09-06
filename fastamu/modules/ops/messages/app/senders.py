@@ -18,8 +18,7 @@ class SmsSenderService:
     closes, the gateway is called with no transaction open, and a fresh scope
     records the outcome.
 
-    That is also why it lives in APP scope — it is driven by the event bus, not
-    by a request.
+    That is also why it lives in APP scope — it opens its own database scopes.
     """
 
     def __init__(self, container: AsyncContainer) -> None:

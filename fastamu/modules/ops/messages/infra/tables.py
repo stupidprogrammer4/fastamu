@@ -1,6 +1,6 @@
 from sqlalchemy.orm import declared_attr
 
-from fastamu.infra.postgres.models.base import BaseTable
+from fastamu.infra.db.table import BaseTable
 from fastamu.modules.ops.messages.domain.models import (
     MessageModel,
     SMSPatternModel,

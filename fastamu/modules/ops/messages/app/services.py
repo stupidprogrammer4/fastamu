@@ -1,17 +1,15 @@
 from typing import Mapping, Sequence
 
-from fastamu.common.bases.results import PagedType
-from fastamu.common.bases.services import BaseIDService
 from fastamu.common.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from fastamu.common.utils import date_utils
+from fastamu.common.schemas.results import PagedType
+from fastamu.common.services import BaseIDService
+from fastamu.common.utils import dates
 from fastamu.core import resources
 from fastamu.modules.ops.messages.config.constants import (
     MESSAGE_ID_ENCRYPTION,
-    MESSAGE_QUEUED,
-    MESSAGES_QUEUED,
 )
 from fastamu.modules.ops.messages.domain.context import MessageContext
 from fastamu.modules.ops.messages.domain.dtos import (
@@ -28,10 +26,6 @@ from fastamu.modules.ops.messages.domain.enums import (
     PatternKey,
     ProviderCode,
 )
-from fastamu.modules.ops.messages.domain.events import (
-    MessageQueuedInput,
-    MessagesQueuedInput,
-)
 from fastamu.modules.ops.messages.domain.models import (
     MessageModel,
     SMSPatternModel,
@@ -43,7 +37,6 @@ from fastamu.modules.ops.messages.infra.repository import (
     SMSPatternRepository,
     SMSProviderRepository,
 )
-from fastamu.tasks.events import emit
 
 
 class SMSProviderService(BaseIDService[SMSProviderModel]):
@@ -170,9 +163,8 @@ class MessageService(BaseIDService[MessageModel]):
 
     async def queue(self, data: SmsSend) -> MessageModel:
         """
-        Write a message down as owed and ask for it to be sent. It is not
-        delivered here: the row is the record that it should be, and the event
-        is what carries it to whoever sends it.
+        Record a pending message. Automatic dispatch is unavailable until
+        the event subsystem is rewritten.
 
         Args:
             data (SmsSend): The recipient and the text.
@@ -189,7 +181,6 @@ class MessageService(BaseIDService[MessageModel]):
                 tries=0,
             )
         )
-        await emit(MESSAGE_QUEUED, MessageQueuedInput(id=message.id))
         return message
 
     async def queue_bulk(
@@ -198,9 +189,8 @@ class MessageService(BaseIDService[MessageModel]):
         body: str,
     ) -> Sequence[MessageModel]:
         """
-        Owe the same text to several recipients and ask for the batch to be
-        sent. One event carries the whole batch, so a hundred recipients cost
-        one message on the bus rather than a hundred.
+        Record pending messages in one database operation. This method does
+        not dispatch them.
 
         Args:
             recipients (Sequence[str]): The destination numbers.
@@ -222,10 +212,6 @@ class MessageService(BaseIDService[MessageModel]):
                 )
                 for recipient in recipients
             ]
-        )
-        await emit(
-            MESSAGES_QUEUED,
-            MessagesQueuedInput(ids=[row.id for row in queued]),
         )
         return queued
 
@@ -287,12 +273,12 @@ class MessageService(BaseIDService[MessageModel]):
             else MessageStatus.FAILED,
             error=result.error,
             provider_message_id=result.provider_message_id,
-            sent_at=date_utils.utc_now() if result.delivered else None,
+            sent_at=dates.utc_now() if result.delivered else None,
         )
 
     async def retry(self, id: int) -> MessageModel:
         """
-        Owe a failed message again and ask for it to be sent. The try count is
+        Mark a failed message pending again. The try count is
         left standing, so how many attempts a message has cost survives the
         retry.
 
@@ -314,7 +300,6 @@ class MessageService(BaseIDService[MessageModel]):
             MessageModel(id=id, status=MessageStatus.PENDING, error=None),
         )
         updated = self._check_for_id_existence(id, updated)
-        await emit(MESSAGE_QUEUED, MessageQueuedInput(id=updated.id))
         return updated
 
     async def get_page(self, data: MessageSearch) -> PagedType[MessageModel]:
