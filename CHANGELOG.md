@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Make task capabilities explicit through `app.features`; project scaffolding
+  now emits the matching configuration sections and package extras from the
+  same feature selection.
+- Validate feature/configuration mismatches at startup, including the CQRS
+  requirement for Elasticsearch.
+- Let applications select a typed `Settings` subclass through `app.settings`,
+  while keeping YAML loading and caching inside Fastamu.
+- Add a reusable logging index setting.
+
 ## 0.3.3
 
 - Discover projection classes directly from each module's
