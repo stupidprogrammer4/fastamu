@@ -1,8 +1,19 @@
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from sqlalchemy import func, select
 
 from fastamu.infra.db.connection import DBConnection
+
+_AFTER_COMMIT = "fastamu_after_commit"
+
+
+def after_commit(
+    session,
+    callback: Callable[[], Awaitable[None]],
+) -> None:
+    """Register work that must run only after this session commits."""
+    session.info.setdefault(_AFTER_COMMIT, []).append(callback)
 
 
 class DBUnitOfWork:
@@ -29,8 +40,12 @@ class DBUnitOfWork:
 
     async def commit(self):
         await self.session.commit()
+        callbacks = self.session.info.pop(_AFTER_COMMIT, [])
+        for callback in callbacks:
+            await callback()
 
     async def rollback(self):
+        self.session.info.pop(_AFTER_COMMIT, None)
         await self.session.rollback()
 
     async def now(self) -> datetime:
