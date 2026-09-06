@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- Discover projection classes directly from each module's
+  `infra/projections.py`; CQRS scaffolding no longer creates import-only task
+  modules.
+- Add transport-aware event publishing with a configured RabbitMQ topic
+  exchange or Redis channel.
+
 ## 0.3.2
 
 - Add reusable query DTO aliases for list (`name[]`) and mapped-pair
