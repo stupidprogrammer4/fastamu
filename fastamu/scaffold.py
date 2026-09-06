@@ -18,11 +18,27 @@ fastapi:
   description: "<<NAME>> API"
   version: "0.0.0"
 
-taskiq:
-  redis_url: "redis://0.0.0.0:6379/0"
-  max_connection_pool_size: 25
+tasks:
+  events:
+    broker: "rabbitmq"  # rabbitmq | redis
+    url: "amqp://guest:guest@localhost:5672/"
+    # For Redis: broker: "redis", url: "redis://localhost:6379/0"
 
-postgresql:
+  schedulers:
+    # taskiq — jobs and cron. Retry is not configured here: whether repeating a
+    # job is safe belongs to the module defining it.
+    broker: "redis"            # redis
+    url: "redis://0.0.0.0:6379/0"
+    max_connection_pool_size: 25
+    result_ex_time: 86400      # how long a job result stays in redis
+  projection:
+    broker: "rabbitmq"
+    url: "amqp://guest:guest@localhost:5672/"
+    prefetch: 1
+    max_retries: 3
+    retry_delay: 1.0
+
+db:
   test_dsn: "postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/<<PKG>>_test_db"
   dsn: "postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/<<PKG>>_db"
   pool_timeout: 30
@@ -98,7 +114,7 @@ script_location = %(here)s/migrations
 prepend_sys_path = .
 path_separator = os
 # left as the sentinel on purpose: migrations/env.py fills it from
-# postgresql.dsn in config.yml, and the test suite overrides it with test_dsn
+# db.dsn in config.yml, and the test suite overrides it with test_dsn
 sqlalchemy.url = driver://user:pass@localhost/dbname
 
 [loggers]
@@ -166,7 +182,7 @@ target_metadata = SQLModel.metadata
 # programmatically (e.g. tests override it with the test DSN), keep that.
 _configured_url = config.get_main_option("sqlalchemy.url")
 if not _configured_url or _configured_url.startswith("driver://"):
-    config.set_main_option("sqlalchemy.url", get_settings().postgresql.dsn)
+    config.set_main_option("sqlalchemy.url", get_settings().db.dsn)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -447,8 +463,11 @@ cp config.yml.sample config.yml     # fill in the dsn, redis url and secrets
 alembic upgrade head
 
 uvicorn fastamu.web.app:app --reload            # the API, on your modules
-taskiq worker    fastamu.tasks.broker:broker    # background jobs
-taskiq scheduler fastamu.tasks.scheduler:scheduler
+# Only for features enabled when generating this project:
+fastamu projection-worker                     # --cqrs
+faststream run fastamu.tasks.events.app:app    # --events
+taskiq worker    fastamu.tasks.schedulers.broker:broker    # --scheduler
+taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler
 ```
 
 Swagger UI is at `/docs`.
@@ -468,7 +487,7 @@ The module lands in `<<PKG>>/modules/catalog/products/`. Nothing to register:
 
 ```bash
 pytest -m unit           # fast, no services
-pytest -m integration    # against postgresql.test_dsn
+pytest -m integration    # against db.test_dsn
 pytest -m api            # drives the live app
 ```
 """
@@ -478,7 +497,9 @@ def render(text: str, package: str, name: str) -> str:
     return text.replace("<<PKG>>", package).replace("<<NAME>>", name)
 
 
-def files(package: str, name: str) -> dict[str, str]:
+def files(
+    package: str, name: str, *, cqrs=False, scheduler=False, events=False
+) -> dict[str, str]:
     """The project, as a path -> body map.
 
     Args:
@@ -507,12 +528,41 @@ def files(package: str, name: str) -> dict[str, str]:
         "tests/api/__init__.py": "",
         "tests/api/test_smoke.py": SMOKE_TEST,
     }
-    return {path: render(body, package, name) for path, body in layout.items()}
+    import yaml
+
+    rendered = {
+        path: render(body, package, name) for path, body in layout.items()
+    }
+    config = yaml.safe_load(rendered["config.yml"])
+    if not cqrs:
+        config.pop("es", None)
+        config["tasks"].pop("projection", None)
+    if not scheduler:
+        config["tasks"].pop("schedulers", None)
+    if not events:
+        config["tasks"].pop("events", None)
+    for path in ("config.yml", "config.yml.sample"):
+        rendered[path] = yaml.safe_dump(config, sort_keys=False)
+    extras = [
+        name
+        for name, enabled in (
+            ("cqrs", cqrs),
+            ("scheduler", scheduler),
+            ("events", events),
+        )
+        if enabled
+    ]
+    if extras:
+        dependency = "fastamu[" + ",".join(extras) + "]"
+        rendered["pyproject.toml"] = rendered["pyproject.toml"].replace(
+            '"fastamu"', f'"{dependency}"'
+        )
+    return rendered
 
 
-def write(root: Path, package: str, name: str) -> list[Path]:
+def write(root: Path, package: str, name: str, **features) -> list[Path]:
     written = []
-    for rel, body in files(package, name).items():
+    for rel, body in files(package, name, **features).items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")

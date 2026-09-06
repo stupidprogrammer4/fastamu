@@ -17,7 +17,7 @@ Usage::
     python -m fastamu.manager module category
     # CRUD module in a group
     python -m fastamu.manager module catalog.category
-    # + ES read-model, projection, commands/queries
+    # + ES read-model, commands/queries
     python -m fastamu.manager module catalog.category --cqrs
     # pure-logic module (context, reader, no models)
     python -m fastamu.manager module pricing --context
@@ -27,6 +27,11 @@ Usage::
     python -m fastamu.manager module catalog.category --excel
     # + tasks/ (taskiq background tasks)
     python -m fastamu.manager module catalog.category --tasks
+    # + only Taskiq jobs
+    python -m fastamu.manager module catalog.category --scheduler
+    # + only the subscriber or publisher package
+    python -m fastamu.manager module catalog.category --subscriber
+    python -m fastamu.manager module catalog.category --publisher
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ from pathlib import Path
 import typer
 
 from fastamu import scaffold
-from fastamu.common.utils.string_utils import pluralize
+from fastamu.common.utils.strings import pluralize
 from fastamu.core.config import get_settings
 
 app = typer.Typer(help="Fastamu project CLI", no_args_is_help=True)
@@ -154,7 +159,7 @@ def _render(
 
 # --- templates --------------------------------------------------------------
 
-MODELS = """from fastamu.common.bases.models import BaseIDTimestampModel
+MODELS = """from fastamu.common.models.base import BaseIDTimestampModel
 
 
 class <<P>>Model(BaseIDTimestampModel):
@@ -162,7 +167,7 @@ class <<P>>Model(BaseIDTimestampModel):
     ...
 """
 
-TABLES = """from fastamu.infra.postgres.models.base import BaseTable
+TABLES = """from fastamu.infra.db.table import BaseTable
 from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
@@ -171,7 +176,7 @@ class <<P>>Table(<<P>>Model, BaseTable, table=True):
     pass
 """
 
-DTOS = """from fastamu.common.bases.dtos import BaseDTO
+DTOS = """from fastamu.common.schemas.dtos import BaseDTO
 
 
 class <<P>>Create(BaseDTO): ...
@@ -215,7 +220,7 @@ class I<<P>>Service(Protocol):
     async def remove(self, id: int) -> <<P>>Model: ...
 """
 
-SERVICES = """from fastamu.common.bases.services import BaseIDService
+SERVICES = """from fastamu.common.services import BaseIDService
 from <<PKG>>.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
 from <<PKG>>.<<M>>.domain.models import <<P>>Model
 from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
@@ -241,39 +246,23 @@ class <<P>>Service(BaseIDService[<<P>>Model]):
 HELPERS = "# helper functions for the <<S>> module\n"
 
 REPOSITORY = """\
-from fastamu.infra.postgres.repository.base import PGIDRepository
+from fastamu.infra.db.repository import DBIDRepository
 from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
-class <<P>>Repository(PGIDRepository[<<P>>Model]): ...
+class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
 """
 
 REPOSITORY_CQRS = """from fastamu.infra.es.repository import ESRepository
-from fastamu.infra.postgres.repository.base import PGIDRepository
+from fastamu.infra.db.repository import DBIDRepository
 from <<PKG>>.<<M>>.domain.documents import <<P>>Document
 from <<PKG>>.<<M>>.domain.models import <<P>>Model
 
 
-class <<P>>Repository(PGIDRepository[<<P>>Model]): ...
+class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
 
 
 class <<P>>ESRepository(ESRepository[<<P>>Document]): ...
-"""
-
-PROJECTIONS = """\
-from fastamu.infra.es.projection import AbstractESProjection
-from <<PKG>>.<<M>>.infra.repository import (
-    <<P>>ESRepository,
-    <<P>>Repository,
-)
-
-
-class <<P>>Projection(
-    AbstractESProjection[<<P>>Repository, <<P>>ESRepository]
-):
-    async def project(self, id: int) -> bool:
-        # read the PG row, then save the mapped <<P>>Document into ES
-        return True
 """
 
 GATEWAYS = '''from fastamu.infra.http.gateway import BaseGateway
@@ -313,7 +302,6 @@ class <<P>>Provider(Provider):
 PROVIDERS_CQRS = """from dishka import Provider, Scope, provide
 
 from <<PKG>>.<<M>>.app.services import <<P>>Service
-from <<PKG>>.<<M>>.infra.projections import <<P>>Projection
 from <<PKG>>.<<M>>.infra.repository import (
     <<P>>ESRepository,
     <<P>>Repository,
@@ -326,22 +314,18 @@ class <<P>>Provider(Provider):
 
     <<S>>_repo = provide(<<P>>Repository)
     <<S>>_es_repo = provide(<<P>>ESRepository)
-    <<S>>_projection = provide(<<P>>Projection)
     <<S>>_service = provide(<<P>>Service, provides=I<<P>>Service)
 """
 
 COMMANDS = """from <<PKG>>.<<M>>.domain.dtos import <<P>>Create
 from <<PKG>>.<<M>>.domain.models import <<P>>Model
-from <<PKG>>.<<M>>.infra.projections import <<P>>Projection
 from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
-from fastamu.tasks.projection import project
 
 
 class <<P>>CreateCommand:
     def __init__(self, repo: <<P>>Repository) -> None:
         self.repo = repo
 
-    @project(<<P>>Projection)
     async def execute(self, data: <<P>>Create) -> <<P>>Model:
         raise NotImplementedError
 """
@@ -376,24 +360,24 @@ class <<P>>Context:
     \"\"\"
 """
 
-CONTEXT_DTOS = """from fastamu.common.bases.dtos import BaseDTO
+CONTEXT_DTOS = """from fastamu.common.schemas.dtos import BaseDTO
 
 
 class <<P>>Input(BaseDTO): ...
 """
 
-CONTEXT_SCHEMAS = """from fastamu.common.bases.schemas import BaseOutput
+CONTEXT_SCHEMAS = """from fastamu.common.schemas.outputs import BaseOutput
 
 
 class <<P>>Out(BaseOutput): ...
 """
 
 CONTEXT_READERS = """\
-from fastamu.infra.postgres.repository.base import PGReader
+from fastamu.infra.db.repository import DBReader
 from <<PKG>>.<<M>>.domain.context import <<P>>Context
 
 
-class <<P>>Reader(PGReader):
+class <<P>>Reader(DBReader):
     \"\"\"Reads the specific columns the <<S>> logic runs on — nothing more.
 
     It owns no table: one statement selects exactly the fields it needs and
@@ -457,7 +441,15 @@ class <<P>>Provider(Provider):
 
 
 def _layout(
-    *, cqrs: bool, context: bool, http: bool, excel: bool, tasks: bool
+    *,
+    cqrs: bool,
+    context: bool,
+    http: bool,
+    excel: bool,
+    tasks: bool,
+    scheduler: bool = False,
+    subscriber: bool = False,
+    publisher: bool = False,
 ) -> dict[str, str]:
     """The files a module is made of, as ``relative path -> template``."""
     if context:
@@ -499,12 +491,22 @@ def _layout(
         }
         if cqrs:
             files["domain/documents.py"] = DOCUMENTS
-            files["infra/projections.py"] = PROJECTIONS
             files["app/commands.py"] = COMMANDS
             files["app/queries.py"] = QUERIES
-    if tasks:
+    if tasks or scheduler or subscriber or publisher or cqrs:
         files["tasks/__init__.py"] = ""
-        files["tasks/jobs.py"] = TASKS
+    if tasks or scheduler:
+        files["tasks/schedulers/__init__.py"] = ""
+        files["tasks/schedulers/jobs.py"] = TASKS
+    if tasks or subscriber or publisher:
+        files["tasks/events/__init__.py"] = ""
+    if tasks or cqrs:
+        files["tasks/projection/__init__.py"] = ""
+        files["tasks/projection/handlers.py"] = "# Projection definitions\n"
+    if tasks or subscriber:
+        files["tasks/events/subscribers/__init__.py"] = ""
+    if tasks or publisher:
+        files["tasks/events/publishers/__init__.py"] = ""
     if http:
         files["infra/gateways.py"] = GATEWAYS
     if excel:
@@ -522,7 +524,7 @@ def module(
         ),
     ),
     cqrs: bool = typer.Option(
-        False, "--cqrs", help="add ES read-model + projection"
+        False, "--cqrs", help="add ES read-model + commands/queries"
     ),
     context: bool = typer.Option(
         False,
@@ -536,7 +538,16 @@ def module(
         False, "--excel", help="add infra/exporters.py (excel/file)"
     ),
     tasks: bool = typer.Option(
-        False, "--tasks", help="add tasks/ (taskiq background tasks)"
+        False, "--tasks", help="add schedulers, subscribers and publishers"
+    ),
+    scheduler: bool = typer.Option(
+        False, "--scheduler", help="add tasks/schedulers/ (Taskiq jobs)"
+    ),
+    subscriber: bool = typer.Option(
+        False, "--subscriber", help="add tasks/events/subscribers/"
+    ),
+    publisher: bool = typer.Option(
+        False, "--publisher", help="add tasks/events/publishers/"
     ),
 ) -> None:
     """Scaffold a module into the app's modules package."""
@@ -569,7 +580,14 @@ def module(
     (parent_dir / "__init__.py").touch(exist_ok=True)
 
     for rel, tpl in _layout(
-        cqrs=cqrs, context=context, http=http, excel=excel, tasks=tasks
+        cqrs=cqrs,
+        context=context,
+        http=http,
+        excel=excel,
+        tasks=tasks,
+        scheduler=scheduler,
+        subscriber=subscriber,
+        publisher=publisher,
     ).items():
         path = module_dir / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -587,6 +605,9 @@ def module(
 
 @app.command()
 def new(
+    cqrs: bool = typer.Option(False, "--cqrs"),
+    scheduler: bool = typer.Option(False, "--scheduler"),
+    events: bool = typer.Option(False, "--events"),
     name: str = typer.Argument(..., help="project name, e.g. shop or my-shop"),
     directory: str = typer.Option(
         "",
@@ -612,7 +633,9 @@ def new(
         typer.secho(f"{root} already exists and is not empty", fg=RED)
         raise typer.Exit(code=1)
 
-    scaffold.write(root, package, name)
+    scaffold.write(
+        root, package, name, cqrs=cqrs, scheduler=scheduler, events=events
+    )
     typer.secho(f"✓ created project '{name}' at {root}", fg=GREEN)
     typer.echo(
         f"\n  cd {root}\n"
@@ -620,6 +643,28 @@ def new(
         "  # fill in config.yml, then:\n"
         "  alembic upgrade head\n"
         "  uvicorn fastamu.web.app:app --reload\n"
+    )
+
+
+@app.command("projection-worker")
+def projection_worker():
+    """Consume projection queues; each queue has one in-flight delivery."""
+    import os
+    import sys
+
+    os.execv(
+        sys.executable,
+        [
+            sys.executable,
+            "-m",
+            "taskiq",
+            "worker",
+            "fastamu.tasks.projection.worker:get_broker",
+            "--workers",
+            "1",
+            "--receiver",
+            "fastamu.tasks.projection.receiver:ProjectionReceiver",
+        ],
     )
 
 
