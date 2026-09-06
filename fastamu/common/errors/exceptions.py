@@ -6,7 +6,7 @@ from typing import Any, Sequence
 from fastamu.core import resources
 
 from .base import APPException
-from .schemas import (
+from .outputs import (
     ConflictErrorOut,
     ForbiddenErrorOut,
     NotFoundErrorOut,

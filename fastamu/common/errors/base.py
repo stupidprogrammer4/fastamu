@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .schemas import BaseErrorOut
+from .outputs import BaseErrorOut
 
 
 class APPException[T: BaseErrorOut](Exception, ABC):
