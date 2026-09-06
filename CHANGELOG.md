@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Add reusable query DTO aliases for list (`name[]`) and mapped-pair
+  (`name{}`) parameters, including pair validation and grouping helpers.
+- Add reusable sort and filter response metadata with localized sort orders.
+- Add rial, mazane, exchange-rate and market-bubble conversion helpers.
+
 ## 0.3.1
 
 - Preserve Python defaults, nullable values and database-generated values in
