@@ -6,22 +6,23 @@ from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import get_settings
 from fastamu.core.provider import CoreProvider
-from fastamu.tasks.middlewares.logging import LoggingMiddleware
+from fastamu.tasks.schedulers.middlewares.logging import LoggingMiddleware
 
 settings = get_settings()
+if settings.tasks.schedulers is None:
+    raise RuntimeError("Scheduler is disabled; configure tasks.schedulers")
 bootstrapper = get_bootstrapper()
 
 broker = RedisStreamBroker(
-    url=settings.taskiq.redis_url,
-    max_connection_pool_size=settings.taskiq.max_connection_pool_size,
+    url=settings.tasks.schedulers.url,
+    max_connection_pool_size=settings.tasks.schedulers.max_connection_pool_size,
 ).with_result_backend(
     # without an expiry every result ever produced stays in Redis, and
-    # noeviction turns a full Redis into refused writes — a stalled queue.
-    # a result is only read to see how a run just went, so it expires fast
+    # noeviction turns a full Redis into refused writes — a stalled queue
     RedisAsyncResultBackend(
-        settings.taskiq.redis_url,
+        settings.tasks.schedulers.url,
         prefix_str="taskiq_result",
-        result_ex_time=86_400,
+        result_ex_time=settings.tasks.schedulers.result_ex_time,
     )
 )
 
@@ -30,7 +31,7 @@ providers = bootstrapper.boot_providers()
 container = make_async_container(TaskiqProvider(), CoreProvider(), *providers)
 
 setup_dishka(container, broker)
-bootstrapper.boot_tasks()
+bootstrapper.boot_schedulers()
 
 broker.additional_streams.update(
     {
@@ -41,4 +42,15 @@ broker.additional_streams.update(
     }
 )
 
-broker.with_middlewares(LoggingMiddleware(), SmartRetryMiddleware())
+broker.with_middlewares(
+    LoggingMiddleware(),
+    # Scheduled work carries no framework-wide retry policy: a module decides
+    # whether its own job is safe to repeat and says so on the task —
+    # `retry_on_error`, `max_retries` and `delay` are read off its labels.
+    # The shape of the wait is taskiq's and applies to every task alike.
+    SmartRetryMiddleware(
+        use_delay_exponent=True,
+        max_delay_exponent=60,
+        use_jitter=True,
+    ),
+)
