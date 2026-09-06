@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 
-from fastamu.common.bases.encryption import IDEncryption
+from fastamu.common.encryption import IDEncryption
 from fastamu.common.enums import FaStrEnum, FilterType
 
 

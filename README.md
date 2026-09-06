@@ -142,10 +142,10 @@ shop/
 # the installed package — `import fastamu`
 fastamu/
 ├── common/          # Shared foundations — depend on nothing else in the app
-│   ├── bases/       # models.py (entity bases) + types.py (field factories),
-│   │                # BaseService, BaseDTO, BaseOutput, BaseMeta, PagedType,
-│   │                # BatchResultType, AbstractESProjection, EventHandler,
-│   │                # IDEncryption
+│   ├── bases/       # models.py + fields.py (what a row is, and its columns),
+│   │                # dtos.py / schemas.py (in and out), services.py,
+│   │                # results.py, events.py
+│   ├── encryption.py  passwords.py   # IDEncryption, PasswordHasher
 │   ├── errors/      # APPException hierarchy + the *ErrorOut wire schemas
 │   ├── utils/       # date / jwt / crypto / string / persian / currency
 │   ├── types.py     # validation aliases (IdType, SlugType, RialType, …)
@@ -161,7 +161,7 @@ fastamu/
 │
 ├── infra/           # Adapters to the outside world
 │   ├── postgres/    # BaseTable, repository bases, connection, uow
-│   ├── es/          # client, repository, analyzers
+│   ├── es/          # client, repository, analyzers, AbstractESProjection
 │   ├── redis/       # pooled async client
 │   ├── http/        # pooled httpx client + BaseGateway
 │   ├── ratelimit/   # sliding-window limiter, bucket keys, the route guard
@@ -1109,6 +1109,9 @@ Implement the projection in `infra/projections.py` — it reads Postgres and wri
 the document:
 
 ```python
+from fastamu.infra.es.projection import AbstractESProjection
+
+
 class BrandProjection(AbstractESProjection[BrandRepository, BrandESRepository]):
     async def project(self, id: int) -> bool:
         brand = await self.pg_repo.get_by_id(id)
@@ -1299,7 +1302,7 @@ payload = decode_token(token, cfg.secret_key, expected_type=TokenType.ACCESS)
 A malformed stored hash is a non-match, never an exception — a legacy row cannot take
 a login endpoint down.
 
-**`IDEncryption`** ([fastamu/common/bases/encryption.py](fastamu/common/bases/encryption.py))
+**`IDEncryption`** ([fastamu/common/encryption.py](fastamu/common/encryption.py))
 — exposes a serial primary key as a public id that doesn't announce your row count
 (`/orders/42` says how many orders exist; `/orders/43` is a valid guess). It is a
 modular multiplication, so it is reversible, stateless and needs no extra column:

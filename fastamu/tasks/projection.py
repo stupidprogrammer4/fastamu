@@ -5,7 +5,7 @@ from typing import Any, get_args
 from dishka.integrations.taskiq import FromDishka, inject
 from pydantic import BaseModel
 
-from fastamu.common.bases.projection import (
+from fastamu.infra.es.projection import (
     AbstractBatchPayloadProjection,
     AbstractBatchProjection,
     AbstractESProjection,

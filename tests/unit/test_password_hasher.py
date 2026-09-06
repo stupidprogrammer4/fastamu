@@ -4,7 +4,7 @@ off the event loop."""
 
 import threading
 
-from fastamu.common.bases.passwords import PasswordHasher
+from fastamu.common.passwords import PasswordHasher
 from fastamu.common.utils import crypto_utils
 
 

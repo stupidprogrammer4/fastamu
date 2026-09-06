@@ -261,7 +261,7 @@ class <<P>>ESRepository(ESRepository[<<P>>Document]): ...
 """
 
 PROJECTIONS = """\
-from fastamu.common.bases.projection import AbstractESProjection
+from fastamu.infra.es.projection import AbstractESProjection
 from <<PKG>>.<<M>>.infra.repository import (
     <<P>>ESRepository,
     <<P>>Repository,

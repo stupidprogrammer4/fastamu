@@ -4,7 +4,7 @@ from dishka import Provider, Scope, provide
 from taskiq import ScheduleSource
 from taskiq_redis import RedisScheduleSource
 
-from fastamu.common.bases.passwords import PasswordHasher
+from fastamu.common.passwords import PasswordHasher
 from fastamu.core.config import Settings, get_settings
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection

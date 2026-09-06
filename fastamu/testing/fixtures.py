@@ -34,7 +34,7 @@ from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
 import fastamu.tasks.broker  # noqa: F401
-from fastamu.common.bases.passwords import PasswordHasher
+from fastamu.common.passwords import PasswordHasher
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import Settings
 from fastamu.infra.es.client import ESClient

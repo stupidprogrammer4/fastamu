@@ -16,7 +16,7 @@ from dishka.integrations.fastapi import FromDishka, inject
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from fastamu.common.bases.encryption import IDEncryption
+from fastamu.common.encryption import IDEncryption
 from fastamu.common.errors.exceptions import (
     NotFoundException,
     UnAuthorizedException,

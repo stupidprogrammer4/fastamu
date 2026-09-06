@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, PlainSerializer
 
-from fastamu.common.bases.encryption import IDEncryption
+from fastamu.common.encryption import IDEncryption
 
 MESSAGE_ID_ENCRYPTION = IDEncryption(
     mod=99_999_989,
