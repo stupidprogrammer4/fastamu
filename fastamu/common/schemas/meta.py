@@ -11,8 +11,8 @@ from typing import Self
 
 from pydantic import BaseModel
 
-from fastamu.common.schemas.outputs import BaseOutput
-from fastamu.common.types.enums import FilterType
+from fastamu.common.schemas.outputs import EnumOut
+from fastamu.common.types.enums import FaStrEnum, FilterType, SortOrder
 
 
 class PagerMeta(BaseModel):
@@ -32,7 +32,19 @@ class PagerMeta(BaseModel):
         )
 
 
-class FilterMeta[TOut: BaseOutput](BaseModel):
+class SortMeta(BaseModel):
+    options: list[EnumOut]
+    orders: list[EnumOut]
+
+    @classmethod
+    def of(cls, options: type[FaStrEnum]) -> "SortMeta":
+        return cls(
+            options=EnumOut.of(options),
+            orders=EnumOut.of(SortOrder),
+        )
+
+
+class FilterMeta[TOut: BaseModel](BaseModel):
     # id of the entity behind the facet (e.g. the attribute id), when it has
     # one
     id: int | None = None
@@ -44,3 +56,4 @@ class FilterMeta[TOut: BaseOutput](BaseModel):
 class BaseMeta(BaseModel):
     pager: PagerMeta | None = None
     filters: dict[str, FilterMeta] | None = None
+    sorts: SortMeta | None = None

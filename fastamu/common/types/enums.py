@@ -27,9 +27,9 @@ class FaStrEnum(StrEnum):
         return member
 
 
-class SortOrder(StrEnum):
-    ASC = "asc"
-    DESC = "desc"
+class SortOrder(FaStrEnum):
+    ASC = ("asc", "صعودی")
+    DESC = ("desc", "نزولی")
 
 
 class MediaType(StrEnum):
