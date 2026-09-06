@@ -14,7 +14,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, insert
 from sqlmodel import Field
 
-from fastamu.common.models.fields import ColumnKwargs, _field
+from fastamu.common.models.fields import (
+    ColumnKwargs,
+    _field,
+    _model_defaults,
+)
 
 from .base import DatabaseDialect
 
@@ -90,9 +94,18 @@ def ArrayField(
     **kwargs: Unpack[ColumnKwargs],
 ) -> Any:
     kwargs.setdefault("nullable", False)
+    defaults = _model_defaults(kwargs)
+    if "server_default" in kwargs and not kwargs.get("nullable"):
+        defaults = {"default_factory": list}
     column = Column(ARRAY(item_type), **kwargs)
     if gin_index:
         Index(gin_index, column, postgresql_using="gin")
+    if "default_factory" in defaults:
+        return Field(
+            default_factory=defaults["default_factory"], sa_column=column
+        )
+    if "default" in defaults:
+        return Field(default=defaults["default"], sa_column=column)
     return Field(sa_column=column)
 
 

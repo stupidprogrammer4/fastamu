@@ -9,6 +9,7 @@ from sqlalchemy import (
     Computed,
     Date,
     DateTime,
+    DefaultClause,
     Float,
     ForeignKey,
     Identity,
@@ -58,9 +59,19 @@ class ColumnKwargs(TypedDict, total=False):
 _FIELD_MANAGED_KEYS = ("nullable", "index", "unique", "primary_key")
 
 
+def _model_defaults(kwargs: ColumnKwargs) -> dict[str, Any]:
+    if "default" in kwargs:
+        default = kwargs["default"]
+        key = "default_factory" if callable(default) else "default"
+        return {key: default}
+    if kwargs.get("nullable") or "server_default" in kwargs:
+        return {"default": None}
+    return {}
+
+
 def _split_kwargs(
     kwargs: ColumnKwargs,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     column_kwargs: dict[str, Any] = dict(kwargs)
     field_kwargs: dict[str, Any] = {
         key: column_kwargs.pop(key)
@@ -73,17 +84,22 @@ def _split_kwargs(
     server_default = column_kwargs.get("server_default")
     if isinstance(server_default, str):
         column_kwargs["server_default"] = text(server_default)
-    return field_kwargs, column_kwargs
+    return field_kwargs, column_kwargs, _model_defaults(kwargs)
 
 
 def _field(type_: Any, **kwargs: Unpack[ColumnKwargs]) -> Any:
-    field_kwargs, column_kwargs = _split_kwargs(kwargs)
+    field_kwargs, column_kwargs, defaults = _split_kwargs(kwargs)
     field_kwargs.setdefault("nullable", False)
-    return Field(sa_type=type_, sa_column_kwargs=column_kwargs, **field_kwargs)
+    return Field(
+        sa_type=type_,
+        sa_column_kwargs=column_kwargs,
+        **field_kwargs,
+        **defaults,
+    )
 
 
 def IDField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    field_kwargs, column_kwargs = _split_kwargs(kwargs)
+    field_kwargs, column_kwargs, _ = _split_kwargs(kwargs)
     field_kwargs.setdefault("primary_key", True)
     column_kwargs.setdefault("autoincrement", True)
     id_type: Any = BigInteger().with_variant(Integer(), "sqlite")
@@ -127,10 +143,20 @@ def NumericField(
 
 
 def CharField(length: int, **kwargs: Unpack[ColumnKwargs]) -> Any:
+    default = kwargs.get("server_default")
+    if isinstance(default, str) and not (
+        default.startswith("'") and default.endswith("'")
+    ):
+        kwargs["server_default"] = DefaultClause(default)
     return _field(String(length), **kwargs)
 
 
 def TextField(**kwargs: Unpack[ColumnKwargs]) -> Any:
+    default = kwargs.get("server_default")
+    if isinstance(default, str) and not (
+        default.startswith("'") and default.endswith("'")
+    ):
+        kwargs["server_default"] = DefaultClause(default)
     return _field(Text, **kwargs)
 
 
@@ -144,13 +170,13 @@ class _TZDateTime(DateTime):
 
 
 def TimestampField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    field_kwargs, column_kwargs = _split_kwargs(kwargs)
+    field_kwargs, column_kwargs, defaults = _split_kwargs(kwargs)
     field_kwargs.setdefault("nullable", False)
     return Field(
-        default=None,
         sa_type=_TZDateTime,
         sa_column_kwargs=column_kwargs,
         **field_kwargs,
+        **defaults,
     )
 
 
@@ -168,6 +194,11 @@ def JSONField(**kwargs: Unpack[ColumnKwargs]) -> Any:
 def EnumField(
     enum_cls: type[enum.Enum], **kwargs: Unpack[ColumnKwargs]
 ) -> Any:
+    default = kwargs.get("server_default")
+    if isinstance(default, str) and not (
+        default.startswith("'") and default.endswith("'")
+    ):
+        kwargs["server_default"] = DefaultClause(default)
     return _field(SAEnum(enum_cls), **kwargs)
 
 
@@ -195,8 +226,10 @@ def ForeignKeyField(
 ) -> Any:
     kwargs.setdefault("index", True)
     kwargs.setdefault("nullable", False)
+    defaults = _model_defaults(kwargs)
     return Field(
         sa_column=Column(
             BigInteger, ForeignKey(target, ondelete=ondelete), **kwargs
-        )
+        ),
+        **defaults,
     )
