@@ -2,14 +2,13 @@ from typing import AsyncIterable, AsyncIterator
 
 from dishka import Provider, Scope, provide
 from taskiq import ScheduleSource
-from taskiq_redis import RedisScheduleSource
 
-from fastamu.common.passwords import PasswordHasher
+from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.config import Settings, get_settings
+from fastamu.infra.db.connection import DBConnection
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
-from fastamu.infra.postgres.connection import PGConnection
-from fastamu.infra.postgres.uow import PGUnitOfWork
 from fastamu.infra.redis.client import RedisClient
 
 
@@ -23,22 +22,24 @@ class CoreProvider(Provider):
         return PasswordHasher(settings.crypto.password_salt)
 
     @provide(scope=Scope.APP)
-    def postgresql(self, settings: Settings) -> PGConnection:
-        return PGConnection(
-            dsn=settings.postgresql.dsn,
-            pool_size=settings.postgresql.pool_size,
-            max_overflow=settings.postgresql.max_overflow,
-            pool_timeout=settings.postgresql.pool_timeout,
-            pool_recycle=settings.postgresql.pool_recycle,
+    def database(self, settings: Settings) -> DBConnection:
+        return DBConnection(
+            dsn=settings.db.dsn,
+            pool_size=settings.db.pool_size,
+            max_overflow=settings.db.max_overflow,
+            pool_timeout=settings.db.pool_timeout,
+            pool_recycle=settings.db.pool_recycle,
         )
 
     @provide(scope=Scope.REQUEST)
-    async def uow(self, pg: PGConnection) -> AsyncIterable[PGUnitOfWork]:
-        async with PGUnitOfWork(pg) as uow:
+    async def uow(self, pg: DBConnection) -> AsyncIterable[DBUnitOfWork]:
+        async with DBUnitOfWork(pg) as uow:
             yield uow
 
     @provide(scope=Scope.APP)
     async def es(self, settings: Settings) -> AsyncIterator[ESClient]:
+        if settings.es is None:
+            raise RuntimeError("Elasticsearch is disabled; configure es")
         client = ESClient(
             settings.es.hosts,
             username=settings.es.username,
@@ -54,9 +55,13 @@ class CoreProvider(Provider):
 
     @provide(scope=Scope.APP)
     def schedule_source(self, settings: Settings) -> ScheduleSource:
+        from taskiq_redis import RedisScheduleSource
+
+        if settings.tasks.schedulers is None:
+            raise RuntimeError("Scheduler is disabled")
         return RedisScheduleSource(
-            url=settings.taskiq.redis_url,
-            max_connection_pool_size=settings.taskiq.max_connection_pool_size,
+            url=settings.tasks.schedulers.url,
+            max_connection_pool_size=settings.tasks.schedulers.max_connection_pool_size,
         )
 
     @provide(scope=Scope.APP)
