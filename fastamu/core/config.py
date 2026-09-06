@@ -34,6 +34,7 @@ class EventsConfig(BaseModel):
 
     broker: Broker
     url: str = Field(min_length=1)
+    exchange: str = Field(default="events", min_length=1)
 
 
 class SchedulersConfig(BaseModel):

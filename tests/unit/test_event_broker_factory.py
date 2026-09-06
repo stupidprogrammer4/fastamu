@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -46,3 +46,26 @@ def test_generated_config_builds_real_brokers_without_network():
     assert isinstance(BrokerFactory.create(config), RabbitBroker)
     redis_config = EventsConfig(broker="redis", url="redis://localhost:6379/3")
     assert isinstance(BrokerFactory.create(redis_config), RedisBroker)
+
+
+async def test_rabbit_event_publish_uses_configured_topic_exchange(
+    monkeypatch,
+):
+    from pydantic import BaseModel
+
+    from fastamu.tasks.events import broker as event_module
+
+    class Event(BaseModel):
+        value: int
+
+    sent = AsyncMock()
+    monkeypatch.setattr(event_module.broker, "publish", sent)
+
+    await event_module.publish("catalog.changed", Event(value=7))
+
+    sent.assert_awaited_once_with(
+        {"value": 7},
+        exchange=event_module.rabbit_exchange(),
+        routing_key="catalog.changed",
+        persist=True,
+    )
