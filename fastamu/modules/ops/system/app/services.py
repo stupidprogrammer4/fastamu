@@ -3,11 +3,11 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy import text
 
-from fastamu.common.utils import date_utils
+from fastamu.common.utils import dates
 from fastamu.core.config import Settings
 from fastamu.core.logger import logger
+from fastamu.infra.db.connection import DBConnection
 from fastamu.infra.es.client import ESClient
-from fastamu.infra.postgres.connection import PGConnection
 from fastamu.infra.redis.client import RedisClient
 from fastamu.modules.ops.system.routers.schemas import (
     ComponentHealthOut,
@@ -23,12 +23,12 @@ class SystemService:
     def __init__(
         self,
         settings: Settings,
-        pg: PGConnection,
+        db: DBConnection,
         redis: RedisClient,
         es: ESClient,
     ) -> None:
         self.settings = settings
-        self.pg = pg
+        self.db = db
         self.redis = redis
         self.es = es
 
@@ -39,7 +39,7 @@ class SystemService:
             (HealthOut): Per-component health and an "ok"/"degraded" summary.
         """
         components = {
-            "postgres": await self._check(self._ping_postgres),
+            self.db.dialect.name: await self._check(self._ping_db),
             "redis": await self._check(self._ping_redis),
             "elasticsearch": await self._check(self._ping_es),
         }
@@ -60,7 +60,7 @@ class SystemService:
             version=self.settings.fastapi.version,
             python_version=platform.python_version(),
             platform=platform.platform(),
-            server_time=date_utils.utc_now(),
+            server_time=dates.utc_now(),
         )
 
     async def _check(
@@ -76,8 +76,8 @@ class SystemService:
             result = ComponentHealthOut(healthy=False, error=str(exc))
         return result
 
-    async def _ping_postgres(self) -> None:
-        async with self.pg.session_factory() as session:
+    async def _ping_db(self) -> None:
+        async with self.db.session_factory() as session:
             await session.execute(text("SELECT 1"))
 
     async def _ping_redis(self) -> None:

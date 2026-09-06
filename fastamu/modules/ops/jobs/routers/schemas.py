@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastamu.common.bases.schemas import BaseOutput
+from fastamu.common.schemas.outputs import BaseOutput
 
 
 class JobOut(BaseOutput):

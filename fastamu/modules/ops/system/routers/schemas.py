@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastamu.common.bases.schemas import BaseOutput
+from fastamu.common.schemas.outputs import BaseOutput
 
 
 class ComponentHealthOut(BaseOutput):
