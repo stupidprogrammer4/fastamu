@@ -10,11 +10,12 @@ from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import get_settings
 from fastamu.core.provider import CoreProvider
 from fastamu.infra.es.client import ESClient
+from fastamu.tasks.lifespan import task_lifespan
 
 from .docs import setup_docs
 from .error_handlers import setup_exception_handlers
 from .middlewares.logging import LoggingMiddleware
-from .middlewares.ratelimit import RateLimitMiddleware
+from .ratelimit import RateLimitMiddleware, RateLimitProvider
 
 # get settings
 settings = get_settings()
@@ -22,22 +23,27 @@ settings = get_settings()
 # bootstrap
 bootstrapper = get_bootstrapper()
 
-import fastamu.tasks.broker  # noqa: E402, F401
 
 providers = bootstrapper.boot_providers()
 routers = bootstrapper.boot_routers()
 bootstrapper.boot_sqlmodels()
 
-container = make_async_container(FastapiProvider(), CoreProvider(), *providers)
+container = make_async_container(
+    FastapiProvider(), CoreProvider(), RateLimitProvider(), *providers
+)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    async with container() as request_container:
-        es_client = await request_container.get(ESClient)
-        await bootstrapper.boot_es_indices(es_client.client)
-    yield
-    await container.close()
+    try:
+        async with task_lifespan():
+            if settings.es is not None:
+                async with container() as request_container:
+                    es_client = await request_container.get(ESClient)
+                    await bootstrapper.boot_es_indices(es_client.client)
+            yield
+    finally:
+        await container.close()
 
 
 app = FastAPI(
