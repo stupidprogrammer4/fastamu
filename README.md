@@ -24,8 +24,7 @@ fastamu module catalog.product --cqrs
 ```
 
 That's it. The router is live, the service is injectable, the table is in the next
-migration, the ES index is created on boot, and the projection job is registered
-on the broker — because the bootstrapper found them.
+migration, and the ES index is created on boot through discovery.
 
 ---
 
@@ -54,6 +53,15 @@ on the broker — because the bootstrapper found them.
 
 ---
 
+Task backends are optional and configured independently under `tasks`:
+`events` uses FastStream, `projection` uses Taskiq/RabbitMQ, and `schedulers`
+uses Taskiq/Redis. Omit a section (or set it to null) to disable that backend.
+`fastamu new shop --cqrs --scheduler --events` selects the corresponding
+configuration and dependency extras. With no flags, none of these backends
+starts. Event consumers use `fastamu.tasks.events.app:app`.
+The API starts publisher connections for enabled backends; it does not start
+consumers. Pending SMS records are not automatically dispatched.
+
 ## The stack: what each tool does
 
 Fastamu is deliberately not a from-scratch framework. Each concern is delegated
@@ -64,9 +72,9 @@ behave as one thing.
 |---|---|---|
 | HTTP, validation, OpenAPI | **FastAPI** | Auto-included routers, a uniform response envelope, typed error handlers, offline (CDN-free) Swagger UI |
 | Dependency injection | **dishka** | A `CoreProvider` with the whole infra layer pre-wired; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes shared identically by the web app *and* the task worker |
-| Background jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, per-projection queues, retry + logging middleware |
-| Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Generic `PGRepository` hierarchy built on `RETURNING`, patch-semantics writes, statement-agnostic pagination, bulk upsert/update helpers, a `UnitOfWork` bound to the request |
-| Read side / search | **Elasticsearch DSL** (async) | `ESRepository`, index auto-creation on boot, and `@project` / `@batch_project` / `@unproject` decorators that keep the read model in sync with every write |
+| Scheduled jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, retry + logging middleware |
+| Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Generic `DBRepository` hierarchy with dialect-specific SQL, patch-semantics writes, statement-agnostic pagination, bulk upsert/update helpers, a `UnitOfWork` bound to the request |
+| Read side / search | **Elasticsearch DSL** (async) | `ESRepository` and index auto-creation on boot |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
 | Outbound HTTP | **httpx** | One pooled client for the process, plus a `BaseGateway` that owns base url, headers and per-API timeouts |
@@ -80,7 +88,7 @@ behave as one thing.
 
 ## Quickstart
 
-**Runtime requirements:** Python **3.13+**, **PostgreSQL**, **Redis**.
+**Runtime requirements:** Python **3.13+**, a SQL database (PostgreSQL by default), **Redis**.
 Elasticsearch is only needed if you use the CQRS read side.
 
 ```bash
@@ -90,9 +98,9 @@ pip install fastamu
 fastamu new shop && cd shop
 
 # 2) Config — config.yml is gitignored; it holds your secrets
-#    fill in: postgresql.dsn, postgresql.test_dsn, redis.url,
+#    fill in: db.dsn, db.test_dsn, redis.url,
 #             taskiq.redis_url, jwt.secret_key, crypto.encryption_key
-pip install -e ".[dev]"
+pip install -e ".[dev,events,cqrs,scheduler]"
 
 # 3) Schema
 alembic upgrade head
@@ -101,8 +109,8 @@ alembic upgrade head
 uvicorn fastamu.web.app:app --reload
 
 # 5) Worker + scheduler (separate processes)
-taskiq worker    fastamu.tasks.broker:broker
-taskiq scheduler fastamu.tasks.scheduler:scheduler
+taskiq worker    fastamu.tasks.schedulers.broker:broker      # jobs
+taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler # cron
 ```
 
 `fastamu new` writes only what is yours — a package for your modules, the config
@@ -110,7 +118,7 @@ the framework reads, alembic wiring and a test suite. **The framework stays in
 site-packages**: there is no vendored copy to keep in step, and upgrading is
 `pip install -U fastamu`.
 
-Working *on* Fastamu itself instead? Clone it and `pip install -e ".[dev]"` —
+Working *on* Fastamu itself instead? Clone it and `pip install -e ".[dev,events,cqrs,scheduler]"` —
 its own `config.yml` points `app.modules` at `fastamu.modules`, so the `ops`
 reference modules are what boots.
 
@@ -142,14 +150,14 @@ shop/
 # the installed package — `import fastamu`
 fastamu/
 ├── common/          # Shared foundations — depend on nothing else in the app
-│   ├── bases/       # models.py + fields.py (what a row is, and its columns),
-│   │                # dtos.py / schemas.py (in and out), services.py,
-│   │                # results.py, events.py
-│   ├── encryption.py  passwords.py   # IDEncryption, PasswordHasher
-│   ├── errors/      # APPException hierarchy + the *ErrorOut wire schemas
-│   ├── utils/       # date / jwt / crypto / string / persian / currency
-│   ├── types.py     # validation aliases (IdType, SlugType, RialType, …)
-│   ├── enums.py  constants.py
+│   ├── models/      # what an entity is — base.py, fields.py (its columns)
+│   ├── schemas/     # what crosses the wire — dtos.py (in), outputs.py (out),
+│   │                # meta.py (paging, facets), results.py (PagedType, …)
+│   ├── errors/      # base.py, exceptions.py, outputs.py (the *ErrorOut shapes)
+│   ├── security/    # passwords.py, crypto.py, tokens.py, ids.py
+│   ├── utils/       # dates.py, strings.py, persian.py, currency.py
+│   ├── types/       # the shared vocabulary — aliases.py, enums.py, constants.py
+│   ├── services.py  # BaseService, BaseIDService
 │
 ├── core/            # The framework's heart
 │   ├── bootstrap.py # Auto-discovery: modules, routers, providers, models,
@@ -160,17 +168,15 @@ fastamu/
 │   └── resources.py # Global message codes
 │
 ├── infra/           # Adapters to the outside world
-│   ├── postgres/    # BaseTable, repository bases, connection, uow
-│   ├── es/          # client, repository, analyzers, AbstractESProjection
+│   ├── db/          # shared repository, connection, uow, table; dialects/
+│   ├── es/          # client, repository, analyzers
 │   ├── redis/       # pooled async client
 │   ├── http/        # pooled httpx client + BaseGateway
-│   ├── ratelimit/   # sliding-window limiter, bucket keys, the route guard
 │   └── excel/       # ProcessPool-backed reader / writer
 │
-├── tasks/           # taskiq
+├── scheduled/       # taskiq — jobs and cron
 │   ├── broker.py    # The broker (boots its own DI container)
 │   ├── scheduler.py # TaskiqScheduler (label + Redis schedule sources)
-│   ├── projection.py# @project / @batch_project / @unproject
 │   └── middlewares/ # logging
 │
 ├── web/             # The HTTP layer
@@ -220,16 +226,18 @@ modules/[<group>/]<name>/
 ├── app/            # Business logic
 │   ├── services.py
 │   ├── helpers.py
-│   ├── commands.py     # (CQRS only) writes that trigger projections
+│   ├── commands.py     # (CQRS only) write commands
 │   └── queries.py      # (CQRS only) reads that hit Elasticsearch
 ├── infra/          # This module's adapters
 │   ├── tables.py       # the SQLModel tables carrying domain/models.py
 │   ├── repository.py
-│   ├── projections.py  # (CQRS only)
 │   ├── gateways.py     # (--http)  outbound HTTP clients
 │   └── exporters.py    # (--excel) file/spreadsheet exporters
 ├── routers/        # One file per concern (admin.py, public.py, …)
-├── tasks/          # One file per group of taskiq tasks
+├── tasks/
+│   ├── schedulers/  # Taskiq jobs
+│   ├── subscribers/ # FastStream subscriber routers
+│   └── publishers/  # FastStream publisher routers
 ├── interfaces.py   # I*Service Protocols — the module's public contract
 ├── providers.py    # The module's dishka Provider
 └── resources.py    # Module-scoped message codes (add by hand when you need them)
@@ -260,7 +268,7 @@ modules/pricing/
 ├── routers/  interfaces.py  providers.py
 ```
 
-The reader extends `PGReader` — a repository base with no model bound to it,
+The reader extends `DBReader` — a repository base with no model bound to it,
 just the session — and returns a context instead of rows. The service splits in
 two: `run()` sits at the edge and does the reading, `calculate()` stays pure.
 
@@ -306,7 +314,9 @@ group is optional: `modules/pricing/` is found by the same rule that finds
 | **Providers** | `<module>/providers.py` | Every `dishka.Provider` subclass, instantiated and merged into the container |
 | **Tables** | `<module>/infra/tables.py` | Imported so the `table=True` classes register on the shared metadata (this is what Alembic autogenerate sees). Only this file — a `domain/models.py` maps to nothing |
 | **ES documents** | `<module>/domain/documents.py` | Every `AsyncDocument` subclass; its index is created on app startup if missing |
-| **Tasks** | `<module>/tasks/*.py` | Imported so `@broker.task` registers each task on the broker |
+| **Schedulers** | `<module>/tasks/schedulers/*.py` | Imported by `boot_schedulers()` to register Taskiq jobs |
+| **Subscribers** | `<module>/tasks/events/subscribers/*.py` | Native FastStream routers returned by `boot_subscribers()` |
+| **Publishers** | `<module>/tasks/events/publishers/*.py` | Native FastStream routers returned by `boot_publishers()` |
 
 Consequences worth internalising:
 
@@ -337,9 +347,12 @@ singular.
 ```bash
 fastamu module product                   # CRUD, no group
 fastamu module catalog.product           # CRUD, filed under catalog/
-fastamu module catalog.product --cqrs    # + ES read model, projection, commands/queries
+fastamu module catalog.product --cqrs    # + ES read model, commands/queries
 fastamu module pricing --context         # pure logic: context + reader, no models
-fastamu module catalog.product --tasks   # + tasks/
+fastamu module catalog.product --tasks       # all three task packages
+fastamu module catalog.product --scheduler   # only tasks/schedulers/
+fastamu module catalog.product --subscriber  # only tasks/events/subscribers/
+fastamu module catalog.product --publisher   # only tasks/events/publishers/
 fastamu module catalog.product --http    # + infra/gateways.py
 fastamu module catalog.product --excel   # + infra/exporters.py
 ```
@@ -388,8 +401,8 @@ no ORM base, no `__tablename__`. That is what keeps `domain/` honest — it name
 what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
-from fastamu.common.bases.models import BaseIDTimestampModel
-from fastamu.common.bases.fields import BoolField, CharField
+from fastamu.common.models.base import BaseIDTimestampModel
+from fastamu.common.models.fields import BoolField, CharField
 
 
 class BrandModel(BaseIDTimestampModel):
@@ -400,7 +413,7 @@ class BrandModel(BaseIDTimestampModel):
 
 `BaseIDTimestampModel` contributes `id`, `created_at` and `updated_at`. Columns use
 the **field factories** from
-[fastamu/common/bases/fields.py](fastamu/common/bases/fields.py), which default to
+[fastamu/common/models/fields.py](fastamu/common/models/fields.py), which default to
 `NOT NULL` — nullability is opt-in, not opt-out.
 
 Bases: `BaseModel` (bare), `BaseIDModel`, `BaseTimestampModel`,
@@ -417,7 +430,7 @@ One line maps the model onto a real table. This file is the *only* place that
 knows a database exists, and the only one the bootstrapper imports for metadata:
 
 ```python
-from fastamu.infra.postgres.models.base import BaseTable
+from fastamu.infra.db.table import BaseTable
 from shop.modules.catalog.brands.domain.models import BrandModel
 
 
@@ -427,7 +440,7 @@ class BrandTable(BrandModel, BaseTable, table=True):
 
 Constraints and indexes that span columns live here too — `__table_args__`, a
 `UniqueConstraint`, an explicit `__tablename__`. Repositories are still declared
-against the **model** (`PGIDRepository[BrandModel]`) and find the table
+against the **model** (`DBIDRepository[BrandModel]`) and find the table
 themselves, so no layer above `infra/` ever names `BrandTable`.
 
 > **Table naming gotcha.** `__tablename__` is derived as
@@ -439,12 +452,12 @@ themselves, so no layer above `infra/` ever names `BrandTable`.
 ### 2. Validated input — `domain/dtos.py`
 
 DTOs are **plain pydantic**, never SQLModel: input validation must not depend on
-the ORM. Draw the field types from [fastamu/common/types.py](fastamu/common/types.py) so
+the ORM. Draw the field types from [fastamu/common/types/aliases.py](fastamu/common/types/aliases.py) so
 validation rules stay consistent across the codebase.
 
 ```python
-from fastamu.common.bases.dtos import BaseDTO
-from fastamu.common.types import SlugType, StrType
+from fastamu.common.schemas.dtos import BaseDTO
+from fastamu.common.types.aliases import SlugType, StrType
 
 
 class BrandCreate(BaseDTO):
@@ -480,7 +493,7 @@ Add computed fields, or narrow to a subset by declaring only what you want — a
 schema that must differ from the model still starts from `BaseOutput`:
 
 ```python
-from fastamu.common.bases.schemas import BaseOutput
+from fastamu.common.schemas.outputs import BaseOutput
 
 
 class BrandSummaryOut(BaseOutput):
@@ -499,12 +512,12 @@ Inherit and you get the whole CRUD surface for free.
 ```python
 from sqlmodel import col, select
 
-from fastamu.common.bases.results import PagedType
-from fastamu.infra.postgres.repository.base import PGIDRepository
+from fastamu.common.schemas.results import PagedType
+from fastamu.infra.db.repository import DBIDRepository
 from fastamu.modules.catalog.brands.domain.models import BrandModel
 
 
-class BrandRepository(PGIDRepository[BrandModel]):
+class BrandRepository(DBIDRepository[BrandModel]):
     async def get_by_slug(self, slug: str) -> BrandModel | None:
         stmt = select(BrandModel).where(col(BrandModel.slug) == slug)
         result = await self.session.execute(stmt)
@@ -527,7 +540,7 @@ Business rules live here, and only here. `BaseIDService` reads the model off the
 generic parameter and gives you guards that raise the framework's typed errors.
 
 ```python
-from fastamu.common.bases.services import BaseIDService
+from fastamu.common.services import BaseIDService
 from fastamu.common.errors.exceptions import ConflictException
 from fastamu.core import resources
 from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
@@ -606,7 +619,7 @@ class BrandProvider(Provider):
 
 `provide(BrandService, provides=IBrandService)` binds the implementation to the
 `Protocol`. Callers depend on `IBrandService`; only this line knows the concrete
-class. `BrandRepository`'s `PGUnitOfWork` argument is resolved by `CoreProvider`
+class. `BrandRepository`'s `DBUnitOfWork` argument is resolved by `CoreProvider`
 — you never construct it.
 
 **This file is the entire registration.** No import into a central module, no list
@@ -618,7 +631,7 @@ to append to.
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends
 
-from fastamu.common.types import IdType
+from fastamu.common.types.aliases import IdType
 from fastamu.modules.catalog.brands.domain.dtos import BrandCreate
 from fastamu.modules.catalog.brands.routers.schemas import BrandOut
 from fastamu.modules.catalog.brands.interfaces import IBrandService
@@ -683,13 +696,13 @@ layer injectable out of the box:
 | Inject this | Scope | What you get |
 |---|---|---|
 | `Settings` | APP | The parsed `config.yml` |
-| `PGConnection` | APP | The async engine + session factory |
-| `PGUnitOfWork` | **REQUEST** | A session inside a transaction — committed on success, rolled back on exception |
+| `DBConnection` | APP | The async engine + session factory |
+| `DBUnitOfWork` | **REQUEST** | A session inside a transaction — committed on success, rolled back on exception |
 | `ESClient` | APP | Async Elasticsearch client |
 | `RedisClient` | APP | Pooled async Redis client |
 | `ScheduleSource` | APP | The taskiq Redis schedule source (for scheduling jobs at runtime) |
 
-**The transaction boundary is the request.** `PGUnitOfWork` is entered when the
+**The transaction boundary is the request.** `DBUnitOfWork` is entered when the
 request scope opens and exits when it closes: your service never calls `commit()`.
 If a handler raises, everything it wrote rolls back. Repositories take the UoW in
 their constructor and read `uow.session` — which is why a repository is
@@ -719,7 +732,7 @@ behaves identically whether it was called from an HTTP route or a background job
 
 ### Model bases
 
-In `fastamu.common.bases.models` — all pure, none of them a table:
+In `fastamu.common.models.base` — all pure, none of them a table:
 
 | Base | Adds |
 |---|---|
@@ -729,22 +742,25 @@ In `fastamu.common.bases.models` — all pure, none of them a table:
 | `BaseTimestampModel` | `created_at`, `updated_at` (DB-managed) |
 | `BaseIDTimestampModel` | all of the above — the usual choice |
 
-`BaseTable`, in `fastamu.infra.postgres.models.base`, is what turns one into a
+`BaseTable`, in `fastamu.infra.db.table`, is what turns one into a
 table, and it is the only base that carries a `__tablename__`.
 
 ### Repository bases
 
-Pick by the shape of your model: `PGRepository[M]`, `PGIDRepository[M]`,
-`PGTimestampRepository[M]`, `PGTimestampIDRepository[M]`. Every write uses
-PostgreSQL `RETURNING`, so a create/update/delete hands you back the persisted row
-in one round-trip — no `refresh()`, no second SELECT.
+Pick by the shape of your model: `DBRepository[M]`, `DBIDRepository[M]`,
+`DBTimestampRepository[M]`, `DBTimestampIDRepository[M]`. Every write uses
+native `RETURNING` where supported, or locks and re-reads rows inside the same
+transaction where it is not. The public repository is `DBRepository`, with
+`DBIDRepository`, `DBTimestampRepository`, and `DBTimestampIDRepository` variants.
+Connection, unit of work, and table definitions are shared in `infra/db`;
+backend-specific SQL lives in `infra/db/dialects`.
 
 A repository is parameterised by the **model**, and locates the table that carries
 it — the class in `infra/tables.py` that subclasses it with `table=True`. Nothing
 above `infra/` mentions a table class, and a model that no table carries raises an
 error naming the file to declare it in.
 
-**`PGRepository`**
+**`DBRepository`**
 
 ```python
 create(data: TModel) -> TModel
@@ -756,7 +772,7 @@ _upsert_stmt(data, index_elements) -> ReturningInsert           # INSERT … ON 
 _bulk_update_stmt(data, key) -> ReturningUpdate                 # many rows, one UPDATE via a VALUES grid
 ```
 
-**`PGIDRepository`** adds:
+**`DBIDRepository`** adds:
 
 ```python
 get_by_id(id) -> TIDModel | None
@@ -769,10 +785,10 @@ delete_by_id(id) -> TIDModel | None
 delete_by_ids(ids) -> Sequence[TIDModel]
 ```
 
-**`PGTimestampRepository`** adds `get_stream_by_date_range`,
+**`DBTimestampRepository`** adds `get_stream_by_date_range`,
 `update_by_date_range`, `delete_by_date_range`.
 
-**`PGReader`** is the base underneath all of them: the session, and nothing else.
+**`DBReader`** is the base underneath all of them: the session, and nothing else.
 Extend it directly when the code owns no table — a [context module](#context-modules-when-the-module-owns-logic-not-rows)
 selecting the few columns its logic needs.
 
@@ -883,6 +899,11 @@ module's scope to the `Scope` enum; the scaffolder does not touch it.
 
 ## Rate limiting
 
+`fastamu.web.ratelimit` connects `throttled-py` to HTTP. The library owns the
+sliding-window algorithm and atomic Redis operations; `RateLimitProvider` borrows
+the existing app Redis client and pool. Standalone FastAPI apps must register
+`RateLimitProvider()` alongside `CoreProvider()` in their Dishka container.
+
 Two layers, both reading their budgets from `config.yml`, both counting in Redis so
 that N workers enforce **one** budget instead of N.
 
@@ -895,7 +916,7 @@ headers, so a client can pace itself instead of discovering the wall.
 asks for it by name, like any other dependency:
 
 ```python
-from fastamu.infra.ratelimit.dependencies import by_ip, rate_limit
+from fastamu.web.ratelimit import by_ip, rate_limit
 
 router = APIRouter(prefix="/auth", dependencies=[rate_limit("login")])   # whole router
 
@@ -920,10 +941,11 @@ off by deleting it, not by editing a handler. `enabled: false` turns off both la
 which is what a test suite wants.
 
 **Every key part is charged.** A part maps a request to a bucket; `rate_limit` takes
-a sequence of them and spends one call from each:
+a sequence of them and checks their Redis buckets concurrently. All checks finish
+before a refusal is returned; this is not an all-or-nothing multi-bucket transaction:
 
 ```python
-from fastamu.infra.ratelimit.dependencies import by_body_field, by_ip, rate_limit
+from fastamu.web.ratelimit import by_body_field, by_ip, rate_limit
 
 login_rate_limit = rate_limit(
     "login", (by_ip, by_body_field("username")), closed_when_down=True
@@ -964,18 +986,18 @@ are kept per Redis url in `_limiters` — clear it between tests that swap store
 
 ## Background tasks and scheduling
 
-The broker ([fastamu/tasks/broker.py](fastamu/tasks/broker.py)) is a Redis-streams taskiq
+The broker ([fastamu/tasks/schedulers/broker.py](fastamu/tasks/schedulers/broker.py)) is a Redis-streams taskiq
 broker that **builds the same dishka container as the web app**. So a task gets its
 dependencies injected exactly like a route handler does.
 
-Define a task in `<module>/tasks/<anything>.py` — the bootstrapper imports the file,
+Define a task in `<module>/tasks/schedulers/<anything>.py` — the bootstrapper imports the file,
 which registers it:
 
 ```python
 from dishka.integrations.taskiq import FromDishka, inject
 
 from fastamu.modules.catalog.brands.interfaces import IBrandService
-from fastamu.tasks.broker import broker
+from fastamu.tasks.schedulers.broker import broker
 
 
 @broker.task(
@@ -994,7 +1016,7 @@ Rules that matter:
 - **`@broker.task` outside, `@inject(patch_module=True)` inside.** The broker must
   see the already-injected callable. `patch_module=True` is required.
 - Dependencies are `FromDishka[T]` annotations. **A task execution is a REQUEST
-  scope**, so it gets its own `PGUnitOfWork` — committed when the task returns,
+  scope**, so it gets its own `DBUnitOfWork` — committed when the task returns,
   rolled back if it raises. Same transactional semantics as an HTTP request.
 - **Enqueue from anywhere** with `await deactivate_stale_brands.kiq(arg)` — including
   from a route handler, since the web app imports the broker too.
@@ -1009,8 +1031,19 @@ Rules that matter:
   a question asked within minutes or not at all. Keeping them forever leaks Redis
   memory, and since Redis runs `noeviction` by default, a full Redis refuses writes:
   the next *enqueue* is what fails, so the queue stalls, not just the cache. Raise
-  `result_ex_time` in [fastamu/tasks/broker.py](fastamu/tasks/broker.py) if you need to read
+  `result_ex_time` in [fastamu/tasks/schedulers/broker.py](fastamu/tasks/schedulers/broker.py) if you need to read
   results back later.
+
+### When work fails
+
+Retry policy is split the way the work is. **Scheduled jobs have no framework
+policy at all** — whether repeating a job is safe is a property of the job, so
+the module that writes it says so on its own task:
+
+```python
+@broker.task(retry_on_error=True, max_retries=3, delay=30)
+async def refresh_rates() -> None: ...
+```
 
 ### Scheduling
 
@@ -1026,180 +1059,95 @@ Two sources are wired into the scheduler, and you can use either:
 The worker and the scheduler are separate processes:
 
 ```bash
-taskiq worker    fastamu.tasks.broker:broker
-taskiq scheduler fastamu.tasks.scheduler:scheduler
+taskiq worker    fastamu.tasks.schedulers.broker:broker      # jobs
+taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler # cron
 ```
-
-### The event bus
-
-For fan-out across modules without coupling them,
-[fastamu/tasks/events.py](fastamu/tasks/events.py) provides a small event bus on top of the
-same broker. Subscribe a handler class to an event name:
-
-```python
-from fastamu.common.bases.events import EventHandler, EventInput
-from fastamu.tasks.events import on
-
-
-class BrandDeactivated(EventInput):      # the payload, a plain pydantic model
-    brand_id: int
-    reason: str
-
-
-@on("brand_deactivated")
-class ReindexBrandListings(EventHandler[BrandDeactivated]):
-    def __init__(self, repo: ListingRepository) -> None:
-        self.repo = repo
-
-    async def handle(self, data: BrandDeactivated) -> None:
-        ...
-```
-
-and emit from anywhere:
-
-```python
-from fastamu.tasks.events import emit
-
-await emit("brand_deactivated", BrandDeactivated(brand_id=brand.id, reason="manual"))
-```
-
-Each subscriber runs as its own background job on its own queue. A handler must be
-registered in its module's `providers.py` (it is resolved from dishka by type) and
-must **name its payload in its class header** — `EventHandler[BrandDeactivated]`.
-That declaration is the only place the type is written: the bus reads it back off
-the class, ships the model as JSON, and validates it into that same type on the
-worker, so `handle` receives a model rather than a dict. A handler that names no
-payload is refused at registration, not on a worker already holding the job.
-
-The payload is what the event *means*, not a copy of the row — a handler that needs
-the current state should still re-read it, because a job runs some time after the
-fact. Emitting an event nobody subscribes to is a silent no-op.
-
-Declare the event **name** as a constant in the emitting module's
-`config/constants.py` and import it from there on both sides — an event belongs to
-the module that raises it, not to the bus. `ops/messages` is the worked example:
-`MESSAGE_QUEUED` sits beside that module's id encryptions, and its handler in
-`tasks/send.py` imports the same constant.
-
----
 
 ## CQRS: the Elasticsearch read side
 
-Scaffolding with `--cqrs` gives you the full read/write split: Postgres stays the
-source of truth, Elasticsearch serves the reads, and **projections keep them in
-sync automatically**.
+The `--cqrs` scaffold supplies document, repository, command and query files.
+RabbitMQ projection queues are available; generic event routing is still being
+designed. Existing pending SMS records are not automatically dispatched.
 
-Declare the read model in `domain/documents.py` (its index is created on app
-startup if missing — a down ES logs a warning and the app still boots):
+Projection contracts live in `fastamu/common/projections/`:
 
-```python
-from elasticsearch.dsl import AsyncDocument, Boolean, Keyword, Text
+- `convertor.Convertor[Model, Document]`: implements the synchronous
+  `convert(model)` method. Conversion has no database or messaging I/O.
+- `base.AbstractProjection[Model, Document]`: accepts a convertor instance.
+  Implements `project(id)` using `_db_query(id) -> Model | None`, conversion,
+  and `_es_query(document)` for a single destination write.
+- `base.AbstractBatchProjection[Model, Document]`: accepts a convertor instance.
+  Implements `batch_project(ids)` using `_db_query(ids) -> Sequence[Model]`
+  and `_es_query(documents)` for bulk writes. It does not call single-item
+  projections.
+- `base.AbstractUnProjection`: implements `unproject(id)` using the abstract
+  `_es_query(id)` deletion method. No source model is required.
+- `queue.ProjectionQueue`: `queue(ProjectionClass, id)`.
+- `queue.BatchProjectionQueue`: `queue(BatchProjectionClass, ids)`.
+- `queue.UnProjectionQueue`: `queue(UnProjectionClass, id)`.
 
-
-class BrandDocument(AsyncDocument):
-    name = Text()
-    slug = Keyword()
-    is_active = Boolean()
-
-    class Index:
-        name = "brand"
-```
-
-Implement the projection in `infra/projections.py` — it reads Postgres and writes
-the document:
-
-```python
-from fastamu.infra.es.projection import AbstractESProjection
-
-
-class BrandProjection(AbstractESProjection[BrandRepository, BrandESRepository]):
-    async def project(self, id: int) -> bool:
-        brand = await self.pg_repo.get_by_id(id)
-        if brand is None:
-            return await self.unproject(id)
-        doc = BrandDocument(meta={"id": str(brand.id)}, name=brand.name, slug=brand.slug)
-        await self.es_repo.save(doc)
-        return True
-```
-
-(`unproject` is inherited — you only implement `project`.)
-
-Then decorate the write, and sync becomes invisible:
+Define concrete classes in `<module>/tasks/projection/*.py`, or import them
+there from `infra/projections.py`. Set `queue_name` on each class (it can also
+be inherited from a shared base). Register the class and its dependencies in
+Dishka providers with REQUEST scope. Example:
 
 ```python
-class BrandCreateCommand:
-    def __init__(self, repo: BrandRepository) -> None:
-        self.repo = repo
+class ProductProjection(AbstractProjection[Product, ProductDocument]):
+    queue_name = "product_projection_queue"
+    # Implement _db_query and _es_query.
 
-    @project(BrandProjection)
-    async def execute(self, data: BrandCreate) -> BrandModel:
-        return await self.repo.create(BrandModel(**data.to_row(exclude_unset=False)))
+class ProductBatchProjection(AbstractBatchProjection[Product, ProductDocument]):
+    queue_name = "product_projection_queue"
+    # Implement the two bulk query methods.
+
+await ProjectionQueue().queue(ProductProjection, product_id)
+await BatchProjectionQueue().queue(ProductBatchProjection, product_ids)
 ```
 
-After `execute` returns, the decorator reads the id off the result and dispatches a
-**background taskiq job** on a per-projection queue that reindexes that entity. The
-HTTP response is not blocked by Elasticsearch, and a slow index never slows a write.
+Subclass creation records the definition; bootstrap registers Taskiq tasks
+and queue definitions once. There is **one projection broker with multiple
+queues**, and multiple named tasks can share a queue. Publishing only calls
+Taskiq's `kiq`; it never declares a queue or resolves a projection instance.
+Queue declaration happens on broker startup (including publisher startup).
 
-Five decorators, all from `fastamu/tasks/projection.py`:
-
-| Decorator | Use on | Dispatches |
-|---|---|---|
-| `@project(P)` | a write returning one entity | `P.project(id)` |
-| `@batch_project(P)` | a write returning a sequence | `P.batch_project(ids)` — one job, one bulk index |
-| `@unproject(P)` | a delete | `P.unproject(id)` — drops the document |
-| `@payload_project(P)` | a write whose return value *is* the data | `P.project(payload)` — no read-back |
-| `@batch_payload_project(P)` | ditto, returning a sequence | `P.batch_project(payloads)` |
-
-The id-based four take `id_attr="id"` by default; pass e.g. `id_attr="product_id"`
-when the method returns a child row but the *parent* is what must be reindexed.
-
-### Projecting from an id, or from the data itself
-
-`@project` hands the job an **id**, and the job reads the row back out of Postgres
-to build the document. That is right whenever the document needs more than the
-caller happens to hold.
-
-When the caller has *just computed* every value it wrote — a repricing pass, say —
-that read is the same query run twice. `@payload_project` instead hands the job the
-model the method **returned**: it is dumped to JSON to cross the queue and rebuilt
-inside the job, so the projection writes what it was given. Subclass
-`AbstractPayloadProjection` (it takes only an ES repository — there is nothing to
-read from) and the payload model is inferred from the generic parameter, which keeps
-the two ends from drifting apart:
-
-```python
-class ListingPricePayload(BaseModel):
-    id: int
-    price: Decimal
-
-
-class ListingPriceProjection(AbstractPayloadProjection[ListingESRepository, ListingPricePayload]):
-    async def project(self, payload: ListingPricePayload) -> bool:
-        await self.es_repo.bulk_update({str(payload.id): {"price": str(payload.price)}})
-        return True
-
-
-class RepriceCommand:
-    @payload_project(ListingPriceProjection)
-    async def execute(self, id: int) -> ListingPricePayload:
-        ...   # returns the payload; the projection writes exactly it
+```yaml
+tasks:
+  projection:
+    broker: rabbitmq
+    url: amqp://guest:guest@localhost:5672/
+    prefetch: 1
+    max_retries: 3
+    retry_delay: 1.0
 ```
 
-`ESRepository.bulk_update({id: {field: value}})` is the natural partner: it patches
-the named fields on many documents in one request, leaving every other field alone —
-unlike `save()`, which replaces the whole document.
+CQRS also requires the `es` connection configuration. Run the worker with:
 
-Reads go through `ESRepository[Doc]`: `save`, `bulk_insert`, `bulk_update`, `get`,
-`update`, `delete`, `exists`, and `search()` returning an async DSL `Search`. A shared
-`persian_analyzer` is available in [fastamu/infra/es/analyzers.py](fastamu/infra/es/analyzers.py)
-— just use it as a field analyzer and the index picks it up on creation.
+```bash
+fastamu projection-worker
+```
 
-> **Know the consistency model.** Projection dispatch happens *after* the write
-> returns and is not part of its transaction: the read model is **eventually**
-> consistent, and there is no outbox. Projection jobs also do not set
-> `retry_on_error`, so a failed reindex is dropped rather than retried. If a given
-> read model must not drift, add a periodic reconciliation task — or make the
-> projection task retryable.
+This command selects the projection receiver; **do not use the default Taskiq
+receiver** for these queues. Each queue is durable with single-active-consumer;
+RabbitMQ prefetch is 1 per consumer. Different queues can execute concurrently.
+The task handler gets its projection from Dishka, with a fresh scope per retry.
+Only successful execution and scope cleanup are followed by ACK. Retry delays
+hold the current delivery; no delayed retry queue is used. Exhausted retries
+leave that queue paused and unacknowledged until worker restart after repair.
+Other queues remain available. Taskiq-aio-pika also declares the shared
+`taskiq.dead_letter` queue by default; exhaustion does not send messages there.
+
+Connection loss, broker acknowledgement timeouts, and failover can cause
+redelivery; this is not exactly-once execution or a guarantee of commit order.
+Keep projection writes idempotent. Publish **after database commit**; no
+transaction callback or durable commit-to-publish mechanism is implemented.
+A crash between commit and publish can therefore leave the read model stale.
+For standalone publishers use `fastamu.tasks.lifespan.task_lifespan()`.
+
+Single and batch projections have independent query contracts.
+Batch IDs are deduplicated in input order. Empty batches do no I/O; missing
+source models are skipped, without implicitly deleting destination documents.
+Conversion completes before any destination write. Methods return `None` on
+success and propagate failures. There are no decorators or per-ID async loops.
 
 ---
 
@@ -1270,13 +1218,13 @@ nothing above `infra/` ends up parsing a third party's JSON shape.
 
 ### Security helpers
 
-[fastamu/common/utils/jwt_utils.py](fastamu/common/utils/jwt_utils.py) and
-[fastamu/common/utils/crypto_utils.py](fastamu/common/utils/crypto_utils.py) are
+[fastamu/common/security/tokens.py](fastamu/common/security/tokens.py) and
+[fastamu/common/security/crypto.py](fastamu/common/security/crypto.py) are
 **config-agnostic on purpose**: the caller passes the secret, the algorithm and the
 expiry (wire them from `JWTConfig` / `CryptoConfig`). That keeps `common` free of a
 `core.config` import and leaves both files unit-testable without a `config.yml`.
 
-**`jwt_utils`** — `create_access_token` / `create_refresh_token` / `decode_token`.
+**`security.tokens`** — `create_access_token` / `create_refresh_token` / `decode_token`.
 Every token carries `sub`, `iat`, `exp`, a `jti` and a `type`, and `decode_token`
 takes an `expected_type`, so a refresh token cannot be replayed as an access token
 against a route that forgot to look. Failures come out as the framework's
@@ -1291,18 +1239,19 @@ token = create_access_token(str(admin.id), cfg.secret_key,
 payload = decode_token(token, cfg.secret_key, expected_type=TokenType.ACCESS)
 ```
 
-**`crypto_utils`** — three jobs that are easy to confuse and must not be:
+**`security.passwords` and `security.crypto`** — three jobs that are easy to
+confuse and must not be, so they sit in two files rather than one:
 
 | For | Use | Why that one |
 |---|---|---|
-| Passwords | `hash_password` / `verify_password` | bcrypt, deliberately slow. The configured salt is applied as an HMAC **pepper**, which also pre-hashes the input and so sidesteps bcrypt's silent 72-byte truncation |
-| Payloads you must read back | `encrypt` / `decrypt` | Fernet — authenticated, so a tampered ciphertext raises instead of decrypting to garbage. Any passphrase is stretched to a valid key |
-| Opaque tokens (refresh tokens, API keys) | `hash_sha256` + `secure_compare` | Fast and deterministic, so it can be indexed; compared in constant time, so the check leaks no prefix |
+| Passwords | `passwords.hash_password` / `verify_password`, or the injectable `PasswordHasher` | bcrypt, deliberately slow. The configured salt is applied as an HMAC **pepper**, which also pre-hashes the input and so sidesteps bcrypt's silent 72-byte truncation. `PasswordHasher` runs both on a worker thread, because "slow" on the event loop means *stopped* |
+| Payloads you must read back | `crypto.encrypt` / `decrypt` | Fernet — authenticated, so a tampered ciphertext raises instead of decrypting to garbage. Any passphrase is stretched to a valid key |
+| Opaque tokens (refresh tokens, API keys) | `crypto.hash_sha256` + `secure_compare` | Fast and deterministic, so it can be indexed; compared in constant time, so the check leaks no prefix |
 
 A malformed stored hash is a non-match, never an exception — a legacy row cannot take
 a login endpoint down.
 
-**`IDEncryption`** ([fastamu/common/encryption.py](fastamu/common/encryption.py))
+**`IDEncryption`** ([fastamu/common/security/ids.py](fastamu/common/security/ids.py))
 — exposes a serial primary key as a public id that doesn't announce your row count
 (`/orders/42` says how many orders exist; `/orders/43` is a valid guess). It is a
 modular multiplication, so it is reversible, stateless and needs no extra column:
@@ -1338,11 +1287,11 @@ never existed, or the endpoint becomes an oracle for valid ids.
 
 ### Other utilities
 
-`date_utils` (timezone-aware UTC helpers plus Jalali conversion), `persian_utils`
-(digit normalisation, rial/toman formatting), `currency_utils` (parses a quoted
+`utils.dates` (timezone-aware UTC helpers plus Jalali conversion), `utils.persian`
+(digit normalisation, rial/toman formatting), `utils.currency` (parses a quoted
 amount — Persian digits, separators, float or `Decimal` — into a storable integer or
 exact `Decimal`, and raises on anything that is not a number instead of quietly
-returning `0`), `string_utils`.
+returning `0`), `utils.strings`.
 
 ---
 
@@ -1363,7 +1312,7 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-The URL comes from `postgresql.dsn` in `config.yml` unless it was set
+The URL comes from `db.dsn` in `config.yml` unless it was set
 programmatically (which is how the test suite points it at `test_dsn`). Leave the
 placeholder `sqlalchemy.url` in `alembic.ini` alone — it is the sentinel that tells
 `env.py` to fall back to the config file.
@@ -1393,9 +1342,9 @@ nothing to keep in step. Fastamu's own `tests/conftest.py` is empty for that rea
 
 | Fixture | Gives you |
 |---|---|
-| `migrated_test_db` (session) | Drops and recreates the `public` schema of `postgresql.test_dsn`, then runs `alembic upgrade head`. **Refuses to run against a database whose name lacks `test`.** Skips cleanly if the DB is unreachable — but a migration that fails *after* connecting is still reported as a failure. |
-| `pg` | A `PGConnection` on the test DSN |
-| `uow` | A `PGUnitOfWork` in an open transaction — hand it to a repository directly |
+| `migrated_test_db` (session) | Drops and recreates the `public` schema of `db.test_dsn`, then runs `alembic upgrade head`. **Refuses to run against a database whose name lacks `test`.** Skips cleanly if the DB is unreachable — but a migration that fails *after* connecting is still reported as a failure. |
+| `pg` | A `DBConnection` on the test DSN |
+| `uow` | A `DBUnitOfWork` in an open transaction — hand it to a repository directly |
 | `clean_db` | Empties every discovered table **and read-model index** between tests |
 | `es` | An `ESClient` on the configured hosts |
 | `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and a hermetic schedule source that never touches Redis |
@@ -1421,14 +1370,14 @@ next test's search.
 ## Configuration reference
 
 `config.yml` (written by `fastamu new`, and gitignored — it holds your secrets).
-All thirteen sections are required.
+All fourteen sections are required.
 
 | Section | Keys |
 |---|---|
 | `app` | `modules` — the packages the bootstrapper scans, yours first |
 | `fastapi` | `title`, `description`, `version` |
-| `postgresql` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
-| `taskiq` | `redis_url`, `max_connection_pool_size` |
+| `db` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
+| `scheduled` | `broker`, `url`, `max_connection_pool_size`, `result_ex_time` — Taskiq jobs and cron; retry is per-job, not configured here |
 | `redis` | `url`, `max_connections`, `socket_timeout`, `socket_connect_timeout`, `health_check_interval` |
 | `rate_limit` | `enabled`, `trusted_proxies`, `general` (`limit`, `window_seconds`), `rules` (name → rule) |
 | `es` | `hosts`, `username`, `password`, `api_key`, `verify_certs`, `ca_certs` |
@@ -1451,13 +1400,9 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
   router (per-route guards with one unauthenticated route), a settings sub-section
   re-provided as its own injectable type, `PagedType` + `PagerMeta`, and a
   module-scoped `resources.py`.
-- **`ops/messages`** — the fullest use of the framework's moving parts: queue an
-  SMS, hand it to a provider in the background, record what happened. Shows the
-  **event bus** end to end (typed payload, one handler per event, a batch that
-  costs one event rather than a hundred), **public ids** on the wire via
-  `BaseIDOutput` + `decode_path_id`, a gateway layer where a dead provider is a
-  value rather than a raise, and an APP-scoped service that opens its own
-  request scopes so a slow provider never sits on a pooled connection.
+- **`ops/messages`** — pending SMS records, provider gateways, delivery results
+  and encrypted public IDs. Automatic background dispatch is unavailable while
+  events are being rewritten; the sender service remains callable explicitly.
 
   ```
   PUT   /messages/providers          register a provider + credentials (upsert by code)
@@ -1468,8 +1413,8 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
   POST  /messages/{id}/retry         owe a failed one again
   ```
 
-  Out of the box the `console` provider "delivers" to the log, so the module
-  works with nothing configured. The three real gateways (Kavenegar, Melipayamak,
+  Out of the box the `console` provider "delivers" to the log, when the sender service
+  is called explicitly. The three real gateways (Kavenegar, Melipayamak,
   SMS.ir) need `sms-providers-sdk`, which is imported at call time and installed
   separately:
   `pip install "git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master"`.
@@ -1512,3 +1457,50 @@ usually means something silently stops being discovered.
 ## License
 
 MIT.
+
+Event router discovery only returns routers; the event consumer application
+includes them before startup. Keep package
+`__init__.py` files empty and declare routers in the leaf Python files.
+
+## Database dialects
+
+Configure the connection under `db` (renamed from `postgresql`). SQLAlchemy
+selects the async driver from the DSN; do not maintain a second dialect setting.
+The framework adapters cover PostgreSQL, MySQL, MariaDB, SQLite, SQL Server,
+and Oracle. Third-party SQLAlchemy dialects need their own adapter registered
+in `fastamu.infra.db.dialects.DIALECTS`.
+
+| Family | DSN example | Repository behavior |
+| --- | --- | --- |
+| PostgreSQL | `postgresql+asyncpg://...` | RETURNING, ON CONFLICT, VALUES bulk updates |
+| MySQL / MariaDB | `mysql+asyncmy://...` | Transactional readback, ON DUPLICATE KEY UPDATE, CASE bulk updates |
+| SQLite 3.35+ | `sqlite+aiosqlite:///app.db` | RETURNING, ON CONFLICT, CASE bulk updates |
+| SQL Server | `mssql+aioodbc://...` | Transactional readback and CASE bulk updates; atomic upsert not implemented |
+| Oracle | `oracle+oracledb://...` | Transactional readback and CASE bulk updates; atomic upsert not implemented |
+
+Install the corresponding extras: `fastamu[mysql]`, `fastamu[sqlite]`,
+`fastamu[mssql]`, or `fastamu[oracle]`. Vendor client requirements still apply.
+SQL Server and Oracle upsert raise `NotImplementedError` before performing I/O.
+MariaDB currently uses the conservative MySQL execution path. MySQL upsert can
+match any unique index, unlike PostgreSQL's explicit conflict target; callers
+must supply keys that identify the resulting row consistently.
+
+`JSONField` is portable: JSONB on PostgreSQL, native JSON where supported, and
+serialized text on Oracle. PostgreSQL-only `JSONBField` and `ArrayField` live
+in `fastamu.infra.db.dialects.postgresql`. IDs use SQLAlchemy Identity (ignored
+where the backend provides its own mechanism) and SQLite's INTEGER variant.
+Existing PostgreSQL databases continue to use their existing sequences; review
+Identity-related Alembic differences when generating future migrations.
+
+Use `upsert_rows` and `bulk_update_rows` when results are required across
+backends. Statement-only `_upsert_stmt` and `_bulk_update_stmt` require a
+RETURNING-capable adapter. `_values_grid` is PostgreSQL-specific. On databases
+without RETURNING, bulk creates use ORM flush to obtain generated IDs and a
+bulk readback; the driver may issue multiple INSERTs. No consecutive-ID
+assumption is made. Bulk result order is not guaranteed.
+
+Runtime CRUD, bulk update, upsert, JSON, conflict handling and rollback tests
+cover PostgreSQL, MySQL and SQLite. SQL Server and Oracle currently have SQL
+compilation checks; MariaDB has native-upsert compilation checks. Live testing
+is still required before deploying those three backends. Test cleanup on
+non-PostgreSQL databases deletes rows in dependency order without resetting IDs.

@@ -84,3 +84,5 @@ media/
 
 # graphify tool cache/output
 graphify-out/
+
+docs/*
