@@ -7,6 +7,7 @@ from dishka.integrations.taskiq import FromDishka, inject
 
 from fastamu.common.projections.base import (
     AbstractBatchProjection,
+    AbstractFanoutProjection,
     AbstractProjection,
     AbstractUnProjection,
 )
@@ -68,6 +69,12 @@ class ProjectionRegistry:
                 await instance.unproject(id)
 
             return remove
+        if issubclass(projection, AbstractFanoutProjection):
+
+            async def fanout(id: int, instance: AbstractFanoutProjection):
+                await instance.project(id)
+
+            return fanout
         if issubclass(projection, AbstractProjection):
 
             async def single(id: int, instance: AbstractProjection):

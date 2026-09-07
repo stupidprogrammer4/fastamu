@@ -4,12 +4,15 @@ from collections.abc import Sequence
 
 from fastamu.common.projections.base import (
     AbstractBatchProjection,
+    AbstractFanoutProjection,
     AbstractProjection,
     AbstractUnProjection,
 )
 
 
-class ProjectionQueue[TProjection: AbstractProjection]:
+class ProjectionQueue[
+    TProjection: AbstractProjection | AbstractFanoutProjection
+]:
     async def queue(self, projection: type[TProjection], id: int) -> None:
         from fastamu.tasks.projection.registry import registry
 

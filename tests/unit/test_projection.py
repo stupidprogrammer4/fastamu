@@ -4,6 +4,7 @@ import pytest
 
 from fastamu.common.projections.base import (
     AbstractBatchProjection,
+    AbstractFanoutProjection,
     AbstractProjection,
 )
 from fastamu.common.projections.convertor import Convertor
@@ -42,6 +43,19 @@ class BatchProjection(AbstractBatchProjection[int, str]):
         await self.write(documents)
 
 
+class FanoutProjection(AbstractFanoutProjection[int, str]):
+    def __init__(self, models):
+        super().__init__(StringConvertor())
+        self.read = AsyncMock(return_value=models)
+        self.write = AsyncMock()
+
+    async def _db_query(self, id):
+        return await self.read(id)
+
+    async def _es_query(self, documents):
+        await self.write(documents)
+
+
 async def test_batch_reads_and_writes_once_preserving_id_order():
     projection = BatchProjection([3, 1])
     await projection.batch_project([3, 1, 3])
@@ -54,6 +68,13 @@ async def test_single_reads_and_writes_one_item():
     await projection.project(7)
     projection.read.assert_awaited_once_with(7)
     projection.write.assert_awaited_once_with("7")
+
+
+async def test_fanout_reads_one_identity_and_writes_many_documents():
+    projection = FanoutProjection([3, 1])
+    await projection.project(7)
+    projection.read.assert_awaited_once_with(7)
+    projection.write.assert_awaited_once_with(["3", "1"])
 
 
 async def test_empty_input_does_no_io():

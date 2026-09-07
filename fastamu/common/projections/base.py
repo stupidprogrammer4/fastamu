@@ -38,6 +38,32 @@ class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
         ...
 
 
+class AbstractFanoutProjection[TModel, TDocument](
+    ProjectionDefinition, ABC
+):
+    """Read one source identity and write all documents derived from it."""
+
+    def __init__(self, convertor: Convertor[TModel, TDocument]) -> None:
+        self.convertor = convertor
+
+    async def project(self, id: int) -> None:
+        models = await self._db_query(id)
+        if not models:
+            return
+        documents = [self.convertor.convert(model) for model in models]
+        await self._es_query(documents)
+
+    @abstractmethod
+    async def _db_query(self, id: int) -> Sequence[TModel]:
+        """Load every source model represented by one source identity."""
+        ...
+
+    @abstractmethod
+    async def _es_query(self, documents: Sequence[TDocument]) -> None:
+        """Write the derived documents together; raise on failure."""
+        ...
+
+
 class AbstractBatchProjection[TModel, TDocument](ProjectionDefinition, ABC):
     """Coordinate bulk reads, pure conversion and bulk destination writes.
 

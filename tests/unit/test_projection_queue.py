@@ -10,6 +10,7 @@ from taskiq import AckableMessage
 
 from fastamu.common.projections.base import (
     AbstractBatchProjection,
+    AbstractFanoutProjection,
     AbstractProjection,
     AbstractUnProjection,
 )
@@ -63,13 +64,22 @@ def define_projections():
         async def _es_query(self, documents):
             pass
 
+    class Fanout(AbstractFanoutProjection):
+        queue_name = "products"
+
+        async def _db_query(self, id):
+            return []
+
+        async def _es_query(self, documents):
+            pass
+
     class Remove(AbstractUnProjection):
         queue_name = "products"
 
         async def _es_query(self, id):
             pass
 
-    return CreateProduct, UpdateProduct, Order, Batch, Remove
+    return CreateProduct, UpdateProduct, Order, Batch, Fanout, Remove
 
 
 def test_one_broker_multiple_queues_multiple_tasks_and_idempotent_build(
@@ -91,17 +101,27 @@ def test_one_broker_multiple_queues_multiple_tasks_and_idempotent_build(
 
 async def test_publish_only_and_batch_is_one_message(runtime):
     registry, broker, _ = runtime
-    single, _, _, batch, _ = define_projections()
+    single, _, _, batch, fanout, _ = define_projections()
     registry.build()
     await ProjectionQueue().queue(single, 7)
     await BatchProjectionQueue().queue(batch, [1, 2, 1])
     await BatchProjectionQueue().queue(batch, [])
+    await ProjectionQueue().queue(fanout, 3)
     messages = [
         broker.formatter.loads(message=c.args[0].message)
         for c in broker.kick.call_args_list
     ]
-    assert [m.args for m in messages] == [[7], [[1, 2]]]
+    assert [m.args for m in messages] == [[7], [[1, 2]], [3]]
     assert all(m.labels["queue_name"] == "products" for m in messages)
+
+
+async def test_registry_dispatches_fanout_with_one_id():
+    *_, fanout, _ = define_projections()
+    instance = SimpleNamespace(project=AsyncMock())
+
+    await ProjectionRegistry._handler(fanout)(7, instance)
+
+    instance.project.assert_awaited_once_with(7)
 
 
 async def test_retry_uses_fresh_dishka_scope_and_acks_after_cleanup(runtime):
