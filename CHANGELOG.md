@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Add fan-out projections that accept one source ID, convert its related
+  models into multiple documents, and write them together.
+
 ## 0.4.0
 
 - Make task capabilities explicit through `app.features`; project scaffolding
