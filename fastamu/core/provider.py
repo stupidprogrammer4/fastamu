@@ -1,4 +1,4 @@
-from typing import AsyncIterable, AsyncIterator
+from typing import AsyncGenerator, AsyncIterator
 
 from dishka import Provider, Scope, provide
 from taskiq import ScheduleSource
@@ -32,9 +32,19 @@ class CoreProvider(Provider):
         )
 
     @provide(scope=Scope.REQUEST)
-    async def uow(self, pg: DBConnection) -> AsyncIterable[DBUnitOfWork]:
-        async with DBUnitOfWork(pg) as uow:
-            yield uow
+    async def uow(
+        self, pg: DBConnection
+    ) -> AsyncGenerator[DBUnitOfWork, BaseException | None]:
+        uow = DBUnitOfWork(pg)
+        await uow.begin()
+        try:
+            error = yield uow
+            if error is None:
+                await uow.commit()
+            else:
+                await uow.rollback()
+        finally:
+            await uow.close()
 
     @provide(scope=Scope.APP)
     async def es(self, settings: Settings) -> AsyncIterator[ESClient]:

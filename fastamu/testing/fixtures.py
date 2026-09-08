@@ -13,7 +13,7 @@ a rehearsal of it.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -281,9 +281,19 @@ def core_provider_of(test_settings: Settings) -> Provider:
             )
 
         @provide(scope=Scope.REQUEST)
-        async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
-            async with DBUnitOfWork(pg) as unit:
-                yield unit
+        async def uow(
+            self, pg: DBConnection
+        ) -> AsyncGenerator[DBUnitOfWork, BaseException | None]:
+            unit = DBUnitOfWork(pg)
+            await unit.begin()
+            try:
+                error = yield unit
+                if error is None:
+                    await unit.commit()
+                else:
+                    await unit.rollback()
+            finally:
+                await unit.close()
 
         @provide(scope=Scope.APP)
         def schedule_source(self) -> ScheduleSource:

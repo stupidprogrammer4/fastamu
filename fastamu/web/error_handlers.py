@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dishka.exceptions import NoFactoryError
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError as PydanticError
 from fastapi.responses import JSONResponse
@@ -12,11 +13,24 @@ from fastamu.common.errors.outputs import BaseErrorOut
 from fastamu.common.types.enums import MediaType
 from fastamu.core import resources
 from fastamu.core.logger import logger
+from fastamu.infra.db.uow import DBUnitOfWork
 
 from .response import APIResponse
 
 
-def external_error_handler(
+async def _rollback(request: Request) -> None:
+    container = getattr(request.state, "dishka_container", None)
+    if container is not None:
+        try:
+            uow = await container.get(DBUnitOfWork)
+        except NoFactoryError as error:
+            if error.requested.type_hint is not DBUnitOfWork:
+                raise
+        else:
+            await uow.rollback()
+
+
+async def external_error_handler(
     request: Request, exc: APPException
 ) -> JSONResponse:
     """Serialise a typed exception into the standard envelope.
@@ -25,6 +39,7 @@ def external_error_handler(
     identical to the middleware's — a client should not have to parse the body
     to learn how long to wait.
     """
+    await _rollback(request)
     response_model = APIResponse.from_external_error(exc)
     headers = None
     if isinstance(exc, TooManyRequestsException):
@@ -41,9 +56,10 @@ def external_error_handler(
     )
 
 
-def pydantic_error_handler(
+async def pydantic_error_handler(
     request: Request, exc: PydanticError
 ) -> JSONResponse:
+    await _rollback(request)
     response_model = APIResponse.from_pydantic_error(exc)
     return JSONResponse(
         # json mode: a rejected value is echoed back raw, and a Decimal
@@ -54,7 +70,7 @@ def pydantic_error_handler(
     )
 
 
-def http_error_handler(
+async def http_error_handler(
     request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
     """Answer Starlette's own HTTP errors in the app's error envelope.
@@ -70,6 +86,7 @@ def http_error_handler(
     Returns:
         (JSONResponse): The error in the standard envelope.
     """
+    await _rollback(request)
     codes = {
         404: resources.ROUTE_NOT_FOUND,
         405: resources.METHOD_NOT_ALLOWED,
@@ -91,9 +108,10 @@ def http_error_handler(
     )
 
 
-def csrf_error_handler(
+async def csrf_error_handler(
     request: Request, exc: CsrfProtectError
 ) -> JSONResponse:
+    await _rollback(request)
     response_model = APIResponse(
         success=False,
         error=BaseErrorOut(

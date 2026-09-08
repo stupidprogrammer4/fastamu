@@ -182,7 +182,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 limiter, f"rl:general:{key}", settings.rate_limit.general
             )
         except TooManyRequestsException as exc:
-            response = external_error_handler(request, exc)
+            response = await external_error_handler(request, exc)
             response.headers["RateLimit-Reset"] = str(
                 settings.rate_limit.general.window_seconds
             )
