@@ -213,6 +213,21 @@ class Settings(BaseModel):
         return self
 
 
+class FullTasksConfig(TasksConfig):
+    events: EventsConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+    projection: ProjectionConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+    schedulers: SchedulersConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+
+
+class FullSettings(Settings):
+    """Every optional subsystem present, for a project installed with all
+    the extras. Narrows the shapes the base leaves optional so a caller
+    reads them without a None check."""
+
+    tasks: FullTasksConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+    es: ESConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+
+
 SettingsT = TypeVar("SettingsT", bound=Settings)
 
 
