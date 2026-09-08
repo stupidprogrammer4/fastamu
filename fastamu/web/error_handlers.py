@@ -14,14 +14,14 @@ from fastamu.common.errors.outputs import BaseErrorOut
 from fastamu.common.types.enums import MediaType
 from fastamu.core import resources
 from fastamu.core.logger import logger
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import Rollback
 
 from .response import APIResponse
 
 
 @inject
 async def external_error_handler(
-    request: Request, exc: APPException, uow: FromDishka[DBUnitOfWork]
+    request: Request, exc: APPException, _rollback: FromDishka[Rollback]
 ) -> JSONResponse:
     """Serialise a typed exception into the standard envelope.
 
@@ -29,7 +29,6 @@ async def external_error_handler(
     identical to the middleware's — a client should not have to parse the body
     to learn how long to wait.
     """
-    await uow.rollback()
     response_model = APIResponse.from_external_error(exc)
     headers = None
     if isinstance(exc, TooManyRequestsException):
@@ -48,9 +47,8 @@ async def external_error_handler(
 
 @inject
 async def pydantic_error_handler(
-    request: Request, exc: PydanticError, uow: FromDishka[DBUnitOfWork]
+    request: Request, exc: PydanticError, _rollback: FromDishka[Rollback]
 ) -> JSONResponse:
-    await uow.rollback()
     response_model = APIResponse.from_pydantic_error(exc)
     return JSONResponse(
         # json mode: a rejected value is echoed back raw, and a Decimal
@@ -65,7 +63,7 @@ async def pydantic_error_handler(
 async def http_error_handler(
     request: Request,
     exc: StarletteHTTPException,
-    uow: FromDishka[DBUnitOfWork],
+    _rollback: FromDishka[Rollback],
 ) -> JSONResponse:
     """Answer Starlette's own HTTP errors in the app's error envelope.
 
@@ -80,7 +78,6 @@ async def http_error_handler(
     Returns:
         (JSONResponse): The error in the standard envelope.
     """
-    await uow.rollback()
     codes = {
         404: resources.ROUTE_NOT_FOUND,
         405: resources.METHOD_NOT_ALLOWED,
@@ -104,9 +101,8 @@ async def http_error_handler(
 
 @inject
 async def csrf_error_handler(
-    request: Request, exc: CsrfProtectError, uow: FromDishka[DBUnitOfWork]
+    request: Request, exc: CsrfProtectError, _rollback: FromDishka[Rollback]
 ) -> JSONResponse:
-    await uow.rollback()
     response_model = APIResponse(
         success=False,
         error=BaseErrorOut(

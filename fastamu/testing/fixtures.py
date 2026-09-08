@@ -37,7 +37,7 @@ from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import Settings
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import DBUnitOfWork, rollback_transaction
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
 from fastamu.infra.redis.client import RedisClient
@@ -262,6 +262,12 @@ def core_provider_of(test_settings: Settings) -> Provider:
     """
 
     class TestCoreProvider(Provider):
+        rollback = provide(
+            staticmethod(rollback_transaction),
+            scope=Scope.REQUEST,
+            cache=False,
+        )
+
         @provide(scope=Scope.APP)
         def settings(self) -> Settings:
             return test_settings

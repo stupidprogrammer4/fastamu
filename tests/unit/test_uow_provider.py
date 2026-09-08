@@ -10,7 +10,7 @@ from dishka.exceptions import ExitError
 from fastamu.core.config import get_settings
 from fastamu.core.provider import CoreProvider
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import DBUnitOfWork, Rollback
 from fastamu.testing.fixtures import core_provider_of
 
 
@@ -79,4 +79,14 @@ async def test_a_failed_transaction_operation_still_closes_the_session(
             await scope.get(DBUnitOfWork)
             if operation == "rollback":
                 raise ValueError("failed")
+    transaction.session.close.assert_awaited_once()
+
+
+async def test_rollback_dependency_runs_before_each_resolution(transaction):
+    async with transaction.container(scope=Scope.REQUEST) as scope:
+        await scope.get(Rollback)
+        transaction.session.rollback.assert_awaited_once()
+        transaction.session.commit.assert_not_awaited()
+        await scope.get(Rollback)
+        assert transaction.session.rollback.await_count == 2
     transaction.session.close.assert_awaited_once()

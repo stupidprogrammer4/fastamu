@@ -49,3 +49,13 @@ class DBUnitOfWork:
                 await self.commit()
         finally:
             await self.close()
+
+
+class Rollback:
+    pass
+
+
+async def rollback_transaction(uow: DBUnitOfWork) -> Rollback:
+    """Roll back the current transaction before resolving the dependency."""
+    await uow.rollback()
+    return Rollback()
