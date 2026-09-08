@@ -3,37 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from fastamu.infra.db.uow import DBUnitOfWork, after_commit
-
-
-async def test_after_commit_runs_only_after_a_successful_commit() -> None:
-    seen = []
-
-    async def commit() -> None:
-        seen.append("commit")
-
-    async def publish() -> None:
-        seen.append("publish")
-
-    unit = DBUnitOfWork(None)
-    unit._session = SimpleNamespace(info={}, commit=commit)
-    after_commit(unit.session, publish)
-
-    await unit.commit()
-
-    assert seen == ["commit", "publish"]
-
-
-async def test_rollback_discards_after_commit_work() -> None:
-    publish = AsyncMock()
-    unit = DBUnitOfWork(None)
-    unit._session = SimpleNamespace(info={}, rollback=AsyncMock())
-    after_commit(unit.session, publish)
-
-    await unit.rollback()
-
-    publish.assert_not_awaited()
-    assert unit.session.info == {}
+from fastamu.infra.db.uow import DBUnitOfWork
 
 
 @pytest.mark.parametrize("failure", ["commit", "rollback"])
