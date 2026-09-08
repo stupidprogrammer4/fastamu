@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+- Revert 0.5.1; the provider binds the unit of work, as in 0.5.0.
+- Bind the unit of work the shipped `uow` test fixture opens, so a service
+  that commits works under it.
+
 ## 0.5.1
 
 - Bind the unit of work when it opens rather than in the provider, so a test
