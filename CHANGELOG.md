@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Bind the unit of work when it opens rather than in the provider, so a test
+  fixture, a script and a seeder reach the same one a request does.
+  Concurrent units of work stay apart because each task carries its own
+  context.
+
 ## 0.5.0
 
 - Remove `after_commit`. A caller commits and then publishes, in that order,
