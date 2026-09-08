@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import func, select
 
+from fastamu.common.context import bind_uow, clear_uow
 from fastamu.infra.db.connection import DBConnection
 
 
@@ -21,11 +22,13 @@ class DBUnitOfWork:
 
     async def begin(self):
         self._session = self.db.session_factory()
+        bind_uow(self)
         return self
 
     async def close(self):
         await self.session.close()
         self._session = None
+        clear_uow()
 
     async def commit(self):
         await self.session.commit()

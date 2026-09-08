@@ -3,7 +3,6 @@ from typing import AsyncIterable, AsyncIterator
 from dishka import Provider, Scope, provide
 from taskiq import ScheduleSource
 
-from fastamu.common.context import bind_uow, clear_uow
 from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.config import Settings, get_settings
 from fastamu.infra.db.connection import DBConnection
@@ -35,11 +34,7 @@ class CoreProvider(Provider):
     @provide(scope=Scope.REQUEST)
     async def uow(self, pg: DBConnection) -> AsyncIterable[DBUnitOfWork]:
         async with DBUnitOfWork(pg) as uow:
-            bind_uow(uow)
-            try:
-                yield uow
-            finally:
-                clear_uow()
+            yield uow
 
     @provide(scope=Scope.APP)
     async def es(self, settings: Settings) -> AsyncIterator[ESClient]:
