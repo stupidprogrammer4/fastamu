@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dishka.exceptions import NoFactoryError
+from dishka import FromDishka
+from dishka.integrations.starlette import inject
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError as PydanticError
 from fastapi.responses import JSONResponse
@@ -18,20 +19,9 @@ from fastamu.infra.db.uow import DBUnitOfWork
 from .response import APIResponse
 
 
-async def _rollback(request: Request) -> None:
-    container = getattr(request.state, "dishka_container", None)
-    if container is not None:
-        try:
-            uow = await container.get(DBUnitOfWork)
-        except NoFactoryError as error:
-            if error.requested.type_hint is not DBUnitOfWork:
-                raise
-        else:
-            await uow.rollback()
-
-
+@inject
 async def external_error_handler(
-    request: Request, exc: APPException
+    request: Request, exc: APPException, uow: FromDishka[DBUnitOfWork]
 ) -> JSONResponse:
     """Serialise a typed exception into the standard envelope.
 
@@ -39,7 +29,7 @@ async def external_error_handler(
     identical to the middleware's — a client should not have to parse the body
     to learn how long to wait.
     """
-    await _rollback(request)
+    await uow.rollback()
     response_model = APIResponse.from_external_error(exc)
     headers = None
     if isinstance(exc, TooManyRequestsException):
@@ -56,10 +46,11 @@ async def external_error_handler(
     )
 
 
+@inject
 async def pydantic_error_handler(
-    request: Request, exc: PydanticError
+    request: Request, exc: PydanticError, uow: FromDishka[DBUnitOfWork]
 ) -> JSONResponse:
-    await _rollback(request)
+    await uow.rollback()
     response_model = APIResponse.from_pydantic_error(exc)
     return JSONResponse(
         # json mode: a rejected value is echoed back raw, and a Decimal
@@ -70,8 +61,11 @@ async def pydantic_error_handler(
     )
 
 
+@inject
 async def http_error_handler(
-    request: Request, exc: StarletteHTTPException
+    request: Request,
+    exc: StarletteHTTPException,
+    uow: FromDishka[DBUnitOfWork],
 ) -> JSONResponse:
     """Answer Starlette's own HTTP errors in the app's error envelope.
 
@@ -86,7 +80,7 @@ async def http_error_handler(
     Returns:
         (JSONResponse): The error in the standard envelope.
     """
-    await _rollback(request)
+    await uow.rollback()
     codes = {
         404: resources.ROUTE_NOT_FOUND,
         405: resources.METHOD_NOT_ALLOWED,
@@ -108,10 +102,11 @@ async def http_error_handler(
     )
 
 
+@inject
 async def csrf_error_handler(
-    request: Request, exc: CsrfProtectError
+    request: Request, exc: CsrfProtectError, uow: FromDishka[DBUnitOfWork]
 ) -> JSONResponse:
-    await _rollback(request)
+    await uow.rollback()
     response_model = APIResponse(
         success=False,
         error=BaseErrorOut(

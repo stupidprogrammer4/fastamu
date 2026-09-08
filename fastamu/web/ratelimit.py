@@ -21,12 +21,12 @@ from throttled.exceptions import StoreUnavailableError
 from throttled.rate_limiter import per_duration
 from throttled.types import AsyncRedisClientP
 
+from fastamu.common.errors.base import APPException
 from fastamu.common.errors.exceptions import TooManyRequestsException
 from fastamu.core import resources
 from fastamu.core.config import RateLimitRule, Settings
 from fastamu.core.logger import logger
 from fastamu.infra.redis.client import RedisClient
-from fastamu.web.error_handlers import external_error_handler
 
 KeyPart = Callable[[Request], Awaitable[str]]
 type NamedLimits = dict[str, Throttled]
@@ -182,7 +182,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 limiter, f"rl:general:{key}", settings.rate_limit.general
             )
         except TooManyRequestsException as exc:
-            response = await external_error_handler(request, exc)
+            handler = request.app.exception_handlers[APPException]
+            response = await handler(request, exc)
             response.headers["RateLimit-Reset"] = str(
                 settings.rate_limit.general.window_seconds
             )

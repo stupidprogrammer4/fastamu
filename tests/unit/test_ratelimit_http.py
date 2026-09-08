@@ -1,4 +1,5 @@
 from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from dishka import Provider, Scope, make_async_container, provide
@@ -8,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from throttled.asyncio.store import MemoryStore, RedisStore
 
 from fastamu.core.config import RateLimitRule, Settings, get_settings
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.web.error_handlers import setup_exception_handlers
 from fastamu.web.ratelimit import (
     RateLimitMiddleware,
@@ -30,8 +32,14 @@ async def test_global_cross_path_and_independent_account_limits(general):
         "login": RateLimitRule(limit=1, window_seconds=60)
     }
 
+    unit = AsyncMock(spec=DBUnitOfWork)
+
     class TestProvider(Provider):
         scope = Scope.APP
+
+        @provide(scope=Scope.REQUEST)
+        def uow(self) -> DBUnitOfWork:
+            return unit
 
         @provide
         def config(self) -> Settings:
@@ -43,9 +51,9 @@ async def test_global_cross_path_and_independent_account_limits(general):
 
     container = make_async_container(RateLimitProvider(), TestProvider())
     app = FastAPI()
+    app.add_middleware(RateLimitMiddleware)
     setup_dishka(container, app)
     setup_exception_handlers(app)
-    app.add_middleware(RateLimitMiddleware)
 
     @app.post(
         "/login",
@@ -80,5 +88,6 @@ async def test_global_cross_path_and_independent_account_limits(general):
                 assert (
                     await client.post("/login", json={"mobile": "b"})
                 ).status_code == 429
+        assert unit.rollback.await_count == (3 if general else 2)
     finally:
         await container.close()
