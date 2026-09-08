@@ -7,7 +7,7 @@ from fastamu.tasks.projection.registry import registry
 
 def get_broker():
     get_bootstrapper().boot_projections()
-    registry.build()
+    registry.build(broker)
     if not registry.queues:
         raise ValueError("No projection queues registered")
     return broker

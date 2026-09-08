@@ -21,6 +21,7 @@ async def test_shared_broker_serializes_each_queue_but_not_other_queues(
     if not url:
         pytest.skip("Set FASTAMU_RABBIT_TEST_URL for RabbitMQ transport tests")
 
+    from fastamu.common.projections import queue as queue_module
     from fastamu.tasks.projection import broker as broker_module
     from fastamu.tasks.projection import receiver as receiver_module
     from fastamu.tasks.projection import registry as registry_module
@@ -30,6 +31,7 @@ async def test_shared_broker_serializes_each_queue_but_not_other_queues(
     broker = broker_module.create_broker(config)
     settings = SimpleNamespace(tasks=SimpleNamespace(projection=config))
     monkeypatch.setattr(registry_module, "registry", registry)
+    monkeypatch.setattr(queue_module, "registry", registry)
     monkeypatch.setattr(registry_module, "get_settings", lambda: settings)
     monkeypatch.setattr(receiver_module, "get_settings", lambda: settings)
     monkeypatch.setattr(broker_module, "broker", broker)
@@ -89,7 +91,7 @@ async def test_shared_broker_serializes_each_queue_but_not_other_queues(
         "get_bootstrapper",
         lambda: SimpleNamespace(boot_providers=lambda: [Dependencies()]),
     )
-    registry.build()
+    registry.build(broker)
     broker.is_worker_process = True
     await broker.startup()
     receiver = receiver_module.ProjectionReceiver(broker)

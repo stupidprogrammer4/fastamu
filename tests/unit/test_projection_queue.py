@@ -7,6 +7,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
 from taskiq import AckableMessage
 
+from fastamu.common.projections import queue as queue_module
 from fastamu.common.projections.base import (
     AbstractBatchProjection,
     AbstractFanoutProjection,
@@ -32,6 +33,7 @@ def runtime(monkeypatch):
     broker = broker_module.create_broker(config)
     monkeypatch.setattr(broker_module, "broker", broker)
     monkeypatch.setattr(registry_module, "registry", registry)
+    monkeypatch.setattr(queue_module, "registry", registry)
     monkeypatch.setattr(registry_module, "get_settings", lambda: settings)
     monkeypatch.setattr(receiver_module, "get_settings", lambda: settings)
     broker.kick = AsyncMock()
@@ -86,8 +88,8 @@ def test_one_broker_multiple_queues_multiple_tasks_and_idempotent_build(
 ):
     registry, broker, _ = runtime
     classes = define_projections()
-    registry.build()
-    registry.build()
+    registry.build(broker)
+    registry.build(broker)
     assert set(registry.queues) == {"products", "orders"}
     assert len(broker._task_queues) == 2
     assert len(broker.get_all_tasks()) == len(classes)
@@ -101,7 +103,7 @@ def test_one_broker_multiple_queues_multiple_tasks_and_idempotent_build(
 async def test_publish_only_and_batch_is_one_message(runtime):
     registry, broker, _ = runtime
     single, _, _, batch, fanout, _ = define_projections()
-    registry.build()
+    registry.build(broker)
     await ProjectionQueue().queue(single, 7)
     await BatchProjectionQueue().queue(batch, [1, 2, 1])
     await BatchProjectionQueue().queue(batch, [])
@@ -146,7 +148,7 @@ async def test_retry_uses_fresh_dishka_scope_and_acks_after_cleanup(runtime):
             finally:
                 seen.append("closed")
 
-    registry.build()
+    registry.build(broker)
     container = make_async_container(TaskiqProvider(), Dependencies())
     setup_dishka(container, broker)
     # Only the tested task has a provider; dependency resolution is lazy.
@@ -168,7 +170,7 @@ async def test_exhaustion_lets_the_queue_move_on(runtime):
     registry, broker, config = runtime
     config.max_retries = 0
     single, *_ = define_projections()
-    registry.build()
+    registry.build(broker)
     receiver = receiver_module.ProjectionReceiver(broker)
     await ProjectionQueue().queue(single, 1)
     ack = AsyncMock()

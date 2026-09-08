@@ -29,10 +29,8 @@ class ProjectionRegistry:
             raise ValueError(f"Duplicate projection task: {name}")
         self.definitions[name] = projection
 
-    def build(self) -> None:
+    def build(self, broker) -> None:
         from taskiq_aio_pika import Queue
-
-        from fastamu.tasks.projection.broker import broker
 
         config = get_settings().tasks.projection
         if config is None:

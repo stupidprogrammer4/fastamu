@@ -8,14 +8,13 @@ from fastamu.common.projections.base import (
     AbstractProjection,
     AbstractUnProjection,
 )
+from fastamu.tasks.projection.registry import registry
 
 
 class ProjectionQueue[
     TProjection: AbstractProjection | AbstractFanoutProjection
 ]:
     async def queue(self, projection: type[TProjection], id: int) -> None:
-        from fastamu.tasks.projection.registry import registry
-
         await registry.task(projection).kiq(id)
 
 
@@ -25,13 +24,9 @@ class BatchProjectionQueue[TProjection: AbstractBatchProjection]:
     ) -> None:
         if not ids:
             return
-        from fastamu.tasks.projection.registry import registry
-
         await registry.task(projection).kiq(list(dict.fromkeys(ids)))
 
 
 class UnProjectionQueue[TProjection: AbstractUnProjection]:
     async def queue(self, projection: type[TProjection], id: int) -> None:
-        from fastamu.tasks.projection.registry import registry
-
         await registry.task(projection).kiq(id)

@@ -16,7 +16,7 @@ async def task_lifespan():
             from fastamu.tasks.projection.registry import registry
 
             bootstrapper.boot_projections()
-            registry.build()
+            registry.build(broker)
             if registry.queues:
                 stack.push_async_callback(broker.shutdown)
                 await broker.startup()
