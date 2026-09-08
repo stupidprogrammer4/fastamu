@@ -38,9 +38,7 @@ class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
         ...
 
 
-class AbstractFanoutProjection[TModel, TDocument](
-    ProjectionDefinition, ABC
-):
+class AbstractFanoutProjection[TModel, TDocument](ProjectionDefinition, ABC):
     """Read one source identity and write all documents derived from it."""
 
     def __init__(self, convertor: Convertor[TModel, TDocument]) -> None:
