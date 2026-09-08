@@ -1,4 +1,8 @@
-"""Retry the current delivery without letting subsequent tasks overtake it."""
+"""Retry the current delivery without letting subsequent tasks overtake it.
+
+A delivery that never succeeds is acknowledged and logged rather than
+holding the queue, so one document left behind cannot stop the rest.
+"""
 
 import asyncio
 import logging
@@ -49,8 +53,10 @@ class ProjectionReceiver(Receiver):
                 if attempt < self.config.max_retries:
                     await asyncio.sleep(self.config.retry_delay)
                     continue
-                logger.error("Projection queue paused; restart after repair")
-                await asyncio.Future()  # cancelled on worker shutdown
-                return
+                logger.error(
+                    "Projection gave up after %s attempts; the queue keeps "
+                    "going and this document is left behind",
+                    attempt + 1,
+                )
             await maybe_awaitable(message.ack())
             return

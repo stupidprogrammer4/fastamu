@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -165,7 +164,7 @@ async def test_retry_uses_fresh_dishka_scope_and_acks_after_cleanup(runtime):
         await container.close()
 
 
-async def test_exhaustion_keeps_delivery_unacked_until_cancelled(runtime):
+async def test_exhaustion_lets_the_queue_move_on(runtime):
     registry, broker, config = runtime
     config.max_retries = 0
     single, *_ = define_projections()
@@ -176,12 +175,6 @@ async def test_exhaustion_keeps_delivery_unacked_until_cancelled(runtime):
     delivery = AckableMessage(
         data=broker.kick.call_args.args[0].message, ack=ack
     )
-    pending = asyncio.create_task(receiver.callback(delivery))
-    try:
-        await asyncio.sleep(0.02)
-        assert not pending.done()
-        ack.assert_not_awaited()
-    finally:
-        pending.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await pending
+    await receiver.callback(delivery)
+
+    ack.assert_awaited_once()
