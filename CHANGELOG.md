@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3
+
+- Inject the request unit of work into handled HTTP error handlers with
+  Dishka instead of looking up the container and catching missing factories.
+- Dispatch global rate-limit refusals through the registered application
+  error handler. Handled HTTP errors require a unit-of-work provider.
+
 ## 0.6.2
 
 - Roll back the unit of work when Dishka sends an exception during scope
