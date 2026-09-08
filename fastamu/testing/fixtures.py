@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
+from fastamu.common.context import bind_uow, clear_uow
 from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import Settings
@@ -169,7 +170,11 @@ async def pg(test_dsn: str) -> AsyncIterator[DBConnection]:
 @pytest.fixture
 async def uow(pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
     async with DBUnitOfWork(pg) as unit:
-        yield unit
+        bind_uow(unit)
+        try:
+            yield unit
+        finally:
+            clear_uow()
 
 
 @pytest.fixture
