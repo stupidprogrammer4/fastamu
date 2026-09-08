@@ -1,6 +1,5 @@
 from typing import Any, Callable, Sequence, TypeVar, get_args, get_origin
 
-from fastamu.common.context import current_uow
 from fastamu.common.errors.exceptions import (
     NotFoundException,
     ValidationException,
@@ -32,11 +31,6 @@ class BaseService[TModel: BaseModel]:
                 cls.__model__ = model_cls
                 cls.__model_name__ = model_cls.__name__.removesuffix("Model")
                 break
-
-    async def commit(self) -> None:
-        """Commit the transaction of the scope this service runs in."""
-        uow = current_uow()
-        await uow.commit()
 
     def _check_not_empty_dict(self, d: dict):
         if not d:
