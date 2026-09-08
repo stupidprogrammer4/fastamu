@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Remove `after_commit`. A caller commits and then publishes, in that order,
+  instead of registering a coroutine for `commit` to drain.
+- Bind the unit of work of the running scope to a context variable in
+  `CoreProvider`; `BaseService.commit()` reads it back, and asking for one
+  outside any scope raises.
+- Add `FullSettings` for a project installed with every extra, so `es` and
+  the three task sections need no None check.
+
 ## 0.4.1
 
 - Add fan-out projections that accept one source ID, convert its related
