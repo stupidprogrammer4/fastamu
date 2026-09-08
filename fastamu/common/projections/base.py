@@ -6,6 +6,7 @@ from elasticsearch.dsl import AsyncDocument
 from fastamu.common.models.base import Base
 from fastamu.common.projections.convertor import Convertor
 from fastamu.common.projections.definition import ProjectionDefinition
+from fastamu.common.projections.errors import ProjectionSourceMissing
 
 
 class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
@@ -13,8 +14,9 @@ class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
 ):
     """Read one model, convert it and write one document.
 
-    A missing source model is a no-op, not an implicit destination deletion.
-    Query and conversion errors propagate to the caller.
+    A missing source model is not yet visible rather than deleted, since a
+    deletion goes through `AbstractUnProjection`; it raises so the delivery
+    is retried once the writing transaction has committed.
     """
 
     def __init__(self, convertor: Convertor[TModel, TDocument]) -> None:
@@ -23,7 +25,7 @@ class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
     async def project(self, id: int) -> None:
         model = await self._db_query(id)
         if model is None:
-            return
+            raise ProjectionSourceMissing(id)
         document = self.convertor.convert(model)
         await self._es_query(document)
 
@@ -47,7 +49,7 @@ class AbstractFanoutProjection[TModel, TDocument](ProjectionDefinition, ABC):
     async def project(self, id: int) -> None:
         models = await self._db_query(id)
         if not models:
-            return
+            raise ProjectionSourceMissing(id)
         documents = [self.convertor.convert(model) for model in models]
         await self._es_query(documents)
 
@@ -79,7 +81,7 @@ class AbstractBatchProjection[TModel, TDocument](ProjectionDefinition, ABC):
             return
         models = await self._db_query(list(dict.fromkeys(ids)))
         if not models:
-            return
+            raise ProjectionSourceMissing(*ids)
         documents = [self.convertor.convert(model) for model in models]
         await self._es_query(documents)
 

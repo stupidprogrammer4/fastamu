@@ -8,6 +8,7 @@ from fastamu.common.projections.base import (
     AbstractProjection,
 )
 from fastamu.common.projections.convertor import Convertor
+from fastamu.common.projections.errors import ProjectionSourceMissing
 
 
 class StringConvertor(Convertor[int, str]):
@@ -84,9 +85,10 @@ async def test_empty_input_does_no_io():
     projection.write.assert_not_awaited()
 
 
-async def test_missing_source_does_not_write():
+async def test_a_source_not_yet_visible_is_refused_rather_than_skipped():
     projection = Projection(None)
-    await projection.project(7)
+    with pytest.raises(ProjectionSourceMissing):
+        await projection.project(7)
     projection.write.assert_not_awaited()
 
 
@@ -113,7 +115,8 @@ async def test_falsey_source_model_is_converted():
     projection.write.assert_awaited_once_with("0")
 
 
-async def test_batch_missing_sources_do_not_write():
+async def test_a_batch_seeing_no_source_is_refused_rather_than_skipped():
     projection = BatchProjection([])
-    await projection.batch_project([7])
+    with pytest.raises(ProjectionSourceMissing):
+        await projection.batch_project([7])
     projection.write.assert_not_awaited()
