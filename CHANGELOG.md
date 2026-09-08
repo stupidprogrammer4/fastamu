@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.4
+
+- Resolve a shared `Rollback` dependency before handled HTTP errors instead
+  of repeating rollback calls in each handler. The dependency is not cached.
+- Register the dependency in the runtime and shipped testing providers.
+
 ## 0.6.3
 
 - Inject the request unit of work into handled HTTP error handlers with
