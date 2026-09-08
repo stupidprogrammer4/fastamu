@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- Remove `BaseService.commit()` and `fastamu.common.context`. A projection
+  message carries an id and the worker reads the row back, so it is
+  published inside the writing transaction and nothing has to happen after
+  the commit.
+- A projection whose source is not visible raises `ProjectionSourceMissing`
+  instead of reporting success, so the delivery is retried once the write
+  has committed.
+- A delivery that never succeeds is logged and acknowledged rather than
+  holding its queue, so one document left behind cannot stop the rest.
+
 ## 0.5.2
 
 - Revert 0.5.1; the provider binds the unit of work, as in 0.5.0.
