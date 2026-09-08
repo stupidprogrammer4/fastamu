@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2
+
+- Roll back the unit of work when Dishka sends an exception during scope
+  cleanup, and always close the session after commit or rollback.
+- Roll back handled application, validation, HTTP and CSRF errors before
+  returning their HTTP responses. Await the error handler in rate limiting.
+- Apply the same transaction lifecycle to the shipped testing provider.
+
 ## 0.6.1
 
 - Import the projection registry at module level where it is used, and
