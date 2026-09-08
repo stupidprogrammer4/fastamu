@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- Import the projection registry at module level where it is used, and
+  pass the broker to `ProjectionRegistry.build` instead of importing it
+  inside the method.
+
 ## 0.6.0
 
 - Remove `BaseService.commit()` and `fastamu.common.context`. A projection
