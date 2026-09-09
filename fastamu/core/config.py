@@ -67,6 +67,17 @@ class ProjectionConfig(BaseModel):
     prefetch: Literal[1] = 1
     max_retries: int = Field(default=3, ge=0)
     retry_delay: float = Field(default=1.0, gt=0)
+    recovery_limit: int = Field(default=100, ge=1, le=100)
+    recovery_cron: str = Field(default="*/5 * * * *", min_length=1)
+    failure_queue: str = Field(default="projection.failed", min_length=1)
+    expired_queue: str = Field(default="projection.expired", min_length=1)
+    retry_ttl: float = Field(default=10_800, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def distinct_recovery_queues(self):
+        if self.failure_queue == self.expired_queue:
+            raise ValueError("Failure and expired queues must be different")
+        return self
 
 
 class TasksConfig(BaseModel):

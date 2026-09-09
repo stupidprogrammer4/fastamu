@@ -33,6 +33,11 @@ container = make_async_container(TaskiqProvider(), CoreProvider(), *providers)
 setup_dishka(container, broker)
 bootstrapper.boot_schedulers()
 
+if settings.tasks.projection is not None:
+    from fastamu.tasks.projection.scheduler import register_recovery
+
+    register_recovery(broker, settings.tasks.projection)
+
 broker.additional_streams.update(
     {
         task.labels["queue_name"]: ">"

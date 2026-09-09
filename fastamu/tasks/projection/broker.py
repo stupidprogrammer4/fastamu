@@ -1,6 +1,8 @@
+from aio_pika import DeliveryMode, Message
 from dishka import make_async_container
 from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
-from taskiq import TaskiqEvents
+from pamqp.commands import Basic
+from taskiq import BrokerMessage, TaskiqEvents
 from taskiq_aio_pika import AioPikaBroker
 
 from fastamu.core.bootstrap import get_bootstrapper
@@ -9,8 +11,34 @@ from fastamu.core.provider import CoreProvider
 from fastamu.tasks.projection.receiver import RaiseProjectionErrors
 
 
+class ProjectionBroker(AioPikaBroker):
+    async def kick(self, message: BrokerMessage) -> None:
+        if self.write_channel is None:
+            raise RuntimeError("Start the projection broker before publishing")
+        queue = message.labels.get("queue_name")
+        if not isinstance(queue, str) or not queue:
+            raise ValueError("Projection destination queue is required")
+        confirmation = await self.write_channel.default_exchange.publish(
+            Message(
+                body=message.message,
+                delivery_mode=DeliveryMode.PERSISTENT,
+                headers={
+                    "task_id": message.task_id,
+                    "task_name": message.task_name,
+                    "queue_name": queue,
+                },
+            ),
+            routing_key=queue,
+            mandatory=True,
+        )
+        if not isinstance(confirmation, Basic.Ack):
+            raise RuntimeError(
+                "RabbitMQ did not confirm projection publication"
+            )
+
+
 def create_broker(config: ProjectionConfig) -> AioPikaBroker:
-    broker = AioPikaBroker(
+    broker = ProjectionBroker(
         config.url,
         qos=config.prefetch,
     )

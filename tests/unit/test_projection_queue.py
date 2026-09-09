@@ -120,7 +120,9 @@ async def test_registry_dispatches_fanout_with_one_id():
     *_, fanout, _ = define_projections()
     instance = SimpleNamespace(project=AsyncMock())
 
-    await ProjectionRegistry._handler(fanout)(7, instance)
+    await ProjectionRegistry._handler(fanout)(
+        7, instance, SimpleNamespace(labels={}), None
+    )
 
     instance.project.assert_awaited_once_with(7)
 
@@ -172,11 +174,72 @@ async def test_exhaustion_lets_the_queue_move_on(runtime):
     single, *_ = define_projections()
     registry.build(broker)
     receiver = receiver_module.ProjectionReceiver(broker)
+    seen = []
+    receiver.recovery.store = AsyncMock(
+        side_effect=lambda failure: seen.append("stored")
+    )
     await ProjectionQueue().queue(single, 1)
-    ack = AsyncMock()
+    ack = AsyncMock(side_effect=lambda: seen.append("ack"))
     delivery = AckableMessage(
         data=broker.kick.call_args.args[0].message, ack=ack
     )
     await receiver.callback(delivery)
 
     ack.assert_awaited_once()
+    assert seen == ["stored", "ack"]
+    failure = receiver.recovery.store.call_args.args[0]
+    assert failure.message.args == [1]
+    assert failure.queue == "products"
+    assert failure.attempts == 1
+
+
+async def test_failure_storage_error_never_acks_original(runtime):
+    import asyncio
+
+    registry, broker, config = runtime
+    config.max_retries = 0
+    single, *_ = define_projections()
+    registry.build(broker)
+    receiver = receiver_module.ProjectionReceiver(broker)
+    stored = asyncio.Event()
+
+    async def unavailable(failure):
+        stored.set()
+        raise ConnectionError("RabbitMQ unavailable")
+
+    receiver.recovery.store = unavailable
+    await ProjectionQueue().queue(single, 1)
+    ack = AsyncMock()
+    task = asyncio.create_task(
+        receiver.callback(
+            AckableMessage(data=broker.kick.call_args.args[0].message, ack=ack)
+        )
+    )
+    await asyncio.wait_for(stored.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    ack.assert_not_awaited()
+
+
+@pytest.mark.parametrize("shape", ["single", "batch", "fanout", "remove"])
+async def test_every_projection_shape_checks_its_producer_before_execution(
+    runtime, monkeypatch, shape
+):
+    from fastamu.infra.db.versions import ProjectionPending
+
+    single, _, _, batch, fanout, remove = define_projections()
+    classes = dict(single=single, batch=batch, fanout=fanout, remove=remove)
+    check = AsyncMock(side_effect=ProjectionPending)
+    monkeypatch.setattr(registry_module, "_prepare_execution", check)
+    instance = SimpleNamespace(
+        project=AsyncMock(), batch_project=AsyncMock(), unproject=AsyncMock()
+    )
+    message = SimpleNamespace(labels={})
+    handler = ProjectionRegistry._handler(classes[shape])
+    with pytest.raises(ProjectionPending):
+        await handler([7] if shape == "batch" else 7, instance, message, None)
+    check.assert_awaited_once_with(message, None, classes[shape], [7])
+    instance.project.assert_not_awaited()
+    instance.batch_project.assert_not_awaited()
+    instance.unproject.assert_not_awaited()
