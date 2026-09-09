@@ -1119,6 +1119,11 @@ tasks:
     prefetch: 1
     max_retries: 3
     retry_delay: 1.0
+    recovery_limit: 100
+    recovery_cron: "*/5 * * * *"
+    failure_queue: projection.failed
+    expired_queue: projection.expired
+    retry_ttl: 10800
 ```
 
 CQRS also requires the `es` connection configuration. Run the worker with:
@@ -1131,22 +1136,109 @@ This command selects the projection receiver; **do not use the default Taskiq
 receiver** for these queues. Each queue is durable with single-active-consumer;
 RabbitMQ prefetch is 1 per consumer. Different queues can execute concurrently.
 The task handler gets its projection from Dishka, with a fresh scope per retry.
-Only successful execution and scope cleanup are followed by ACK. Retry delays
-hold the current delivery; no delayed retry queue is used. Exhausted retries
-leave that queue paused and unacknowledged until worker restart after repair.
-Other queues remain available. Taskiq-aio-pika also declares the shared
-`taskiq.dead_letter` queue by default; exhaustion does not send messages there.
+Immediate retries hold the current delivery. After exhaustion, the receiver
+publishes a persistent envelope to `failure_queue` (default `projection.failed`)
+with mandatory routing and publisher confirms, then ACKs the original. If
+storage fails, the original remains unacknowledged. Worker death before ACK
+lets RabbitMQ redeliver the original message.
 
-Connection loss, broker acknowledgement timeouts, and failover can cause
-redelivery; this is not exactly-once execution or a guarantee of commit order.
-Keep projection writes idempotent. Publish **after database commit**; no
-transaction callback or durable commit-to-publish mechanism is implemented.
-A crash between commit and publish can therefore leave the read model stale.
+When CQRS and schedulers are configured, `fastamu.projection.recover` runs every
+five minutes. Each invocation reads at most `recovery_limit` messages (default
+100) and republishes each original task to its registered queue. There is no
+batch conversion, recovery projection registration, exponential backoff or
+attempt-count limit. Retries stop at their original expiry deadline.
+Singles, existing batches, fanouts and deletes all
+follow the same path. The worker executes them through its usual Dishka scope.
+The scheduler never resolves a database connection, even with pending work.
+
+Inspect `projection.failed` in RabbitMQ for the original task name and ID,
+args/kwargs, original queue, first/last failure timestamps, exhausted delivery
+cycle count, traceback and the last replay error. A successful replay moves
+ownership to the normal queue; subsequent execution failure stores the same
+task ID again with an incremented count. Existing ready/unacknowledged messages
+remain visible on their normal queues. This is pending-work visibility, not a
+permanent execution history or a database-to-broker delivery ledger.
+
+An exclusive RabbitMQ lock prevents overlapping schedulers from claiming the
+same failed queue. Messages are ACKed only after a replacement is confirmed.
+Unknown tasks, unavailable queues and malformed payloads remain inspectable in
+the failed queue and are retried on later ticks; unresolved messages move to
+the tail so other tasks can progress. Use a distinct failure queue per app when
+sharing a RabbitMQ virtual host. Payloads that cannot be decoded still need
+repair before they can execute; retries never discard them.
+
+A crash between publication and ACK can duplicate work, so projections must
+be idempotent. Replaying a patch against a missing destination still needs a
+rebuild or another repair; repeated execution alone cannot correct its logic.
+Batch projections refuse partial source reads. Bulk deletion ignores missing
+IDs (404) but raises other item errors so recovery can observe them. This
+mechanism does not preserve the original position relative to live traffic or
+guarantee SQL commit order. Taskiq's default `taskiq.dead_letter` queue is not
+used for this recovery flow.
+
+Connection loss and a crash between execution and ACK can duplicate work,
+so projection writes must be idempotent. Publish **inside the writing UoW**.
+`ProjectionQueue`, `BatchProjectionQueue` and `UnProjectionQueue` call the
+classmethod `DBUnitOfWork.stage_projection()` before sending. The UoW is
+resolved from its ContextVar. All version allocation, comparison and completion
+belong to the DB infrastructure; task handlers only call the UoW API.
+
+`fastamu.infra.db.tables.ProjectionVersionTable` stores one row per concrete
+projection class and target ID. `Bootstrapper.boot_sqlmodels()` explicitly
+loads this framework-owned table before business tables. It is part of
+`SQLModel.metadata` and Alembic autogeneration. Deploy its migration before
+versioned publishers; request handling never creates tables.
+
+Each row carries `last_version`, a UUID `version_id`, the completed version and
+UUID, and the current expiry and update timestamps. Both source changes and
+version changes commit in the same SQL transaction. Allocation uses ordinary
+SQLAlchemy UPDATE/SELECT/INSERT statements, including a savepoint to resolve
+concurrent first inserts; no PostgreSQL transaction-status functions, external
+counter or background database scan are required. Existing rows serialize
+allocation. Version numbers can contain gaps. The UUID distinguishes a number
+reused after rollback from the rolled-back publication. This SQL path supports
+PostgreSQL, MySQL/MariaDB, SQL Server, Oracle and SQLite; use transactional
+storage engines and committed reads, never dirty reads.
+
+The worker calls `DBUnitOfWork.pending_projection()` in its fresh scope:
+matching, unfinished versions execute; a newer version, a different UUID at
+the same revision, or an already completed version skips execution. A missing
+or lower committed revision retries because the producer may still commit.
+For a batch, superseded entries are removed and current entries execute in one
+batch. Any entry still awaiting commit defers that attempt. Completion uses a
+conditional UPDATE through `DBUnitOfWork.complete_projection()`, so finishing
+an older run cannot complete a newer revision. The version scope is the
+concrete projection and target, not every task writing the same document.
+Keep all writers of an index on its existing single-active-consumer queue.
+
+Publication must receive an actual RabbitMQ publisher ACK. Persistent messages
+use mandatory routing; an unroutable return is not confirmation. A publication
+error or cancellation marks the UoW rollback-only even if application code
+catches it. Commit and rollback through the UoW. Publishing inside an existing
+application savepoint is refused; its rollback must not leave a valid-looking
+publication. Cross-module services must stage their owner's projection in the
+original writing UoW, through its interface.
+
+`retry_ttl` defaults to three hours, measured from queueing and preserved across
+all retries. Both the worker and recovery scheduler enforce it. Expired work
+moves durably to `expired_queue` before the previous delivery is ACKed. It does
+not keep cycling through retry and is not deleted. The version row also stays:
+`expires_at` in the past without matching completion identifies unfinished,
+expired current work. Inspect the archived payload and error, repair the cause,
+and queue a fresh version inside a UoW to rebuild from current database state.
+Expiration stops automatic execution; it is not proof that the work succeeded.
+No automatic cleanup of version rows is performed.
+
+Standalone rebuilds outside a UoW and existing unlabelled messages retain their
+unversioned execution behavior. New standalone messages still carry an expiry.
+Old messages containing native `projection_transaction_id` metadata require
+reconciliation; they are retained as failures rather than silently bypassing
+the new gate. Roll out worker support and the migration before producers.
 For standalone publishers use `fastamu.tasks.lifespan.task_lifespan()`.
 
 Single and batch projections have independent query contracts.
 Batch IDs are deduplicated in input order. Empty batches do no I/O; missing
-source models are skipped, without implicitly deleting destination documents.
+source models raise, without implicitly deleting destination documents.
 Conversion completes before any destination write. Methods return `None` on
 success and propagate failures. There are no decorators or per-ID async loops.
 
