@@ -709,6 +709,41 @@ If a handler raises, everything it wrote rolls back. Repositories take the UoW i
 their constructor and read `uow.session` — which is why a repository is
 constructor-injectable with no arguments of your own.
 
+Register transaction-dependent side effects with
+`await DBUnitOfWork.on_commit(callback, key=optional_key)`. The callback is
+an async zero-argument function, not an already-created coroutine. It runs
+only after a successful outer SQL commit, after SQLAlchemy returns the
+transaction's connection to its pool. Without a current UoW it runs immediately.
+Rollback, failed/cancelled commit, and closing without commit discard pending
+callbacks. Savepoint registration is refused; use the outer transaction.
+An optional key replaces an earlier pending operation with that same key.
+Each successful commit drains its operations once; a later transaction starts
+with an empty list. Ordinary callback failures do not prevent the remaining
+callbacks from running; they are reported together as an ExceptionGroup.
+The SQL commit is already complete and is not undone by a callback error.
+Callbacks are in-memory side effects, not a durable event-delivery mechanism.
+
+Cache implementations remain application-owned. One use is to increment a
+Redis invalidation counter and delete the cached value in a transactional
+pipeline after commit. A reader captures that counter before fetching SQL,
+then uses WATCH plus MULTI/EXEC to fill only while the counter still matches.
+On WatchError discard the old result instead of retrying that write.
+Keep counters outside value TTLs and preserve them during cache clearing;
+resetting or evicting a counter can make an old token valid again. Core uses
+per-product counters and conservative per-metadata-kind counters. Metadata
+fields have individual TTLs via Redis 7.4+
+[HEXPIRE](https://redis.io/docs/latest/commands/hexpire/).
+Core SQL-derived fills also use on_commit so rolled-back reads cannot leak
+uncommitted data into the cache. Direct cache set methods are low-level seed
+operations, not the guarded database read path.
+
+This coordinates successful transactions; it does not make SQL and Redis
+one atomic store. A crash or Redis outage after commit can leave stale data
+until its value/field TTL. In-flight requests can still return the snapshot
+they already read. The cache-fill guard assumes the read occurs after token
+capture against current committed state (Core uses PostgreSQL READ COMMITTED),
+not an older repeatable-read snapshot.
+
 A sub-section of settings can be re-provided as its own type, so a service can
 depend on exactly what it needs:
 
