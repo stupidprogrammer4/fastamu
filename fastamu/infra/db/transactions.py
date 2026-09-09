@@ -1,0 +1,2 @@
+class TransactionRollbackOnly(RuntimeError):
+    pass

@@ -149,6 +149,7 @@ class Bootstrapper:
         nothing, so importing `domain/models.py` would add no metadata. This is
         what alembic autogenerate and the test schema both read.
         """
+        self.import_module("fastamu.infra.db.tables", raise_nested=True)
         for module_name in self.submodules:
             self.import_module(f"{module_name}.{self.tables_path}")
 
