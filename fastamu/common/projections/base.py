@@ -68,8 +68,9 @@ class AbstractBatchProjection[TModel, TDocument](ProjectionDefinition, ABC):
     """Coordinate bulk reads, pure conversion and bulk destination writes.
 
     Subclasses implement only the two query hooks and may inject repositories
-    in their constructors. Missing source models produce no document; deletion
-    of stale destination documents is not implicit. Errors propagate.
+    in their constructors. Every requested ID must produce one source model;
+    missing rows raise so the delivery cannot silently acknowledge partial
+    work. Deletion of stale destination documents is not implicit.
     """
 
     def __init__(self, convertor: Convertor[TModel, TDocument]) -> None:
@@ -79,8 +80,9 @@ class AbstractBatchProjection[TModel, TDocument](ProjectionDefinition, ABC):
         """Read once, convert in memory, then write once for the batch."""
         if not ids:
             return
-        models = await self._db_query(list(dict.fromkeys(ids)))
-        if not models:
+        unique_ids = list(dict.fromkeys(ids))
+        models = await self._db_query(unique_ids)
+        if len(models) != len(unique_ids):
             raise ProjectionSourceMissing(*ids)
         documents = [self.convertor.convert(model) for model in models]
         await self._es_query(documents)

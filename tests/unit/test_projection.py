@@ -120,3 +120,16 @@ async def test_a_batch_seeing_no_source_is_refused_rather_than_skipped():
     with pytest.raises(ProjectionSourceMissing):
         await projection.batch_project([7])
     projection.write.assert_not_awaited()
+
+
+async def test_batch_does_not_silently_drop_missing_sources():
+    projection = BatchProjection([1])
+    with pytest.raises(ProjectionSourceMissing):
+        await projection.batch_project([1, 2])
+    projection.write.assert_not_awaited()
+
+
+async def test_batch_deduplicates_before_checking_coverage():
+    projection = BatchProjection([1, 2])
+    await projection.batch_project([1, 2, 1])
+    projection.write.assert_awaited_once_with(["1", "2"])

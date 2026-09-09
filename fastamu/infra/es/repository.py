@@ -103,7 +103,7 @@ class ESRepository[TDoc: AsyncDocument]:
         *,
         refresh: bool = False,
     ) -> int:
-        """Delete many documents without reading them first."""
+        """Delete many documents; only absent IDs are ignored."""
         actions = [
             {
                 "_op_type": "delete",
@@ -116,7 +116,7 @@ class ESRepository[TDoc: AsyncDocument]:
             self._using,
             actions,
             refresh=refresh,
-            raise_on_error=False,
+            ignore_status=(404,),
         )
         return deleted
 
