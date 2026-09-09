@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from datetime import datetime
 
@@ -18,6 +19,7 @@ class DBUnitOfWork:
         self._session = None
         self._parent: DBUnitOfWork | None = None
         self._rollback_only = False
+        self._after_commit: dict[object, Callable[[], Awaitable[None]]] = {}
 
     @property
     def session(self):
@@ -57,15 +59,52 @@ class DBUnitOfWork:
             raise TransactionRollbackOnly(
                 "Transaction is marked rollback-only"
             )
-        await self.session.commit()
-        self._clear_transaction_state()
+        callbacks = list(self._after_commit.values())
+        try:
+            await self.session.commit()
+        finally:
+            self._clear_transaction_state()
+        errors = []
+        for callback in callbacks:
+            try:
+                await callback()
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            raise ExceptionGroup("Post-commit operations failed", errors)
 
     async def rollback(self):
-        await self.session.rollback()
-        self._clear_transaction_state()
+        try:
+            await self.session.rollback()
+        finally:
+            self._clear_transaction_state()
 
     def _clear_transaction_state(self) -> None:
         self._rollback_only = False
+        self._after_commit.clear()
+
+    @classmethod
+    async def on_commit(
+        cls,
+        callback: Callable[[], Awaitable[None]],
+        *,
+        key: object | None = None,
+    ) -> None:
+        """Run after this transaction commits, or now without an active UoW.
+
+        Reusing a key replaces the pending operation. Callbacks must not
+        depend on an open SQL transaction. A callback failure does not undo
+        the commit; all other callbacks are attempted before errors propagate.
+        """
+        unit = cls.current()
+        if unit is None:
+            await callback()
+        else:
+            if unit.session.in_nested_transaction():
+                raise RuntimeError(
+                    "Post-commit operations require the outer transaction"
+                )
+            unit._after_commit[object() if key is None else key] = callback
 
     @classmethod
     def mark_rollback_only(cls) -> None:
