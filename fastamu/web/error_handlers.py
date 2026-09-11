@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dishka import FromDishka
-from dishka.integrations.starlette import inject
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError as PydanticError
 from fastapi.responses import JSONResponse
@@ -14,14 +12,12 @@ from fastamu.common.errors.outputs import BaseErrorOut
 from fastamu.common.types.enums import MediaType
 from fastamu.core import resources
 from fastamu.core.logger import logger
-from fastamu.infra.db.uow import Rollback
 
 from .response import APIResponse
 
 
-@inject
 async def external_error_handler(
-    request: Request, exc: APPException, _rollback: FromDishka[Rollback]
+    request: Request, exc: APPException
 ) -> JSONResponse:
     """Serialise a typed exception into the standard envelope.
 
@@ -45,25 +41,21 @@ async def external_error_handler(
     )
 
 
-@inject
 async def pydantic_error_handler(
-    request: Request, exc: PydanticError, _rollback: FromDishka[Rollback]
+    request: Request, exc: PydanticError
 ) -> JSONResponse:
     response_model = APIResponse.from_pydantic_error(exc)
     return JSONResponse(
-        # json mode: a rejected value is echoed back raw, and a Decimal
-        # or a date would not survive json.dumps
+        # Convert rejected values such as Decimal and dates to JSON-safe data.
         content=response_model.model_dump(mode="json", exclude_defaults=True),
         status_code=422,
         media_type=MediaType.JSON,
     )
 
 
-@inject
 async def http_error_handler(
     request: Request,
     exc: StarletteHTTPException,
-    _rollback: FromDishka[Rollback],
 ) -> JSONResponse:
     """Answer Starlette's own HTTP errors in the app's error envelope.
 
@@ -99,9 +91,8 @@ async def http_error_handler(
     )
 
 
-@inject
 async def csrf_error_handler(
-    request: Request, exc: CsrfProtectError, _rollback: FromDishka[Rollback]
+    request: Request, exc: CsrfProtectError
 ) -> JSONResponse:
     response_model = APIResponse(
         success=False,

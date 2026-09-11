@@ -13,7 +13,7 @@ a rehearsal of it.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -37,7 +37,7 @@ from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import Settings
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork, rollback_transaction
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
 from fastamu.infra.redis.client import RedisClient
@@ -196,7 +196,11 @@ async def clean_db(pg: DBConnection, es: ESClient) -> None:
     modules) between tests."""
     bootstrapper = get_bootstrapper()
     bootstrapper.boot_sqlmodels()
-    tables = list(reversed(SQLModel.metadata.sorted_tables))
+    tables = [
+        table
+        for table in reversed(SQLModel.metadata.sorted_tables)
+        if not table.info.get("preserve_on_test_cleanup")
+    ]
     if tables:
         async with pg.session_factory() as session:
             if pg.dialect.name == "postgresql":
@@ -262,12 +266,6 @@ def core_provider_of(test_settings: Settings) -> Provider:
     """
 
     class TestCoreProvider(Provider):
-        rollback = provide(
-            staticmethod(rollback_transaction),
-            scope=Scope.REQUEST,
-            cache=False,
-        )
-
         @provide(scope=Scope.APP)
         def settings(self) -> Settings:
             return test_settings
@@ -287,19 +285,9 @@ def core_provider_of(test_settings: Settings) -> Provider:
             )
 
         @provide(scope=Scope.REQUEST)
-        async def uow(
-            self, pg: DBConnection
-        ) -> AsyncGenerator[DBUnitOfWork, BaseException | None]:
-            unit = DBUnitOfWork(pg)
-            await unit.begin()
-            try:
-                error = yield unit
-                if error is None:
-                    await unit.commit()
-                else:
-                    await unit.rollback()
-            finally:
-                await unit.close()
+        async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
+            async with DBUnitOfWork(pg) as unit:
+                yield unit
 
         @provide(scope=Scope.APP)
         def schedule_source(self) -> ScheduleSource:

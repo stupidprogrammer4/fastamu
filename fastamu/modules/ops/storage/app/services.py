@@ -9,6 +9,7 @@ from fastamu.common.errors.exceptions import (
 from fastamu.common.schemas.results import PagedType
 from fastamu.common.services import BaseIDService
 from fastamu.core.config import StorageConfig
+from fastamu.infra.db.transaction import transactional
 from fastamu.modules.ops.storage import resources
 from fastamu.modules.ops.storage.app.helpers import StreamMeter
 from fastamu.modules.ops.storage.domain.models import MediaModel
@@ -52,6 +53,7 @@ class MediaService(BaseIDService[MediaModel]):
             )
         return extension
 
+    @transactional
     async def upload(
         self, stream: AsyncIterator[bytes], filename: str | None
     ) -> MediaModel:
@@ -163,6 +165,7 @@ class MediaService(BaseIDService[MediaModel]):
             )
         return self.storage.stream(path), media.content_type
 
+    @transactional
     async def remove(self, id: int) -> MediaModel:
         """Delete a media record and its stored file.
 

@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, AsyncIterator
+from typing import AsyncIterator
 
 from dishka import Provider, Scope, provide
 from taskiq import ScheduleSource
@@ -6,17 +6,13 @@ from taskiq import ScheduleSource
 from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.config import Settings, get_settings
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork, rollback_transaction
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
 from fastamu.infra.redis.client import RedisClient
 
 
 class CoreProvider(Provider):
-    rollback = provide(
-        staticmethod(rollback_transaction), scope=Scope.REQUEST, cache=False
-    )
-
     @provide(scope=Scope.APP)
     def settings(self) -> Settings:
         return get_settings()
@@ -36,19 +32,9 @@ class CoreProvider(Provider):
         )
 
     @provide(scope=Scope.REQUEST)
-    async def uow(
-        self, pg: DBConnection
-    ) -> AsyncGenerator[DBUnitOfWork, BaseException | None]:
-        uow = DBUnitOfWork(pg)
-        await uow.begin()
-        try:
-            error = yield uow
-            if error is None:
-                await uow.commit()
-            else:
-                await uow.rollback()
-        finally:
-            await uow.close()
+    async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
+        async with DBUnitOfWork(pg) as unit:
+            yield unit
 
     @provide(scope=Scope.APP)
     async def es(self, settings: Settings) -> AsyncIterator[ESClient]:

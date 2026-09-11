@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from throttled.asyncio.store import MemoryStore, RedisStore
 
 from fastamu.core.config import RateLimitRule, Settings, get_settings
-from fastamu.infra.db.uow import DBUnitOfWork, rollback_transaction
+from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.web.error_handlers import setup_exception_handlers
 from fastamu.web.ratelimit import (
     RateLimitMiddleware,
@@ -35,12 +35,6 @@ async def test_global_cross_path_and_independent_account_limits(general):
     unit = AsyncMock(spec=DBUnitOfWork)
 
     class TestProvider(Provider):
-        rollback = provide(
-            staticmethod(rollback_transaction),
-            scope=Scope.REQUEST,
-            cache=False,
-        )
-
         scope = Scope.APP
 
         @provide(scope=Scope.REQUEST)
@@ -94,6 +88,6 @@ async def test_global_cross_path_and_independent_account_limits(general):
                 assert (
                     await client.post("/login", json={"mobile": "b"})
                 ).status_code == 429
-        assert unit.rollback.await_count == (3 if general else 2)
+        unit.rollback.assert_not_awaited()
     finally:
         await container.close()

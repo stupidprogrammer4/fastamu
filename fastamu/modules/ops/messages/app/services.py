@@ -8,6 +8,7 @@ from fastamu.common.schemas.results import PagedType
 from fastamu.common.services import BaseIDService
 from fastamu.common.utils import dates
 from fastamu.core import resources
+from fastamu.infra.db.transaction import transactional
 from fastamu.modules.ops.messages.config.constants import (
     MESSAGE_ID_ENCRYPTION,
 )
@@ -78,6 +79,7 @@ class SMSProviderService(BaseIDService[SMSProviderModel]):
         active = self._check_for_existence("is_active", True, active)
         return active
 
+    @transactional
     async def upsert(self, data: SmsProviderUpsert) -> SMSProviderModel:
         """
         Register a provider, replacing the one already under its code so its
@@ -93,6 +95,7 @@ class SMSProviderService(BaseIDService[SMSProviderModel]):
         )
         return provider
 
+    @transactional
     async def activate(self, data: SmsProviderActivate) -> SMSProviderModel:
         """
         Send messages through one provider from now on, switching off whichever
@@ -141,6 +144,7 @@ class SMSPatternService(BaseIDService[SMSPatternModel]):
         pattern = self._check_for_existence("key", key, pattern)
         return pattern
 
+    @transactional
     async def upsert(self, data: SmsPatternUpsert) -> SMSPatternModel:
         """
         Register the template to send one message key through, replacing
@@ -161,6 +165,7 @@ class MessageService(BaseIDService[MessageModel]):
     def __init__(self, repo: MessageRepository) -> None:
         self.repo = repo
 
+    @transactional
     async def queue(self, data: SmsSend) -> MessageModel:
         """
         Record a pending message. Automatic dispatch is unavailable until
@@ -183,6 +188,7 @@ class MessageService(BaseIDService[MessageModel]):
         )
         return message
 
+    @transactional
     async def queue_bulk(
         self,
         recipients: Sequence[str],
@@ -215,6 +221,7 @@ class MessageService(BaseIDService[MessageModel]):
         )
         return queued
 
+    @transactional
     async def deliver(
         self,
         id: int,
@@ -238,6 +245,7 @@ class MessageService(BaseIDService[MessageModel]):
         updated = self._check_for_id_existence(id, updated)
         return updated
 
+    @transactional
     async def deliver_bulk(
         self,
         results: Mapping[int, SmsDeliveryResult],
@@ -276,6 +284,7 @@ class MessageService(BaseIDService[MessageModel]):
             sent_at=dates.utc_now() if result.delivered else None,
         )
 
+    @transactional
     async def retry(self, id: int) -> MessageModel:
         """
         Mark a failed message pending again. The try count is
