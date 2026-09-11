@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from faststream.rabbit import Channel
 from pydantic import ValidationError
 
 from fastamu.core.config import EventsConfig
@@ -13,16 +14,25 @@ from fastamu.tasks.events.factory import BrokerFactory
         (
             "rabbitmq",
             "amqp://localhost/test",
-            "faststream.rabbit.RabbitBroker",
+            "fastamu.tasks.events.factory.RabbitBroker",
         ),
-        ("redis", "redis://localhost:6379/3", "faststream.redis.RedisBroker"),
+        (
+            "redis",
+            "redis://localhost:6379/3",
+            "fastamu.tasks.events.factory.RedisBroker",
+        ),
     ],
 )
 def test_selects_transport_and_passes_url_without_starting(name, url, target):
     config = EventsConfig(broker=name, url=url)
     with patch(target) as constructor:
         broker = BrokerFactory.create(config)
-        constructor.assert_called_once_with(url)
+        if name == "rabbitmq":
+            constructor.assert_called_once_with(
+                url, default_channel=Channel(on_return_raises=True)
+            )
+        else:
+            constructor.assert_called_once_with(url)
         assert broker is constructor.return_value
         broker.connect.assert_not_called()
         broker.start.assert_not_called()
@@ -51,17 +61,13 @@ def test_generated_config_builds_real_brokers_without_network():
 async def test_rabbit_event_publish_uses_configured_topic_exchange(
     monkeypatch,
 ):
-    from pydantic import BaseModel
-
     from fastamu.tasks.events import broker as event_module
-
-    class Event(BaseModel):
-        value: int
+    from fastamu.tasks.events.publisher import publish
 
     sent = AsyncMock()
     monkeypatch.setattr(event_module.broker, "publish", sent)
 
-    await event_module.publish("catalog.changed", Event(value=7))
+    await publish("catalog.changed", {"value": 7})
 
     sent.assert_awaited_once_with(
         {"value": 7},
