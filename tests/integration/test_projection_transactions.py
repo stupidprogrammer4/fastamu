@@ -2,7 +2,6 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -10,18 +9,18 @@ from dishka import Provider, Scope, make_async_container, provide
 from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
 from sqlalchemy import text
 from taskiq import AckableMessage
+from taskiq.exceptions import SendTaskError
+from taskiq.receiver import Receiver
 
-from fastamu.common.projections import queue as queue_module
-from fastamu.common.projections.base import AbstractProjection
-from fastamu.common.projections.queue import ProjectionQueue
 from fastamu.core.config import ProjectionConfig
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.tables import ProjectionVersionTable
-from fastamu.infra.db.transactions import TransactionRollbackOnly
+from fastamu.infra.db.transaction import transactional
 from fastamu.infra.db.uow import DBUnitOfWork
-from fastamu.infra.db.versions import ProjectionTicket
+from fastamu.projections import definition
+from fastamu.projections.base import AbstractProjection
+from fastamu.projections.decorators import projection
 from fastamu.tasks.projection import broker as broker_module
-from fastamu.tasks.projection import receiver as receiver_module
+from fastamu.tasks.projection import publisher as queue_module
 from fastamu.tasks.projection import registry as registry_module
 
 
@@ -34,24 +33,15 @@ async def runtime(monkeypatch):
     name = "test_projection_xid_" + uuid4().hex
     db = DBConnection(dsn, 4, 0, 5, 1800)
     async with db.engine.begin() as connection:
-        await connection.run_sync(
-            ProjectionVersionTable.__table__.create, checkfirst=True
-        )
         await connection.execute(text(f"CREATE TABLE {name} (value int)"))
         await connection.execute(text(f"INSERT INTO {name} VALUES (1)"))
-    config = ProjectionConfig(
-        url=url,
-        max_retries=0,
-        retry_delay=0.001,
-        failure_queue=name + ".failed",
-        expired_queue=name + ".expired",
-    )
+    config = ProjectionConfig(url=url)
     settings = SimpleNamespace(tasks=SimpleNamespace(projection=config))
+    monkeypatch.setattr(definition, "definitions", {})
     registry = registry_module.ProjectionRegistry()
     monkeypatch.setattr(registry_module, "registry", registry)
     monkeypatch.setattr(queue_module, "registry", registry)
     monkeypatch.setattr(registry_module, "get_settings", lambda: settings)
-    monkeypatch.setattr(receiver_module, "get_settings", lambda: settings)
     monkeypatch.setattr(queue_module, "get_settings", lambda: settings)
     seen = []
 
@@ -88,12 +78,8 @@ async def runtime(monkeypatch):
     await broker.startup()
     container = make_async_container(TaskiqProvider(), Dependencies())
     setup_dishka(container, broker)
-    receiver = receiver_module.ProjectionReceiver(broker)
+    receiver = Receiver(broker)
     queue = await broker.write_channel.get_queue(name)
-    failed = await broker.write_channel.declare_queue(
-        config.failure_queue, durable=True
-    )
-
     inbox = asyncio.Queue()
     consumer_tag = await queue.consume(inbox.put)
 
@@ -112,7 +98,6 @@ async def runtime(monkeypatch):
             projection=Projection,
             broker=broker,
             queue=queue,
-            failed=failed,
             receiver=receiver,
             receive=receive,
             inbox=inbox,
@@ -121,107 +106,75 @@ async def runtime(monkeypatch):
         await queue.cancel(consumer_tag)
         await container.close()
         await queue.delete(if_unused=False, if_empty=False)
-        await failed.delete(if_unused=False, if_empty=False)
         await broker.shutdown()
         async with db.engine.begin() as connection:
             await connection.execute(text(f"DROP TABLE {name}"))
-            await connection.execute(
-                ProjectionVersionTable.__table__.delete().where(
-                    ProjectionVersionTable.__table__.c.projection
-                    == f"{Projection.__module__}.{Projection.__qualname__}"
-                )
-            )
         await db.dispose()
 
 
-@pytest.mark.parametrize("outcome", ["commit", "rollback", "disconnect"])
-async def test_publication_before_commit_is_gated_and_recovered(
-    runtime, outcome
-):
-    unit = await DBUnitOfWork(runtime.db).begin()
-    try:
-        await unit.session.execute(
+def update(runtime, *, abort=False):
+    @projection(runtime.projection, id=lambda call: call.result)
+    @transactional
+    async def operation():
+        await DBUnitOfWork.current().session.execute(
             text(f"UPDATE {runtime.name} SET value = 2")
         )
-        await ProjectionQueue().queue(runtime.projection, 1)
-        await runtime.receive()
-        assert runtime.seen == []
-        if outcome == "commit":
-            await unit.commit()
-        elif outcome == "rollback":
-            await unit.rollback()
-        else:
-            await unit.session.close()
-        assert await runtime.receiver.recovery.replay() == 1
-        await runtime.receive()
-        assert runtime.seen == ([2] if outcome == "commit" else [])
-        failure = await runtime.failed.get(fail=False)
-        if outcome == "commit":
-            assert failure is None
-        else:
-            assert failure is not None
-            await failure.ack()
         assert runtime.inbox.empty()
-    finally:
-        await unit.close()
+        if abort:
+            raise ValueError("abort")
+        return 1
+
+    return operation
 
 
-async def test_unroutable_publication_prevents_commit_even_if_caught(runtime):
+async def test_queue_receives_work_only_after_commit(runtime):
+    async with DBUnitOfWork(runtime.db):
+        await update(runtime)()
+        await runtime.receive()
+        assert runtime.seen == [2]
+
+
+async def test_rollback_does_not_publish(runtime):
     async with DBUnitOfWork(runtime.db) as unit:
-        await unit.session.execute(
-            text(f"UPDATE {runtime.name} SET value = 2")
-        )
-        await runtime.queue.delete(if_unused=False, if_empty=False)
-        with pytest.raises(Exception):
-            await ProjectionQueue().queue(runtime.projection, 1)
-        with pytest.raises(TransactionRollbackOnly):
-            await unit.commit()
+        with pytest.raises(ValueError, match="abort"):
+            await update(runtime, abort=True)()
+        assert runtime.inbox.empty()
         assert (
             await unit.session.scalar(
                 text(f"SELECT value FROM {runtime.name}")
             )
             == 1
         )
-    runtime.queue = await runtime.broker.write_channel.declare_queue(
-        runtime.name,
-        durable=True,
-        arguments={"x-single-active-consumer": True},
-    )
 
 
-async def test_savepoint_publication_cannot_escape_its_rollback(runtime):
-    async with DBUnitOfWork(runtime.db) as unit:
-        async with unit.session.begin_nested():
-            with pytest.raises(RuntimeError, match="savepoint"):
-                await ProjectionQueue().queue(runtime.projection, 1)
-        with pytest.raises(TransactionRollbackOnly):
-            await unit.commit()
-        assert runtime.inbox.empty()
+async def test_standalone_projection_without_uow(runtime):
+    assert DBUnitOfWork.current() is None
+
+    @projection(runtime.projection, id=lambda c: c.result)
+    async def operation():
+        return 1
+
+    await operation()
+    await runtime.receive()
+    assert runtime.seen == [1]
 
 
-async def test_cancelled_publish_poison_is_not_lost(runtime, monkeypatch):
-    async with DBUnitOfWork(runtime.db) as unit:
-        monkeypatch.setattr(
-            runtime.broker,
-            "kick",
-            AsyncMock(side_effect=asyncio.CancelledError),
+async def test_publication_failure_keeps_the_committed_write(runtime):
+    await runtime.queue.delete(if_unused=False, if_empty=False)
+    try:
+        async with DBUnitOfWork(runtime.db):
+            with pytest.raises(SendTaskError) as caught:
+                await update(runtime)()
+            assert isinstance(caught.value.__cause__, RuntimeError)
+            assert "did not confirm" in str(caught.value.__cause__)
+        async with runtime.db.session_factory() as session:
+            assert (
+                await session.scalar(text(f"SELECT value FROM {runtime.name}"))
+                == 2
+            )
+    finally:
+        runtime.queue = await runtime.broker.write_channel.declare_queue(
+            runtime.name,
+            durable=True,
+            arguments={"x-single-active-consumer": True},
         )
-        with pytest.raises(asyncio.CancelledError):
-            await ProjectionQueue().queue(runtime.projection, 1)
-        with pytest.raises(TransactionRollbackOnly):
-            await unit.commit()
-
-
-async def test_message_keeps_transaction_on_recovery(runtime):
-    async with DBUnitOfWork(runtime.db):
-        await ProjectionQueue().queue(runtime.projection, 1)
-        await runtime.receive()
-        assert await runtime.receiver.recovery.replay() == 1
-        message = await asyncio.wait_for(runtime.inbox.get(), 3)
-        decoded = runtime.broker.formatter.loads(message.body)
-        ticket = ProjectionTicket.model_validate_json(
-            decoded.labels["projection_version"]
-        )
-        assert ticket.entries[0].target_id == 1
-        assert ticket.entries[0].last_version == 1
-        await message.ack()

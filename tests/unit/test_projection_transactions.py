@@ -4,9 +4,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pamqp.commands import Basic
+from taskiq import BrokerMessage
 
+from fastamu.core.config import ProjectionConfig
 from fastamu.infra.db.uow import DBUnitOfWork
-from fastamu.tasks.projection.recovery import publish_confirmed
+from fastamu.tasks.projection.broker import create_broker
 
 
 @pytest.mark.parametrize(
@@ -19,7 +21,16 @@ async def test_truthy_non_ack_is_not_publication_confirmation(confirmation):
         )
     )
     with pytest.raises(RuntimeError, match="did not confirm"):
-        await publish_confirmed(channel, "queue", b"body")
+        broker = create_broker(ProjectionConfig(url="amqp://localhost"))
+        broker.write_channel = channel
+        await broker.kick(
+            BrokerMessage(
+                task_id="test",
+                task_name="test",
+                message=b"body",
+                labels={"queue_name": "queue"},
+            )
+        )
 
 
 async def test_nested_units_restore_context_and_parallel_tasks_are_isolated():
@@ -40,7 +51,3 @@ async def test_nested_units_restore_context_and_parallel_tasks_are_isolated():
         await asyncio.gather(child(), child())
         assert DBUnitOfWork.current() is outer
     assert DBUnitOfWork.current() is initial
-
-
-async def test_standalone_projection_has_no_version_ticket():
-    assert await DBUnitOfWork.stage_projection(object, [7], 12345) is None
