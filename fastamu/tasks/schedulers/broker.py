@@ -1,12 +1,18 @@
+from importlib import import_module
+
 from dishka import make_async_container
 from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
-from taskiq import SmartRetryMiddleware
-from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
+from taskiq_redis import (
+    RedisAsyncResultBackend,
+    RedisScheduleSource,
+    RedisStreamBroker,
+)
 
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import get_settings
 from fastamu.core.provider import CoreProvider
 from fastamu.tasks.schedulers.middlewares.logging import LoggingMiddleware
+from fastamu.tasks.schedulers.middlewares.retry import ScheduledRetry
 
 settings = get_settings()
 if settings.tasks.schedulers is None:
@@ -32,11 +38,8 @@ container = make_async_container(TaskiqProvider(), CoreProvider(), *providers)
 
 setup_dishka(container, broker)
 bootstrapper.boot_schedulers()
-
-if settings.tasks.projection is not None:
-    from fastamu.tasks.projection.scheduler import register_recovery
-
-    register_recovery(broker, settings.tasks.projection)
+if settings.tasks.outbox is not None and settings.tasks.outbox.polling:
+    import_module("fastamu.tasks.outbox.scheduler").register(broker)
 
 broker.additional_streams.update(
     {
@@ -49,13 +52,11 @@ broker.additional_streams.update(
 
 broker.with_middlewares(
     LoggingMiddleware(),
-    # Scheduled work carries no framework-wide retry policy: a module decides
-    # whether its own job is safe to repeat and says so on the task —
-    # `retry_on_error`, `max_retries` and `delay` are read off its labels.
-    # The shape of the wait is taskiq's and applies to every task alike.
-    SmartRetryMiddleware(
-        use_delay_exponent=True,
-        max_delay_exponent=60,
-        use_jitter=True,
+    ScheduledRetry(
+        RedisScheduleSource(
+            url=settings.tasks.schedulers.url,
+            max_connection_pool_size=settings.tasks.schedulers.max_connection_pool_size,
+        ),
+        settings.tasks.schedulers.retry,
     ),
 )
