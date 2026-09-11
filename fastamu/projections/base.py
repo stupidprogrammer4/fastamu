@@ -4,9 +4,9 @@ from collections.abc import Sequence
 from elasticsearch.dsl import AsyncDocument
 
 from fastamu.common.models.base import Base
-from fastamu.common.projections.convertor import Convertor
-from fastamu.common.projections.definition import ProjectionDefinition
-from fastamu.common.projections.errors import ProjectionSourceMissing
+from fastamu.projections.convertor import Convertor
+from fastamu.projections.definition import ProjectionDefinition
+from fastamu.projections.errors import ProjectionSourceMissing
 
 
 class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
@@ -14,9 +14,10 @@ class AbstractProjection[TModel: Base, TDocument: AsyncDocument](
 ):
     """Read one model, convert it and write one document.
 
-    A missing source model is not yet visible rather than deleted, since a
-    deletion goes through `AbstractUnProjection`; it raises so the delivery
-    is retried once the writing transaction has committed.
+    A missing source raises instead of silently skipping work. The caller
+    controls publication timing; the source may not exist yet or may have been
+    deleted by a later change.
+    Deletion semantics belong to the concrete projection or UnProjection.
     """
 
     def __init__(self, convertor: Convertor[TModel, TDocument]) -> None:

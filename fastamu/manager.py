@@ -660,8 +660,6 @@ def projection_worker():
             "fastamu.tasks.projection.worker:get_broker",
             "--workers",
             "1",
-            "--receiver",
-            "fastamu.tasks.projection.receiver:ProjectionReceiver",
         ],
     )
 

@@ -1,4 +1,4 @@
-"""Raised when a projection cannot see the rows it was asked about."""
+"""Projection execution failures."""
 
 
 class ProjectionSourceMissing(Exception):

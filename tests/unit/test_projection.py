@@ -2,13 +2,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from fastamu.common.projections.base import (
+from fastamu.projections.base import (
     AbstractBatchProjection,
     AbstractFanoutProjection,
     AbstractProjection,
 )
-from fastamu.common.projections.convertor import Convertor
-from fastamu.common.projections.errors import ProjectionSourceMissing
+from fastamu.projections.convertor import Convertor
+from fastamu.projections.errors import ProjectionSourceMissing
 
 
 class StringConvertor(Convertor[int, str]):
