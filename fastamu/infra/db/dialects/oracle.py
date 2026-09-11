@@ -1,6 +1,6 @@
-import json
 from typing import Any
 
+import orjson
 from sqlalchemy import Text
 from sqlalchemy.types import TypeDecorator
 
@@ -23,7 +23,7 @@ class OracleJSON(TypeDecorator[Any]):
     cache_ok = True
 
     def process_bind_param(self, value, dialect):
-        return None if value is None else json.dumps(value)
+        return None if value is None else orjson.dumps(value).decode("utf-8")
 
     def process_result_value(self, value, dialect):
-        return None if value is None else json.loads(value)
+        return None if value is None else orjson.loads(value)

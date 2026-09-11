@@ -39,12 +39,21 @@ type Broker = Literal["redis", "rabbitmq"]
 """Supported broker names."""
 
 
+class RetryTransportConfig(BaseModel):
+    namespace: str = Field(default="fastamu", min_length=1, max_length=64)
+    publish_timeout: float = Field(default=5, gt=0, allow_inf_nan=False)
+    handoff_failure_delay: float = Field(default=1, gt=0, allow_inf_nan=False)
+    error_max_length: int = Field(default=2048, ge=1)
+    replay_batch_size: int = Field(default=100, ge=1)
+
+
 class EventsConfig(BaseModel):
     """Connection settings for the event broker."""
 
     broker: Broker
     url: str = Field(min_length=1)
     exchange: str = Field(default="events", min_length=1)
+    retry: RetryTransportConfig = Field(default_factory=RetryTransportConfig)
 
 
 class SchedulersConfig(BaseModel):
@@ -59,24 +68,36 @@ class SchedulersConfig(BaseModel):
     url: str = Field(min_length=1)
     max_connection_pool_size: int = Field(default=25, ge=1)
     result_ex_time: int = Field(default=86_400, gt=0)
+    retry: RetryTransportConfig = Field(default_factory=RetryTransportConfig)
 
 
 class ProjectionConfig(BaseModel):
     broker: Literal["rabbitmq"] = "rabbitmq"
     url: str = Field(min_length=1)
     prefetch: Literal[1] = 1
-    max_retries: int = Field(default=3, ge=0)
-    retry_delay: float = Field(default=1.0, gt=0)
-    recovery_limit: int = Field(default=100, ge=1, le=100)
-    recovery_cron: str = Field(default="*/5 * * * *", min_length=1)
-    failure_queue: str = Field(default="projection.failed", min_length=1)
-    expired_queue: str = Field(default="projection.expired", min_length=1)
-    retry_ttl: float = Field(default=10_800, gt=0, allow_inf_nan=False)
+    retry: RetryTransportConfig = Field(default_factory=RetryTransportConfig)
+
+
+class OutboxConfig(BaseModel):
+    polling: bool = True
+    poll_interval: float = Field(default=20, gt=0)
+    batch_size: int = Field(default=1000, ge=1, le=10000)
+    max_parallel_batches: int = Field(default=10, ge=1, le=10)
+    batch_lease_seconds: float = Field(default=60, gt=0)
+    concurrency: int = Field(default=4, ge=1, le=32)
+    publish_timeout: float = Field(default=5, gt=0)
+    lease_seconds: float = Field(default=30, gt=0)
+    retry_delay: float = Field(default=20, gt=0)
+    max_retry_delay: float = Field(default=300, gt=0)
 
     @model_validator(mode="after")
-    def distinct_recovery_queues(self):
-        if self.failure_queue == self.expired_queue:
-            raise ValueError("Failure and expired queues must be different")
+    def validate_timing(self):
+        if self.lease_seconds <= self.publish_timeout:
+            raise ValueError("Outbox lease must exceed publish_timeout")
+        if self.batch_lease_seconds <= self.lease_seconds:
+            raise ValueError("Batch lease must exceed message lease")
+        if self.max_retry_delay < self.retry_delay:
+            raise ValueError("max_retry_delay must be at least retry_delay")
         return self
 
 
@@ -85,6 +106,21 @@ class TasksConfig(BaseModel):
     events: EventsConfig | None = None
     projection: ProjectionConfig | None = None
     schedulers: SchedulersConfig | None = None
+    outbox: OutboxConfig | None = None
+    inbox: bool = False
+
+    @model_validator(mode="after")
+    def validate_outbox_scheduler(self):
+        if (
+            self.outbox is not None
+            and self.outbox.polling
+            and self.schedulers is None
+        ):
+            raise ValueError(
+                "Outbox polling requires tasks.schedulers; "
+                "disable polling for immediate-only delivery"
+            )
+        return self
 
 
 class DatabaseConfig(BaseModel):

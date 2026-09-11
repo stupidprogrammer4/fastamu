@@ -55,6 +55,14 @@ class PostgreSQLDialect(DatabaseDialect):
             changes = {keys[0]: stmt.excluded[keys[0]]}
         return stmt.on_conflict_do_update(index_elements=keys, set_=changes)
 
+    def insert_if_absent(self, table, values, keys):
+        return (
+            insert(table)
+            .values(values)
+            .on_conflict_do_nothing(index_elements=keys)
+            .returning(*(table.c[key] for key in keys))
+        )
+
     def values_grid(self, table, rows):
         mapper = inspect(table)
         names = list(rows[0])

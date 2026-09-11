@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -13,7 +15,10 @@ class DBConnection:
         pool_recycle: int,
     ) -> None:
         url = make_url(dsn)
-        options = {"pool_recycle": pool_recycle}
+        options: dict[str, Any] = {"pool_recycle": pool_recycle}
+        if url.get_backend_name() == "sqlite":
+            # Python 3.13: savepoints must belong to a real outer transaction.
+            options["connect_args"] = {"autocommit": False}
         # In-memory SQLite uses StaticPool, which has no queue-pool options.
         if not (
             url.get_backend_name() == "sqlite"

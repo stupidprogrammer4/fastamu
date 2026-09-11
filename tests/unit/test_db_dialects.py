@@ -11,6 +11,7 @@ from fastamu.infra.db.connection import DBConnection
 from fastamu.infra.db.dialects import DIALECTS, get_dialect
 from fastamu.infra.db.repository import DBTimestampIDRepository
 from fastamu.infra.db.table import BaseTable
+from fastamu.infra.db.transaction import transaction
 from fastamu.infra.db.uow import DBUnitOfWork
 
 
@@ -88,7 +89,7 @@ async def test_repository_crud_bulk_upsert_and_rollback(backend):
     try:
         async with db.engine.begin() as conn:
             await conn.run_sync(table.create)
-        async with DBUnitOfWork(db) as uow:
+        async with DBUnitOfWork(db) as uow, transaction():
             repo = ProbeRepository(uow)
             first = await repo.create(
                 DialectProbeModel(
@@ -140,19 +141,19 @@ async def test_repository_crud_bulk_upsert_and_rollback(backend):
         from fastamu.common.errors.exceptions import ConflictException
 
         with pytest.raises(ConflictException):
-            async with DBUnitOfWork(db) as uow:
+            async with DBUnitOfWork(db) as uow, transaction():
                 await ProbeRepository(uow).create(
                     DialectProbeModel(attributes={}, code="a", quantity=99)
                 )
         with pytest.raises(RuntimeError, match="rollback"):
-            async with DBUnitOfWork(db) as uow:
+            async with DBUnitOfWork(db) as uow, transaction():
                 await ProbeRepository(uow).create(
                     DialectProbeModel(
                         attributes={}, code="rollback", quantity=0
                     )
                 )
                 raise RuntimeError("rollback")
-        async with DBUnitOfWork(db) as uow:
+        async with DBUnitOfWork(db) as uow, transaction():
             assert [r.code for r in await ProbeRepository(uow).get_all()] == [
                 "a"
             ]

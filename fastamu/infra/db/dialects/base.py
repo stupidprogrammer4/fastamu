@@ -2,6 +2,7 @@ from typing import Any
 
 from sqlalchemy import case, inspect, literal, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.dml import Insert
 
 
 class DatabaseDialect:
@@ -11,6 +12,9 @@ class DatabaseDialect:
     returning = False
 
     def unique_values(self, error: IntegrityError) -> dict[str, Any] | None:
+        return None
+
+    def insert_if_absent(self, table, values, keys) -> Insert | None:
         return None
 
     def upsert(self, table, rows, keys):
