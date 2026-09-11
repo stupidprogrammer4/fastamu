@@ -39,8 +39,6 @@ tasks:
     broker: "rabbitmq"
     url: "amqp://guest:guest@localhost:5672/"
     prefetch: 1
-    max_retries: 3
-    retry_delay: 1.0
 
 db:
   test_dsn: "postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/<<PKG>>_test_db"
@@ -475,6 +473,16 @@ taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler
 ```
 
 Swagger UI is at `/docs`.
+
+Writing application methods use `@transactional` from
+`fastamu.infra.db.transaction`. Request scope only manages session lifetime;
+it does not commit automatically. Declare messages with `@event` from
+`fastamu.messaging.events.decorators`, or `@projection`, `@batch_projection`,
+`@fanout_projection` and `@unprojection` from
+`fastamu.projections.decorators`. Place message decorators outside
+`@transactional` to publish after its own commit. They also work without SQL.
+Nested calls publish when they return; the caller owns the outer commit
+boundary.
 
 ## Adding a feature
 

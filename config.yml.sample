@@ -74,6 +74,14 @@ logging:
   format: console
   service: fastamu-api
 tasks:
+  # inbox: true  # Apply the consumer receipt table migration before enabling.
+  # Optional PostgreSQL outbox; apply application migrations before enabling.
+  # outbox:
+  #   polling: true
+  #   poll_interval: 20
+  #   batch_size: 1000
+  #   max_parallel_batches: 10
+  #   concurrency: 4
   events:
     broker: rabbitmq
     url: amqp://guest:guest@localhost:5672/
@@ -86,5 +94,11 @@ tasks:
     broker: rabbitmq
     url: amqp://guest:guest@localhost:5672/
     prefetch: 1
-    max_retries: 3
-    retry_delay: 1.0
+    # Policies live on projection classes / event subscribers / scheduled tasks.
+    # Transport settings (also supported under events and schedulers):
+    # retry:
+    #   namespace: fastamu
+    #   publish_timeout: 5
+    #   handoff_failure_delay: 1
+    #   error_max_length: 2048
+    #   replay_batch_size: 100
