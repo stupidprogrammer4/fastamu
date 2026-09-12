@@ -10,19 +10,22 @@ from fastamu.modules.ops.messages.domain.context import (
     MessageContext,
     ProviderContext,
 )
+from fastamu.modules.ops.messages.domain.entities import (
+    MessageEntity,
+    SMSPatternEntity,
+    SMSProviderEntity,
+)
 from fastamu.modules.ops.messages.domain.enums import (
     MessageStatus,
     PatternKey,
     ProviderCode,
 )
-from fastamu.modules.ops.messages.domain.models import (
-    MessageModel,
-    SMSPatternModel,
-    SMSProviderModel,
+from fastamu.modules.ops.messages.infra.tables import (
+    SMSProviderTable,
 )
 
 
-class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
+class SMSProviderRepository(DBIDRepository[SMSProviderEntity]):
     def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
@@ -30,7 +33,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
         self,
         id: int,
         is_active: Optional[bool] = None,
-    ) -> Optional[SMSProviderModel]:
+    ) -> Optional[SMSProviderEntity]:
         """
         Get one provider by id.
 
@@ -39,7 +42,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
             is_active (Optional[bool]): Keep only providers switched this way
                 when given.
         Returns:
-            (Optional[SMSProviderModel]): The provider, or None.
+            (Optional[SMSProviderEntity]): The provider, or None.
         """
         stmt = select(self.__table__).where(col(self.__table__.id) == id)
         if is_active is not None:
@@ -51,7 +54,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
         self,
         code: ProviderCode,
         is_active: Optional[bool] = None,
-    ) -> Optional[SMSProviderModel]:
+    ) -> Optional[SMSProviderEntity]:
         """
         Get one provider by its code.
 
@@ -60,7 +63,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
             is_active (Optional[bool]): Keep only providers switched this way
                 when given.
         Returns:
-            (Optional[SMSProviderModel]): The provider, or None.
+            (Optional[SMSProviderEntity]): The provider, or None.
         """
         stmt = select(self.__table__).where(col(self.__table__.code) == code)
         if is_active is not None:
@@ -72,7 +75,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
         self,
         codes: Optional[Sequence[ProviderCode]] = None,
         is_active: Optional[bool] = None,
-    ) -> Sequence[SMSProviderModel]:
+    ) -> Sequence[SMSProviderEntity]:
         """
         Get the providers matching the given filters.
 
@@ -82,7 +85,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
             is_active (Optional[bool]): Keep only providers switched this way
                 when given.
         Returns:
-            (Sequence[SMSProviderModel]): The providers that match.
+            (Sequence[SMSProviderEntity]): The providers that match.
         """
         stmt = select(self.__table__)
         if codes is not None:
@@ -92,15 +95,15 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def upsert(self, row: SMSProviderModel) -> SMSProviderModel:
+    async def upsert(self, row: SMSProviderEntity) -> SMSProviderEntity:
         """
         Write a provider down, rewriting the one already registered under its
         code.
 
         Args:
-            row (SMSProviderModel): The provider to write.
+            row (SMSProviderEntity): The provider to write.
         Returns:
-            (SMSProviderModel): The written provider.
+            (SMSProviderEntity): The written provider.
         """
         rows = await self.upsert_rows([row], [col(self.__table__.code)])
         return rows[0]
@@ -110,7 +113,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
         is_active: bool,
         exclude_id: Optional[int] = None,
         current: Optional[bool] = None,
-    ) -> Sequence[SMSProviderModel]:
+    ) -> Sequence[SMSProviderEntity]:
         """
         Switch providers in one statement.
 
@@ -121,7 +124,7 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
             current (Optional[bool]): Match only providers switched this way
                 when given.
         Returns:
-            (Sequence[SMSProviderModel]): The providers written.
+            (Sequence[SMSProviderEntity]): The providers written.
         """
         conditions: list[ColumnElement[bool]] = [true()]
         if exclude_id is not None:
@@ -130,21 +133,21 @@ class SMSProviderRepository(DBIDRepository[SMSProviderModel]):
             conditions.append(col(self.__table__.is_active).is_(current))
         where = and_(*conditions)
         stmt = update(self.__table__).where(where).values(is_active=is_active)
-        return await self._mutate(stmt, where)
+        return await self._updated(stmt, where)
 
 
-class SMSPatternRepository(DBIDRepository[SMSPatternModel]):
+class SMSPatternRepository(DBIDRepository[SMSPatternEntity]):
     def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
-    async def get_by_key(self, key: PatternKey) -> Optional[SMSPatternModel]:
+    async def get_by_key(self, key: PatternKey) -> Optional[SMSPatternEntity]:
         """
         Get the template registered for one message key.
 
         Args:
             key (PatternKey): The message key, such as `otp`.
         Returns:
-            (Optional[SMSPatternModel]): The pattern, or None.
+            (Optional[SMSPatternEntity]): The pattern, or None.
         """
         stmt = select(self.__table__).where(col(self.__table__.key) == key)
         result = await self.session.execute(stmt)
@@ -153,7 +156,7 @@ class SMSPatternRepository(DBIDRepository[SMSPatternModel]):
     async def get_by_keys(
         self,
         keys: Optional[Sequence[PatternKey]] = None,
-    ) -> Sequence[SMSPatternModel]:
+    ) -> Sequence[SMSPatternEntity]:
         """
         Get the templates matching the given filters.
 
@@ -161,7 +164,7 @@ class SMSPatternRepository(DBIDRepository[SMSPatternModel]):
             keys (Optional[Sequence[PatternKey]]): Keep only these keys when
                 given.
         Returns:
-            (Sequence[SMSPatternModel]): The patterns that match.
+            (Sequence[SMSPatternEntity]): The patterns that match.
         """
         stmt = select(self.__table__).order_by(col(self.__table__.key))
         if keys is not None:
@@ -169,35 +172,35 @@ class SMSPatternRepository(DBIDRepository[SMSPatternModel]):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def upsert(self, row: SMSPatternModel) -> SMSPatternModel:
+    async def upsert(self, row: SMSPatternEntity) -> SMSPatternEntity:
         """
         Write a pattern down, rewriting the one already registered under its
         key.
 
         Args:
-            row (SMSPatternModel): The pattern to write.
+            row (SMSPatternEntity): The pattern to write.
         Returns:
-            (SMSPatternModel): The written pattern.
+            (SMSPatternEntity): The written pattern.
         """
         rows = await self.upsert_rows([row], [col(self.__table__.key)])
         return rows[0]
 
 
-class MessageRepository(DBIDRepository[MessageModel]):
+class MessageRepository(DBIDRepository[MessageEntity]):
     def __init__(self, uow: DBUnitOfWork):
         super().__init__(uow)
 
     async def bulk_update(
         self,
-        items: Sequence[MessageModel],
-    ) -> Sequence[MessageModel]:
+        items: Sequence[MessageEntity],
+    ) -> Sequence[MessageEntity]:
         """
         Write each given message's own columns in one statement.
 
         Args:
-            items (Sequence[MessageModel]): The messages to write.
+            items (Sequence[MessageEntity]): The messages to write.
         Returns:
-            (Sequence[MessageModel]): The written messages.
+            (Sequence[MessageEntity]): The written messages.
         """
         return await self.bulk_update_rows(items, col(self.__table__.id))
 
@@ -207,7 +210,7 @@ class MessageRepository(DBIDRepository[MessageModel]):
         recipient: Optional[str] = None,
         offset: int = 0,
         limit: int = 20,
-    ) -> PagedType[MessageModel]:
+    ) -> PagedType[MessageEntity]:
         """
         Get a page of messages, newest first.
 
@@ -219,7 +222,7 @@ class MessageRepository(DBIDRepository[MessageModel]):
             offset (int): How many rows to skip.
             limit (int): How many rows to take.
         Returns:
-            (PagedType[MessageModel]): The page and the total count.
+            (PagedType[MessageEntity]): The page and the total count.
         """
         stmt = select(self.__table__).order_by(col(self.__table__.id).desc())
         if status is not None:
@@ -280,7 +283,7 @@ class MessageRepository(DBIDRepository[MessageModel]):
         # the provider it has not been sent through yet, so the active one is
         # attached by the join condition itself and a message with no provider
         # still comes back
-        provider_table = self._tabled(SMSProviderModel)
+        provider_table = SMSProviderTable
         onclause = (
             col(provider_table.is_active).is_(is_active)
             if is_active is not None

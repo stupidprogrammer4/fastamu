@@ -54,37 +54,39 @@ class SmsSenderService:
         Returns:
             (int): How many the provider took.
         """
-        if not ids:
-            return 0
-        async with self.container() as scope:
-            messages = await scope.get(IMessageService)
-            contexts = await messages.get_contexts(ids)
-        if not contexts:
-            return 0
-
-        results = {
-            context.message.id: await self._sent(context)
-            for context in contexts
-        }
-
-        async with self.container() as scope:
-            messages = await scope.get(IMessageService)
-            await messages.deliver_bulk(results)
-        return sum(1 for row in results.values() if row.delivered)
+        contexts = []
+        if ids:
+            async with self.container() as scope:
+                messages = await scope.get(IMessageService)
+                contexts = await messages.get_contexts(ids)
+        sent = 0
+        if contexts:
+            results = {
+                context.message.id: await self._sent(context)
+                for context in contexts
+            }
+            async with self.container() as scope:
+                messages = await scope.get(IMessageService)
+                await messages.deliver_bulk(results)
+            sent = sum(1 for row in results.values() if row.delivered)
+        return sent
 
     async def _sent(self, context: MessageContext) -> SmsDeliveryResult:
         provider = context.provider
+        gateway_cls = (
+            None if provider is None else SMS_GATEWAYS.get(provider.code)
+        )
         if provider is None:
-            return SmsDeliveryResult(
+            result = SmsDeliveryResult(
                 delivered=False, error="no sms provider is in use"
             )
-        gateway_cls = SMS_GATEWAYS.get(provider.code)
-        if gateway_cls is None:
-            return SmsDeliveryResult(
+        elif gateway_cls is None:
+            result = SmsDeliveryResult(
                 delivered=False,
                 error=f"no gateway for provider {provider.code}",
             )
-        gateway = gateway_cls(provider.credentials)
-        return await gateway.send(
-            context.message.recipient, context.message.body or ""
-        )
+        else:
+            result = await gateway_cls(provider.credentials).send(
+                context.message.recipient, context.message.body or ""
+            )
+        return result

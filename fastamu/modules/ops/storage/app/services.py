@@ -12,7 +12,7 @@ from fastamu.core.config import StorageConfig
 from fastamu.infra.db.transaction import transactional
 from fastamu.modules.ops.storage import resources
 from fastamu.modules.ops.storage.app.helpers import StreamMeter
-from fastamu.modules.ops.storage.domain.models import MediaModel
+from fastamu.modules.ops.storage.domain.entities import MediaEntity
 from fastamu.modules.ops.storage.infra.repository import MediaRepository
 from fastamu.modules.ops.storage.infra.storage import (
     InvalidStoragePath,
@@ -20,7 +20,7 @@ from fastamu.modules.ops.storage.infra.storage import (
 )
 
 
-class MediaService(BaseIDService[MediaModel]):
+class MediaService(BaseIDService[MediaEntity]):
     """Manages uploaded media: streamed storage, dedupe by hash, and the
     catalog."""
 
@@ -56,7 +56,7 @@ class MediaService(BaseIDService[MediaModel]):
     @transactional
     async def upload(
         self, stream: AsyncIterator[bytes], filename: str | None
-    ) -> MediaModel:
+    ) -> MediaEntity:
         """Stream an upload into the store and register it, deduplicating by
         hash.
 
@@ -65,8 +65,8 @@ class MediaService(BaseIDService[MediaModel]):
             filename (str | None): The original file name (extension is
                 validated).
         Returns:
-            (MediaModel): The stored media record (an existing one on duplicate
-                content).
+            (MediaEntity): The stored media record (an existing one on
+                duplicate content).
         """
         extension = self._validate_extension(filename)
         temp_path = f"{self.config.temp_dir}/{uuid4().hex}"
@@ -96,7 +96,7 @@ class MediaService(BaseIDService[MediaModel]):
                 or "application/octet-stream"
             )
             result = await self.repo.create(
-                MediaModel(
+                MediaEntity(
                     backend=self.storage.backend,
                     path=path,
                     filename=filename or f"file.{extension}",
@@ -108,13 +108,13 @@ class MediaService(BaseIDService[MediaModel]):
             )
         return result
 
-    async def get_by_id(self, id: int) -> MediaModel:
+    async def get_by_id(self, id: int) -> MediaEntity:
         """Get a media record by ID.
 
         Args:
             id (int): ID of the media record.
         Returns:
-            (MediaModel): The found record.
+            (MediaEntity): The found record.
         """
         media = await self.repo.get_by_id(id)
         media = self._check_for_id_existence(id, media)
@@ -122,14 +122,14 @@ class MediaService(BaseIDService[MediaModel]):
 
     async def get_paged(
         self, page: int, per_page: int
-    ) -> PagedType[MediaModel]:
+    ) -> PagedType[MediaEntity]:
         """Get a page of media records, newest first.
 
         Args:
             page (int): 1-based page number.
             per_page (int): Rows per page.
         Returns:
-            (PagedType[MediaModel]): The page rows and the total count.
+            (PagedType[MediaEntity]): The page rows and the total count.
         """
         paged = await self.repo.get_paged(
             limit=per_page, offset=(page - 1) * per_page
@@ -166,13 +166,13 @@ class MediaService(BaseIDService[MediaModel]):
         return self.storage.stream(path), media.content_type
 
     @transactional
-    async def remove(self, id: int) -> MediaModel:
+    async def remove(self, id: int) -> MediaEntity:
         """Delete a media record and its stored file.
 
         Args:
             id (int): ID of the media record.
         Returns:
-            (MediaModel): The deleted record.
+            (MediaEntity): The deleted record.
         """
         media = await self.repo.delete_by_id(id)
         media = self._check_for_id_existence(id, media)

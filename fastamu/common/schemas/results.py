@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Generic, Sequence, TypeVar
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,7 +15,12 @@ class BatchResultType[T, E]:
     item_ids: set[int] = field(default_factory=set)
 
 
+# covariant: a read-only page of table rows is a page of the model they
+# extend, and PEP 695 syntax infers invariance for a dataclass field
+TItem = TypeVar("TItem", covariant=True)
+
+
 @dataclass(frozen=True, slots=True)
-class PagedType[T]:
-    items: Sequence[T]
+class PagedType(Generic[TItem]):
+    items: Sequence[TItem]
     total_items: int

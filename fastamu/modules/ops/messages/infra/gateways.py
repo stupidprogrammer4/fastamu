@@ -53,23 +53,27 @@ class AbstractSmsGateway(ABC):
         return f"{type(exc).__name__}: {exc}"
 
     def _delivered(self, result: Any) -> SmsDeliveryResult:
-        if not result:
-            return SmsDeliveryResult(
+        if result:
+            delivery = SmsDeliveryResult(
+                delivered=True, provider_message_id=result.message_id
+            )
+        else:
+            delivery = SmsDeliveryResult(
                 delivered=False, error="provider accepted no recipient"
             )
-        return SmsDeliveryResult(
-            delivered=True, provider_message_id=result.message_id
-        )
+        return delivery
 
     def _delivered_bulk(self, result: Any) -> SmsBulkDeliveryResult:
-        if not result:
-            return SmsBulkDeliveryResult(
+        if result:
+            delivery = SmsBulkDeliveryResult(
+                delivered=True,
+                accepted={row.receptor: row.message_id for row in result},
+            )
+        else:
+            delivery = SmsBulkDeliveryResult(
                 delivered=False, error="provider accepted no recipient"
             )
-        return SmsBulkDeliveryResult(
-            delivered=True,
-            accepted={row.receptor: row.message_id for row in result},
-        )
+        return delivery
 
 
 class SdkSmsGateway(AbstractSmsGateway):
@@ -98,8 +102,12 @@ class SdkSmsGateway(AbstractSmsGateway):
                 sdk.SmsMessage(receptor=recipient, text=body)
             )
         except Exception as exc:
-            return SmsDeliveryResult(delivered=False, error=self._failed(exc))
-        return self._delivered(result)
+            delivery = SmsDeliveryResult(
+                delivered=False, error=self._failed(exc)
+            )
+        else:
+            delivery = self._delivered(result)
+        return delivery
 
     async def send_bulk(
         self,
@@ -115,10 +123,12 @@ class SdkSmsGateway(AbstractSmsGateway):
                 sdk.BulkSmsMessage(receptors=list(recipients), text=body)
             )
         except Exception as exc:
-            return SmsBulkDeliveryResult(
+            delivery = SmsBulkDeliveryResult(
                 delivered=False, error=self._failed(exc)
             )
-        return self._delivered_bulk(result)
+        else:
+            delivery = self._delivered_bulk(result)
+        return delivery
 
 
 class KavenegarGateway(SdkSmsGateway):

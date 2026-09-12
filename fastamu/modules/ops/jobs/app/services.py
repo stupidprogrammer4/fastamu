@@ -79,13 +79,14 @@ class JobService:
             (Any): What the task returned, or None while it is unfinished or
                 if it failed.
         """
-        ready = await self.result_backend.is_result_ready(task_id)
-        if not ready:
-            return None
-        result = await self.result_backend.get_result(task_id, with_logs=False)
-        if result.is_err:
-            return None
-        return result.return_value
+        returned: Any = None
+        if await self.result_backend.is_result_ready(task_id):
+            result = await self.result_backend.get_result(
+                task_id, with_logs=False
+            )
+            if not result.is_err:
+                returned = result.return_value
+        return returned
 
     async def overview(self) -> JobsOverviewOut:
         """Get an overview of the task system: scheduled + running jobs +
@@ -124,6 +125,7 @@ class JobService:
             (list[RunningJobOut]): The in-flight jobs; empty if none / no
                 worker yet.
         """
+        jobs: list[RunningJobOut] = []
         try:
             pending = await self.redis.client.xpending_range(
                 self.stream_name, self.group_name, min="-", max="+", count=100
@@ -137,16 +139,17 @@ class JobService:
                 exc,
                 exc_info=exc,
             )
-            return []
-        return [
-            RunningJobOut(
-                message_id=str(entry["message_id"]),
-                consumer=str(entry["consumer"]),
-                idle_ms=int(entry["time_since_delivered"]),
-                delivery_count=int(entry["times_delivered"]),
-            )
-            for entry in pending
-        ]
+        else:
+            jobs = [
+                RunningJobOut(
+                    message_id=str(entry["message_id"]),
+                    consumer=str(entry["consumer"]),
+                    idle_ms=int(entry["time_since_delivered"]),
+                    delivery_count=int(entry["times_delivered"]),
+                )
+                for entry in pending
+            ]
+        return jobs
 
     async def _count_results(self) -> int:
         """Count stored job results in redis (excludes progress keys)."""
