@@ -19,32 +19,38 @@ from fastamu.common.models.fields import (
     _field,
     _model_defaults,
 )
+from fastamu.infra.db.uow import ReturningUnitOfWork
 
 from .base import DatabaseDialect
 
 
 class PostgreSQLDialect(DatabaseDialect):
     name = "postgresql"
-    returning = True
+    uow = ReturningUnitOfWork
 
     def unique_values(self, error):
         cause = getattr(error.orig, "__cause__", None) or error.orig
-        if getattr(cause, "sqlstate", None) != "23505":
-            return None
-        detail = getattr(cause, "detail", None)
-        if detail is None:
-            detail = getattr(
-                getattr(cause, "diag", None), "message_detail", ""
+        values: dict[str, str] | None = None
+        if getattr(cause, "sqlstate", None) == "23505":
+            detail = getattr(cause, "detail", None)
+            if detail is None:
+                detail = getattr(
+                    getattr(cause, "diag", None), "message_detail", ""
+                )
+            found = re.match(
+                r"Key \((.+)\)=\((.+)\) already exists", detail or ""
             )
-        found = re.match(r"Key \((.+)\)=\((.+)\) already exists", detail or "")
-        if found is None:
-            return {}
-        return dict(
-            zip(
-                (name.strip() for name in found.group(1).split(",")),
-                (value.strip() for value in found.group(2).split(",")),
+            values = (
+                {}
+                if found is None
+                else dict(
+                    zip(
+                        (name.strip() for name in found.group(1).split(",")),
+                        (value.strip() for value in found.group(2).split(",")),
+                    )
+                )
             )
-        )
+        return values
 
     def upsert(self, table, rows, keys):
         stmt = insert(table).values(rows)
@@ -53,6 +59,7 @@ class PostgreSQLDialect(DatabaseDialect):
         }
         if not changes:
             changes = {keys[0]: stmt.excluded[keys[0]]}
+        changes.update(self.onupdate_changes(table, changes))
         return stmt.on_conflict_do_update(index_elements=keys, set_=changes)
 
     def insert_if_absent(self, table, values, keys):
@@ -76,8 +83,9 @@ class PostgreSQLDialect(DatabaseDialect):
             ]
         )
 
-    def bulk_update(self, table, rows, key, managed):
+    def bulk_update(self, table, rows, key):
         grid = self.values_grid(table, rows)
+        columns = inspect(table).columns
         return (
             update(table)
             .where(getattr(table, key) == grid.c[key])
@@ -85,7 +93,7 @@ class PostgreSQLDialect(DatabaseDialect):
                 {
                     name: grid.c[name]
                     for name in grid.c.keys()
-                    if name not in managed | {key}
+                    if name != key and columns[name].onupdate is None
                 }
             )
         )
@@ -109,12 +117,14 @@ def ArrayField(
     if gin_index:
         Index(gin_index, column, postgresql_using="gin")
     if "default_factory" in defaults:
-        return Field(
+        field = Field(
             default_factory=defaults["default_factory"], sa_column=column
         )
-    if "default" in defaults:
-        return Field(default=defaults["default"], sa_column=column)
-    return Field(sa_column=column)
+    elif "default" in defaults:
+        field = Field(default=defaults["default"], sa_column=column)
+    else:
+        field = Field(sa_column=column)
+    return field
 
 
 async def reset_schema(connection):

@@ -18,4 +18,5 @@ class MySQLDialect(DatabaseDialect):
         }
         if not changes:
             changes = {keys[0]: stmt.inserted[keys[0]]}
+        changes.update(self.onupdate_changes(table, changes))
         return stmt.on_duplicate_key_update(**changes)

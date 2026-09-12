@@ -1,11 +1,13 @@
 from sqlalchemy.dialects.sqlite import insert
 
+from fastamu.infra.db.uow import ReturningUnitOfWork
+
 from .base import DatabaseDialect
 
 
 class SQLiteDialect(DatabaseDialect):
     name = "sqlite"
-    returning = True  # SQLite >= 3.35
+    uow = ReturningUnitOfWork  # SQLite >= 3.35
 
     def unique_values(self, error):
         code = getattr(error.orig, "sqlite_errorcode", None)
@@ -18,6 +20,7 @@ class SQLiteDialect(DatabaseDialect):
         }
         if not changes:
             changes = {keys[0]: stmt.excluded[keys[0]]}
+        changes.update(self.onupdate_changes(table, changes))
         return stmt.on_conflict_do_update(index_elements=keys, set_=changes)
 
     def insert_if_absent(self, table, values, keys):
