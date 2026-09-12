@@ -15,6 +15,7 @@ from fastamu.infra.db.dialects import DIALECTS, get_dialect
 from fastamu.infra.db.repository import DBTimestampIDRepository
 from fastamu.infra.db.table import BaseTable
 from fastamu.infra.db.transaction import transaction
+from fastamu.infra.db.uow import FetchUnitOfWork
 
 
 class DialectProbeEntity(BaseIDTimestampEntity, BaseVersionEntity):
@@ -76,16 +77,22 @@ def test_native_upsert_compiles(name, dialect, syntax):
     assert syntax in str(stmt.compile(dialect=dialect))
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "postgresql", "mysql"])
+@pytest.mark.parametrize(
+    "backend", ["sqlite", "sqlite-fetch", "postgresql", "mysql"]
+)
 async def test_repository_crud_bulk_upsert_and_rollback(backend):
     url = (
         "sqlite+aiosqlite:///:memory:"
-        if backend == "sqlite"
+        if backend.startswith("sqlite")
         else os.environ.get("FASTAMU_TEST_" + backend.upper())
     )
     if not url:
         pytest.skip(f"Set FASTAMU_TEST_{backend.upper()} for this backend")
     db = DBConnection(url, 2, 0, 30, 1800)
+    if backend == "sqlite-fetch":
+        # the path a database without RETURNING takes, which no backend
+        # reachable in this suite exercises on its own
+        db.uow_factory = FetchUnitOfWork
     table = DialectProbeTable.__table__
     try:
         async with db.engine.begin() as conn:

@@ -9,7 +9,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from fastamu.core.config import get_settings
 from fastamu.core.provider import CoreProvider
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import DBUnitOfWork, ReturningUnitOfWork
 from fastamu.testing.fixtures import core_provider_of
 
 
@@ -26,7 +26,7 @@ async def transaction(provider):
         commit=AsyncMock(), rollback=AsyncMock(), close=AsyncMock()
     )
     stub = SimpleNamespace(session_factory=lambda: session)
-    stub.uow = lambda: DBUnitOfWork(cast(DBConnection, stub))
+    stub.uow = lambda: ReturningUnitOfWork(cast(DBConnection, stub))
     connection = cast(DBConnection, stub)
 
     class DatabaseProvider(Provider):
