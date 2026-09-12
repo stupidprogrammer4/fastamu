@@ -1,9 +1,10 @@
 """SQL session lifetime, commit/rollback, and the writes themselves."""
 
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     and_,
@@ -24,35 +25,7 @@ if TYPE_CHECKING:  # a dialect names its unit of work, so the import is a cycle
 type Mutation = Update | Delete
 
 
-class IUnitOfWork(Protocol):
-    session: AsyncSession
-    db: "DBConnection"
-
-    async def commit(self) -> None: ...
-    async def rollback(self) -> None: ...
-
-    async def insert(
-        self, table: type[Any], rows: Sequence[dict[str, Any]]
-    ) -> Sequence[Any]: ...
-
-    async def update(
-        self, table: type[Any], stmt: Update, where: ColumnElement[bool]
-    ) -> Sequence[Any]: ...
-
-    async def delete(
-        self, table: type[Any], stmt: Delete, where: ColumnElement[bool]
-    ) -> Sequence[Any]: ...
-
-    async def upsert(
-        self,
-        table: type[Any],
-        stmt: Insert,
-        rows: Sequence[dict[str, Any]],
-        keys: Sequence[str],
-    ) -> Sequence[Any]: ...
-
-
-class DBUnitOfWork:
+class DBUnitOfWork(ABC):
     """An open session. Leaving its scope never commits implicitly.
 
     Use ``@transactional`` or ``async with transaction()`` to commit.
@@ -113,35 +86,29 @@ class DBUnitOfWork:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
-    def _unwritable(self) -> RuntimeError:
-        return RuntimeError(
-            f"{type(self).__name__} cannot write — take the unit of work from "
-            "DBConnection.uow(), which builds the one its database needs"
-        )
-
+    @abstractmethod
     async def insert(
         self, table: type[Any], rows: Sequence[dict[str, Any]]
-    ) -> Sequence[Any]:
-        raise self._unwritable()
+    ) -> Sequence[Any]: ...
 
+    @abstractmethod
     async def update(
         self, table: type[Any], stmt: Update, where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        raise self._unwritable()
+    ) -> Sequence[Any]: ...
 
+    @abstractmethod
     async def delete(
         self, table: type[Any], stmt: Delete, where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        raise self._unwritable()
+    ) -> Sequence[Any]: ...
 
+    @abstractmethod
     async def upsert(
         self,
         table: type[Any],
         stmt: Insert,
         rows: Sequence[dict[str, Any]],
         keys: Sequence[str],
-    ) -> Sequence[Any]:
-        raise self._unwritable()
+    ) -> Sequence[Any]: ...
 
 
 class ReturningUnitOfWork(DBUnitOfWork):

@@ -5,7 +5,6 @@ from sqlmodel import col, select, update
 
 from fastamu.common.schemas.results import PagedType
 from fastamu.infra.db.repository import DBIDRepository
-from fastamu.infra.db.uow import DBUnitOfWork
 from fastamu.modules.ops.messages.domain.context import (
     MessageContext,
     ProviderContext,
@@ -26,9 +25,6 @@ from fastamu.modules.ops.messages.infra.tables import (
 
 
 class SMSProviderRepository(DBIDRepository[SMSProviderEntity]):
-    def __init__(self, uow: DBUnitOfWork):
-        super().__init__(uow)
-
     async def get_by_id(
         self,
         id: int,
@@ -137,9 +133,6 @@ class SMSProviderRepository(DBIDRepository[SMSProviderEntity]):
 
 
 class SMSPatternRepository(DBIDRepository[SMSPatternEntity]):
-    def __init__(self, uow: DBUnitOfWork):
-        super().__init__(uow)
-
     async def get_by_key(self, key: PatternKey) -> Optional[SMSPatternEntity]:
         """
         Get the template registered for one message key.
@@ -187,9 +180,6 @@ class SMSPatternRepository(DBIDRepository[SMSPatternEntity]):
 
 
 class MessageRepository(DBIDRepository[MessageEntity]):
-    def __init__(self, uow: DBUnitOfWork):
-        super().__init__(uow)
-
     async def bulk_update(
         self,
         items: Sequence[MessageEntity],
