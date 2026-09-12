@@ -36,7 +36,7 @@ container = make_async_container(
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     try:
-        async with task_lifespan():
+        async with task_lifespan(container):
             if settings.es is not None:
                 async with container() as request_container:
                     es_client = await request_container.get(ESClient)

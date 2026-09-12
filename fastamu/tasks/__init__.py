@@ -1,1 +1,1 @@
-"""Optional event, projection and scheduled task runtimes."""
+"""Background jobs and scheduling integrations."""

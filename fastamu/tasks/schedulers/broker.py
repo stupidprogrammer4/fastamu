@@ -1,10 +1,7 @@
-from importlib import import_module
-
 from dishka import make_async_container
 from dishka.integrations.taskiq import TaskiqProvider, setup_dishka
 from taskiq_redis import (
     RedisAsyncResultBackend,
-    RedisScheduleSource,
     RedisStreamBroker,
 )
 
@@ -12,7 +9,6 @@ from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import get_settings
 from fastamu.core.provider import CoreProvider
 from fastamu.tasks.schedulers.middlewares.logging import LoggingMiddleware
-from fastamu.tasks.schedulers.middlewares.retry import ScheduledRetry
 
 settings = get_settings()
 if settings.tasks.schedulers is None:
@@ -38,8 +34,6 @@ container = make_async_container(TaskiqProvider(), CoreProvider(), *providers)
 
 setup_dishka(container, broker)
 bootstrapper.boot_schedulers()
-if settings.tasks.outbox is not None and settings.tasks.outbox.polling:
-    import_module("fastamu.tasks.outbox.scheduler").register(broker)
 
 broker.additional_streams.update(
     {
@@ -50,13 +44,4 @@ broker.additional_streams.update(
     }
 )
 
-broker.with_middlewares(
-    LoggingMiddleware(),
-    ScheduledRetry(
-        RedisScheduleSource(
-            url=settings.tasks.schedulers.url,
-            max_connection_pool_size=settings.tasks.schedulers.max_connection_pool_size,
-        ),
-        settings.tasks.schedulers.retry,
-    ),
-)
+broker.with_middlewares(LoggingMiddleware())
