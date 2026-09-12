@@ -1,8 +1,12 @@
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import declared_attr
 from sqlmodel import SQLModel
 
 from fastamu.common.utils.strings import pluralize, snake_case
+
+TABLES: dict[type[Any], type["BaseTable"]] = {}
 
 
 class BaseTable(AsyncAttrs, SQLModel):
@@ -18,6 +22,13 @@ class BaseTable(AsyncAttrs, SQLModel):
     the ORM machinery. Nothing in `domain/` or `app/` imports it — they speak
     the model, and only the repository knows which table carries it.
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # registered for the entity it was declared with, so no one searches
+        for base in cls.__mro__[1:]:
+            if base is not BaseTable and issubclass(base, SQLModel):
+                TABLES.setdefault(base, cls)
 
     @declared_attr.directive
     def __tablename__(cls) -> str:

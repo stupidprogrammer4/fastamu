@@ -3,6 +3,7 @@ import inspect
 import pkgutil
 from collections.abc import Sequence
 from functools import cached_property, lru_cache
+from typing import cast
 
 from dishka import Provider
 from elasticsearch import AsyncElasticsearch
@@ -11,6 +12,20 @@ from fastapi import APIRouter
 
 from fastamu.core.config import get_settings
 from fastamu.core.logger import logger
+from fastamu.messaging.projections.contracts.base import (
+    AbstractBatchProjection,
+    AbstractFanoutProjection,
+    AbstractProjection,
+    Projection,
+)
+from fastamu.messaging.projections.contracts.delete import (
+    AbstractBatchUnProjection,
+    AbstractUnProjection,
+)
+from fastamu.messaging.projections.contracts.patch import (
+    AbstractBatchPatchProjection,
+    AbstractPatchProjection,
+)
 
 DEFAULT_MODULES_PKG = "fastamu.modules"
 
@@ -34,8 +49,7 @@ class Bootstrapper:
         self.routers_path = "routers"
         self.doc_path = "domain.documents"
         self.schedulers_path = "tasks.schedulers"
-        self.subscribers_path = "tasks.events.subscribers"
-        self.publishers_path = "tasks.events.publishers"
+        self.projections_path = "app.projections"
 
     @cached_property
     def submodules(self) -> list:
@@ -145,19 +159,20 @@ class Bootstrapper:
         """Import every module's ``infra/tables.py``, which is what registers
         its tables on ``SQLModel.metadata``.
 
-        Only the table files: a domain model declares fields and maps to
-        nothing, so importing `domain/models.py` would add no metadata. This is
+        Only the table files: an entity declares fields and maps to nothing,
+        so importing `domain/entities.py` would add no metadata. This is
         what alembic autogenerate and the test schema both read.
         """
-        if get_settings().tasks.outbox is not None:
-            importlib.import_module("fastamu.infra.db.outbox.table")
-        if get_settings().tasks.inbox:
-            importlib.import_module("fastamu.infra.db.inbox.table")
         for module_name in self.submodules:
             self.import_module(f"{module_name}.{self.tables_path}")
 
     def boot_providers(self) -> list[Provider]:
-        """Find and instantiate all subclasses of dishka.Provider."""
+        """Find and instantiate all subclasses of dishka.Provider.
+
+        Tables are imported first: a repository binds its table when its class
+        is created, and a provider is what imports the repository.
+        """
+        self.boot_sqlmodels()
         providers = []
         for module_name in self.submodules:
             module = self.import_module(f"{module_name}.{self.providers_path}")
@@ -187,45 +202,47 @@ class Bootstrapper:
                         es_documents.append(obj)
         return es_documents
 
+    def boot_projections(self) -> list[type[Projection]]:
+        """Discover concrete projection classes in app.projections."""
+        projections: list[type[Projection]] = []
+        bases = (
+            AbstractProjection,
+            AbstractBatchProjection,
+            AbstractFanoutProjection,
+            AbstractPatchProjection,
+            AbstractBatchPatchProjection,
+            AbstractUnProjection,
+            AbstractBatchUnProjection,
+        )
+        for module_name in self.submodules:
+            path = f"{module_name}.{self.projections_path}"
+            root = self.import_module(path, raise_nested=True)
+            if root is None:
+                continue
+            modules = [root]
+            if hasattr(root, "__path__"):
+                modules.extend(
+                    self.import_package_modules(path, raise_nested=True)
+                )
+            for module in modules:
+                for _, candidate in inspect.getmembers(
+                    module, inspect.isclass
+                ):
+                    if (
+                        candidate.__module__ == module.__name__
+                        and issubclass(candidate, bases)
+                        and not inspect.isabstract(candidate)
+                        and candidate not in projections
+                    ):
+                        projections.append(cast(type[Projection], candidate))
+        return projections
+
     def boot_schedulers(self) -> None:
         """Register Taskiq jobs from each module's tasks/schedulers package."""
         for module_name in self.submodules:
             self.import_package_modules(
                 f"{module_name}.{self.schedulers_path}", raise_nested=True
             )
-
-    def boot_projections(self) -> None:
-        """Import projection classes from their infrastructure module."""
-        for module_name in self.submodules:
-            self.import_module(
-                f"{module_name}.infra.projections", raise_nested=True
-            )
-
-    def boot_subscribers(self) -> list:
-        """Discover native FastStream routers without starting consumers."""
-        return self._boot_event_routers(self.subscribers_path)
-
-    def boot_publishers(self) -> list:
-        """Discover native FastStream routers without opening connections."""
-        return self._boot_event_routers(self.publishers_path)
-
-    def _boot_event_routers(self, path: str) -> list:
-        from faststream.rabbit import RabbitRouter
-        from faststream.redis import RedisRouter
-
-        routers = []
-        seen: set[int] = set()
-        for module_name in self.submodules:
-            files = self.import_package_modules(
-                f"{module_name}.{path}", raise_nested=True
-            )
-            for module in files:
-                for _, obj in inspect.getmembers(module):
-                    if isinstance(obj, (RabbitRouter, RedisRouter)):
-                        if id(obj) not in seen:
-                            seen.add(id(obj))
-                            routers.append(obj)
-        return routers
 
     async def boot_es_indices(self, es: AsyncElasticsearch) -> None:
         """Create each ES read-model index (with its mapping) if it's missing.
