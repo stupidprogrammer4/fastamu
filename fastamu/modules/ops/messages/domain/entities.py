@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastamu.common.models.base import BaseIDTimestampModel
+from fastamu.common.models.entities import BaseIDTimestampEntity
 from fastamu.common.models.fields import (
     BoolField,
     CharField,
@@ -17,7 +17,7 @@ from fastamu.modules.ops.messages.domain.enums import (
 )
 
 
-class SMSProviderModel(BaseIDTimestampModel):
+class SMSProviderEntity(BaseIDTimestampEntity):
     """A provider you can send through, and the credentials to do it.
 
     One row per code, so rotating a key is an upsert rather than a second row,
@@ -30,7 +30,7 @@ class SMSProviderModel(BaseIDTimestampModel):
     is_active: bool = BoolField(default=False)
 
 
-class SMSPatternModel(BaseIDTimestampModel):
+class SMSPatternEntity(BaseIDTimestampEntity):
     """The provider-side template one message key is sent through.
 
     Providers register approved templates and address them by name; this maps
@@ -41,7 +41,7 @@ class SMSPatternModel(BaseIDTimestampModel):
     pattern: str = CharField(100)
 
 
-class MessageModel(BaseIDTimestampModel):
+class MessageEntity(BaseIDTimestampEntity):
     """One message owed to one recipient, and what became of it.
 
     The row is written before anything is sent, so a message that never leaves

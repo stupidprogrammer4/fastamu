@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
+from fastamu.modules.ops.messages.domain.entities import MessageEntity
 from fastamu.modules.ops.messages.domain.enums import ProviderCode
-from fastamu.modules.ops.messages.domain.models import MessageModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,5 +19,5 @@ class MessageContext:
     read, so they are joined in one query rather than fetched in two.
     """
 
-    message: MessageModel
+    message: MessageEntity
     provider: ProviderContext | None
