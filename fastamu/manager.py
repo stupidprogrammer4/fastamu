@@ -159,16 +159,16 @@ def _render(
 
 # --- templates --------------------------------------------------------------
 
-MODELS = """from fastamu.common.models.base import BaseIDTimestampModel
+MODELS = """from fastamu.common.models.entities import BaseIDTimestampEntity
 
 
-class <<P>>Model(BaseIDTimestampModel):
+class <<P>>Model(BaseIDTimestampEntity):
     # fields only — the table that carries them is in infra/tables.py
     ...
 """
 
 TABLES = """from fastamu.infra.db.table import BaseTable
-from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
 class <<P>>Table(<<P>>Model, BaseTable, table=True):
@@ -185,7 +185,7 @@ class <<P>>Create(BaseDTO): ...
 class <<P>>Update(BaseDTO): ...
 """
 
-SCHEMAS = """from <<PKG>>.<<M>>.domain.models import <<P>>Model
+SCHEMAS = """from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
 class <<P>>Out(<<P>>Model):
@@ -207,7 +207,7 @@ class <<P>>Document(AsyncDocument):
 INTERFACES = """from typing import Protocol
 
 from <<PKG>>.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
-from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
 class I<<P>>Service(Protocol):
@@ -222,7 +222,7 @@ class I<<P>>Service(Protocol):
 
 SERVICES = """from fastamu.common.services import BaseIDService
 from <<PKG>>.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
-from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
 
 
@@ -247,7 +247,7 @@ HELPERS = "# helper functions for the <<S>> module\n"
 
 REPOSITORY = """\
 from fastamu.infra.db.repository import DBIDRepository
-from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
 class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
@@ -256,7 +256,7 @@ class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
 REPOSITORY_CQRS = """from fastamu.infra.es.repository import ESRepository
 from fastamu.infra.db.repository import DBIDRepository
 from <<PKG>>.<<M>>.domain.documents import <<P>>Document
-from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
 class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
@@ -318,7 +318,7 @@ class <<P>>Provider(Provider):
 """
 
 COMMANDS = """from <<PKG>>.<<M>>.domain.dtos import <<P>>Create
-from <<PKG>>.<<M>>.domain.models import <<P>>Model
+from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
 
 
@@ -448,8 +448,6 @@ def _layout(
     excel: bool,
     tasks: bool,
     scheduler: bool = False,
-    subscriber: bool = False,
-    publisher: bool = False,
 ) -> dict[str, str]:
     """The files a module is made of, as ``relative path -> template``."""
     if context:
@@ -476,7 +474,7 @@ def _layout(
             "interfaces.py": INTERFACES,
             "providers.py": PROVIDERS_CQRS if cqrs else PROVIDERS,
             "domain/__init__.py": "",
-            "domain/models.py": MODELS,
+            "domain/entities.py": MODELS,
             "infra/tables.py": TABLES,
             "domain/dtos.py": DTOS,
             "routers/schemas.py": SCHEMAS,
@@ -493,18 +491,11 @@ def _layout(
             files["domain/documents.py"] = DOCUMENTS
             files["app/commands.py"] = COMMANDS
             files["app/queries.py"] = QUERIES
-            files["infra/projections.py"] = "# Projection definitions\n"
-    if tasks or scheduler or subscriber or publisher:
+    if tasks or scheduler:
         files["tasks/__init__.py"] = ""
     if tasks or scheduler:
         files["tasks/schedulers/__init__.py"] = ""
         files["tasks/schedulers/jobs.py"] = TASKS
-    if tasks or subscriber or publisher:
-        files["tasks/events/__init__.py"] = ""
-    if tasks or subscriber:
-        files["tasks/events/subscribers/__init__.py"] = ""
-    if tasks or publisher:
-        files["tasks/events/publishers/__init__.py"] = ""
     if http:
         files["infra/gateways.py"] = GATEWAYS
     if excel:
@@ -536,16 +527,10 @@ def module(
         False, "--excel", help="add infra/exporters.py (excel/file)"
     ),
     tasks: bool = typer.Option(
-        False, "--tasks", help="add schedulers, subscribers and publishers"
+        False, "--tasks", help="add Taskiq scheduled/background jobs"
     ),
     scheduler: bool = typer.Option(
         False, "--scheduler", help="add tasks/schedulers/ (Taskiq jobs)"
-    ),
-    subscriber: bool = typer.Option(
-        False, "--subscriber", help="add tasks/events/subscribers/"
-    ),
-    publisher: bool = typer.Option(
-        False, "--publisher", help="add tasks/events/publishers/"
     ),
 ) -> None:
     """Scaffold a module into the app's modules package."""
@@ -584,8 +569,6 @@ def module(
         excel=excel,
         tasks=tasks,
         scheduler=scheduler,
-        subscriber=subscriber,
-        publisher=publisher,
     ).items():
         path = module_dir / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -605,7 +588,6 @@ def module(
 def new(
     cqrs: bool = typer.Option(False, "--cqrs"),
     scheduler: bool = typer.Option(False, "--scheduler"),
-    events: bool = typer.Option(False, "--events"),
     name: str = typer.Argument(..., help="project name, e.g. shop or my-shop"),
     directory: str = typer.Option(
         "",
@@ -631,9 +613,7 @@ def new(
         typer.secho(f"{root} already exists and is not empty", fg=RED)
         raise typer.Exit(code=1)
 
-    scaffold.write(
-        root, package, name, cqrs=cqrs, scheduler=scheduler, events=events
-    )
+    scaffold.write(root, package, name, cqrs=cqrs, scheduler=scheduler)
     typer.secho(f"✓ created project '{name}' at {root}", fg=GREEN)
     typer.echo(
         f"\n  cd {root}\n"
@@ -641,26 +621,6 @@ def new(
         "  # fill in config.yml, then:\n"
         "  alembic upgrade head\n"
         "  uvicorn fastamu.web.app:app --reload\n"
-    )
-
-
-@app.command("projection-worker")
-def projection_worker():
-    """Consume projection queues; each queue has one in-flight delivery."""
-    import os
-    import sys
-
-    os.execv(
-        sys.executable,
-        [
-            sys.executable,
-            "-m",
-            "taskiq",
-            "worker",
-            "fastamu.tasks.projection.worker:get_broker",
-            "--workers",
-            "1",
-        ],
     )
 
 

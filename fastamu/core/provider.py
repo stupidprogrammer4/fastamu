@@ -22,18 +22,24 @@ class CoreProvider(Provider):
         return PasswordHasher(settings.crypto.password_salt)
 
     @provide(scope=Scope.APP)
-    def database(self, settings: Settings) -> DBConnection:
-        return DBConnection(
+    async def database(
+        self, settings: Settings
+    ) -> AsyncIterator[DBConnection]:
+        database = DBConnection(
             dsn=settings.db.dsn,
             pool_size=settings.db.pool_size,
             max_overflow=settings.db.max_overflow,
             pool_timeout=settings.db.pool_timeout,
             pool_recycle=settings.db.pool_recycle,
         )
+        try:
+            yield database
+        finally:
+            await database.dispose()
 
     @provide(scope=Scope.REQUEST)
     async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
-        async with DBUnitOfWork(pg) as unit:
+        async with pg.uow() as unit:
             yield unit
 
     @provide(scope=Scope.APP)

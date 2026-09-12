@@ -14,7 +14,6 @@ CONFIG_YML = """app:
     - "<<PKG>>.modules"
   features:
     - cqrs
-    - events
     - scheduler
 
 fastapi:
@@ -23,11 +22,6 @@ fastapi:
   version: "0.0.0"
 
 tasks:
-  events:
-    broker: "rabbitmq"  # rabbitmq | redis
-    url: "amqp://guest:guest@localhost:5672/"
-    # For Redis: broker: "redis", url: "redis://localhost:6379/0"
-
   schedulers:
     # taskiq — jobs and cron. Retry is not configured here: whether repeating a
     # job is safe belongs to the module defining it.
@@ -35,10 +29,6 @@ tasks:
     url: "redis://0.0.0.0:6379/0"
     max_connection_pool_size: 25
     result_ex_time: 86400      # how long a job result stays in redis
-  projection:
-    broker: "rabbitmq"
-    url: "amqp://guest:guest@localhost:5672/"
-    prefetch: 1
 
 db:
   test_dsn: "postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/<<PKG>>_test_db"
@@ -466,8 +456,6 @@ alembic upgrade head
 
 uvicorn fastamu.web.app:app --reload            # the API, on your modules
 # Only for features enabled when generating this project:
-fastamu projection-worker                     # --cqrs
-faststream run fastamu.tasks.events.app:app    # --events
 taskiq worker    fastamu.tasks.schedulers.broker:broker    # --scheduler
 taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler
 ```
@@ -476,13 +464,7 @@ Swagger UI is at `/docs`.
 
 Writing application methods use `@transactional` from
 `fastamu.infra.db.transaction`. Request scope only manages session lifetime;
-it does not commit automatically. Declare messages with `@event` from
-`fastamu.messaging.events.decorators`, or `@projection`, `@batch_projection`,
-`@fanout_projection` and `@unprojection` from
-`fastamu.projections.decorators`. Place message decorators outside
-`@transactional` to publish after its own commit. They also work without SQL.
-Nested calls publish when they return; the caller owns the outer commit
-boundary.
+it does not commit automatically.
 
 ## Adding a feature
 
@@ -510,7 +492,7 @@ def render(text: str, package: str, name: str) -> str:
 
 
 def files(
-    package: str, name: str, *, cqrs=False, scheduler=False, events=False
+    package: str, name: str, *, cqrs=False, scheduler=False
 ) -> dict[str, str]:
     """The project, as a path -> body map.
 
@@ -550,29 +532,17 @@ def files(
         name
         for name, enabled in (
             ("cqrs", cqrs),
-            ("events", events),
             ("scheduler", scheduler),
         )
         if enabled
     ]
     if not cqrs:
         config.pop("es", None)
-        config["tasks"].pop("projection", None)
     if not scheduler:
         config["tasks"].pop("schedulers", None)
-    if not events:
-        config["tasks"].pop("events", None)
     for path in ("config.yml", "config.yml.sample"):
         rendered[path] = yaml.safe_dump(config, sort_keys=False)
-    extras = [
-        name
-        for name, enabled in (
-            ("cqrs", cqrs),
-            ("scheduler", scheduler),
-            ("events", events),
-        )
-        if enabled
-    ]
+    extras = ["scheduler"] if scheduler else []
     if extras:
         dependency = "fastamu[" + ",".join(extras) + "]"
         rendered["pyproject.toml"] = rendered["pyproject.toml"].replace(

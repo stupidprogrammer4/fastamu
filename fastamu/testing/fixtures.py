@@ -168,7 +168,7 @@ async def pg(test_dsn: str) -> AsyncIterator[DBConnection]:
 
 @pytest.fixture
 async def uow(pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
-    async with DBUnitOfWork(pg) as unit:
+    async with pg.uow() as unit:
         yield unit
 
 
@@ -286,7 +286,7 @@ def core_provider_of(test_settings: Settings) -> Provider:
 
         @provide(scope=Scope.REQUEST)
         async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
-            async with DBUnitOfWork(pg) as unit:
+            async with pg.uow() as unit:
                 yield unit
 
         @provide(scope=Scope.APP)
