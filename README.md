@@ -53,15 +53,23 @@ migration, and the ES index is created on boot through discovery.
 
 ---
 
-Task backends are optional and configured independently under `tasks`:
-`events` uses FastStream, `projection` uses Taskiq/RabbitMQ, and `schedulers`
-uses Taskiq/Redis. `app.features` is the enabled feature list; its entries must
-match the configured task sections.
-`fastamu new shop --cqrs --scheduler --events` selects the corresponding
-configuration and dependency extras. With no flags, none of these backends
-starts. Event consumers use `fastamu.tasks.events.app:app`.
-The API starts publisher connections for enabled backends; it does not start
-consumers. Pending SMS records are not automatically dispatched.
+The previous event/projection, outbox/inbox and custom retry implementation
+has been removed for redesign. The new projection runtime is available below;
+the removed event and outbox/inbox APIs remain unavailable. See
+[the design](MESSAGING_REDESIGN.md). SQL transactions, DB/ES
+repositories and Taskiq jobs/scheduling remain available. Projection retry is
+optional and uses Taskiq's native SmartRetry with a Redis scheduler.
+
+The shared `Register` in `tasks/projection/delivery` maps projection classes to native
+Taskiq tasks. `AbstractConvertor`, discovery, registration, publication decorators,
+the independent worker and optional retry are implemented. Optional SQL failure storage and periodic batch repair are also implemented. Repair will supply IDs to existing batch
+projections; it does not require a special projection class or decorator.
+Publication decorators run after successful function completion; transaction
+boundaries remain the caller's responsibility.
+
+`fastamu new shop --cqrs --scheduler` enables the ES read side and Taskiq/Redis
+jobs. With no flags, neither subsystem is enabled. Pending SMS records are not
+automatically dispatched.
 
 ## The stack: what each tool does
 
@@ -73,7 +81,7 @@ behave as one thing.
 |---|---|---|
 | HTTP, validation, OpenAPI | **FastAPI** | Auto-included routers, a uniform response envelope, typed error handlers, offline (CDN-free) Swagger UI |
 | Dependency injection | **dishka** | A `CoreProvider` with the whole infra layer pre-wired; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes shared identically by the web app *and* the task worker |
-| Scheduled jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, retry + logging middleware |
+| Scheduled jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, logging middleware |
 | Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Generic `DBRepository` hierarchy with dialect-specific SQL, patch-semantics writes, statement-agnostic pagination, bulk upsert/update helpers, a `UnitOfWork` bound to the request |
 | Read side / search | **Elasticsearch DSL** (async) | `ESRepository` and index auto-creation on boot |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
@@ -96,12 +104,12 @@ Elasticsearch is only needed if you use the CQRS read side.
 # 1) Install the framework and start a project
 python3.13 -m venv .venv && source .venv/bin/activate
 pip install fastamu
-fastamu new shop && cd shop
+fastamu new shop --scheduler && cd shop
 
 # 2) Config — config.yml is gitignored; it holds your secrets
 #    fill in: db.dsn, db.test_dsn, redis.url,
-#             taskiq.redis_url, jwt.secret_key, crypto.encryption_key
-pip install -e ".[dev,events,cqrs,scheduler]"
+#             tasks.schedulers.url, jwt.secret_key, crypto.encryption_key
+pip install -e ".[dev]"
 
 # 3) Schema
 alembic upgrade head
@@ -119,7 +127,7 @@ the framework reads, alembic wiring and a test suite. **The framework stays in
 site-packages**: there is no vendored copy to keep in step, and upgrading is
 `pip install -U fastamu`.
 
-Working *on* Fastamu itself instead? Clone it and `pip install -e ".[dev,events,cqrs,scheduler]"` —
+Working *on* Fastamu itself instead? Clone it and `pip install -e ".[dev,scheduler]"` —
 its own `config.yml` points `app.modules` at `fastamu.modules`, so the `ops`
 reference modules are what boots.
 
@@ -160,20 +168,12 @@ fastamu/
 │   ├── types/       # the shared vocabulary — aliases.py, enums.py, constants.py
 │   └── services.py  # BaseService, BaseIDService
 │
-├── messaging/       # Application messaging and delivery policies
-│   ├── calls.py     # Call and shared result-selector wrapping
-│   ├── events/      # Immediate event decorators
-│   ├── outbox/      # Atomic recording and explicit delivery scope
-│   │   └── api.py   # Application-facing outbox decorators and helpers
-│   ├── inbox.py     # Explicit consumer deduplication
-│   └── retry.py     # RetryPolicy and RetryDecision
-│
-├── projections/     # Read-model contracts and application decorators
-│   ├── base.py      # Single, batch, fanout and deletion projections
-│   ├── definition.py # Registration metadata and selector validation
-│   ├── decorators.py
-│   ├── convertor.py
-│   └── errors.py
+├── messaging/       # Messaging contracts and optional capabilities
+│   └── projections/
+│       ├── contracts/ # What an application implements: single, batch, fanout,
+│       │              # patch, delete, policy, results
+│       └── repair/    # Optional recovery: the failure queue contract, the
+│                      # Redis list behind it, and what reruns a failure
 │
 ├── core/            # The framework's heart
 │   ├── bootstrap.py # Auto-discovery: modules, routers, providers, models,
@@ -190,11 +190,10 @@ fastamu/
 │   ├── http/        # pooled httpx client + BaseGateway
 │   └── excel/       # ProcessPool-backed reader / writer
 │
-├── tasks/           # Broker adapters and worker execution
-│   ├── events/      # FastStream transport and retry
-│   ├── projection/  # Taskiq transport, registration and retry
-│   ├── outbox/      # Relay and recovery scheduling
-│   └── schedulers/  # Redis jobs, cron and middleware
+├── tasks/           # Background job execution
+│   ├── schedulers/  # Redis jobs, cron and middleware
+│   └── projection/  # broker.py and scheduler.py are entry points;
+│                    # delivery/ registers and publishes, repair/ reruns
 │
 ├── web/             # The HTTP layer
 │   ├── app.py       # App construction: bootstrap → container → routers
@@ -246,7 +245,7 @@ modules/[<group>/]<name>/
 │   ├── commands.py     # (CQRS only) write commands
 │   └── queries.py      # (CQRS only) reads that hit Elasticsearch
 ├── infra/          # This module's adapters
-│   ├── tables.py       # the SQLModel tables carrying domain/models.py
+│   ├── tables.py       # the SQLModel tables carrying domain/entities.py
 │   ├── repository.py
 │   ├── gateways.py     # (--http)  outbound HTTP clients
 │   └── exporters.py    # (--excel) file/spreadsheet exporters
@@ -329,18 +328,16 @@ group is optional: `modules/pricing/` is found by the same rule that finds
 |---|---|---|
 | **Routers** | `<module>/routers/*.py` | Every module-level `APIRouter` instance (deduped), then `app.include_router(...)` |
 | **Providers** | `<module>/providers.py` | Every `dishka.Provider` subclass, instantiated and merged into the container |
-| **Tables** | `<module>/infra/tables.py` | Imported so the `table=True` classes register on the shared metadata (this is what Alembic autogenerate sees). Only this file — a `domain/models.py` maps to nothing |
+| **Tables** | `<module>/infra/tables.py` | Imported so the `table=True` classes register on the shared metadata (this is what Alembic autogenerate sees). Only this file — a `domain/entities.py` maps to nothing |
 | **ES documents** | `<module>/domain/documents.py` | Every `AsyncDocument` subclass; its index is created on app startup if missing |
 | **Schedulers** | `<module>/tasks/schedulers/*.py` | Imported by `boot_schedulers()` to register Taskiq jobs |
-| **Subscribers** | `<module>/tasks/events/subscribers/*.py` | Native FastStream routers returned by `boot_subscribers()` |
-| **Publishers** | `<module>/tasks/events/publishers/*.py` | Native FastStream routers returned by `boot_publishers()` |
 
 Consequences worth internalising:
 
 - **`routers/` and `tasks/` are packages whose `__init__.py` stays empty.** The
   bootstrapper imports each *file* inside them. Re-exporting from `__init__.py`
   is not just unnecessary, it is against the convention.
-- **`providers.py`, `domain/models.py` and `infra/tables.py` are single files**, not packages.
+- **`providers.py`, `domain/entities.py` and `infra/tables.py` are single files**, not packages.
 - **Every one of these is optional.** A module with no `tasks/` folder simply has
   no tasks. A missing file is skipped silently; a file that *exists but fails to
   import* raises loudly (for routers), so typos don't silently unmount your API.
@@ -366,10 +363,8 @@ fastamu module product                   # CRUD, no group
 fastamu module catalog.product           # CRUD, filed under catalog/
 fastamu module catalog.product --cqrs    # + ES read model, commands/queries
 fastamu module pricing --context         # pure logic: context + reader, no models
-fastamu module catalog.product --tasks       # all three task packages
+fastamu module catalog.product --tasks       # Taskiq jobs
 fastamu module catalog.product --scheduler   # only tasks/schedulers/
-fastamu module catalog.product --subscriber  # only tasks/events/subscribers/
-fastamu module catalog.product --publisher   # only tasks/events/publishers/
 fastamu module catalog.product --http    # + infra/gateways.py
 fastamu module catalog.product --excel   # + infra/exporters.py
 ```
@@ -411,30 +406,30 @@ Let's build `catalog.brand` as a plain CRUD module. Start with the scaffold:
 fastamu module catalog.brand
 ```
 
-### 1. The model — `domain/models.py`
+### 1. The model — `domain/entities.py`
 
 A model declares **fields and nothing else**. It is not the table: no `table=True`,
 no ORM base, no `__tablename__`. That is what keeps `domain/` honest — it names
 what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
-from fastamu.common.models.base import BaseIDTimestampModel
+from fastamu.common.models.entities import BaseIDTimestampEntity
 from fastamu.common.models.fields import BoolField, CharField
 
 
-class BrandModel(BaseIDTimestampModel):
+class BrandModel(BaseIDTimestampEntity):
     name: str = CharField(35, index=True)
     slug: str = CharField(55, unique=True)
     is_active: bool = BoolField(default=True)
 ```
 
-`BaseIDTimestampModel` contributes `id`, `created_at` and `updated_at`. Columns use
+`BaseIDTimestampEntity` contributes `id`, `created_at` and `updated_at`. Columns use
 the **field factories** from
 [fastamu/common/models/fields.py](fastamu/common/models/fields.py), which default to
 `NOT NULL` — nullability is opt-in, not opt-out.
 
-Bases: `BaseModel` (bare), `BaseIDModel`, `BaseTimestampModel`,
-`BaseIDTimestampModel`.
+Bases: `BaseModel` (bare), `BaseIDEntity`, `BaseTimestampEntity`,
+`BaseIDTimestampEntity`.
 
 Field factories: `IDField`, `SmallIntField`, `IntField`, `BigIntField`, `BoolField`,
 `FloatField`, `NumericField`, `CharField`, `TextField`, `DateField`,
@@ -448,7 +443,7 @@ knows a database exists, and the only one the bootstrapper imports for metadata:
 
 ```python
 from fastamu.infra.db.table import BaseTable
-from shop.modules.catalog.brands.domain.models import BrandModel
+from shop.modules.catalog.brands.domain.entities import BrandModel
 
 
 class BrandTable(BrandModel, BaseTable, table=True):
@@ -499,7 +494,7 @@ serialise it. Because a model is now plain pydantic, an output can subclass one
 instead of restating its fields:
 
 ```python
-from shop.modules.catalog.brands.domain.models import BrandModel
+from shop.modules.catalog.brands.domain.entities import BrandModel
 
 
 class BrandOut(BrandModel):
@@ -531,7 +526,7 @@ from sqlmodel import col, select
 
 from fastamu.common.schemas.results import PagedType
 from fastamu.infra.db.repository import DBIDRepository
-from fastamu.modules.catalog.brands.domain.models import BrandModel
+from fastamu.modules.catalog.brands.domain.entities import BrandModel
 
 
 class BrandRepository(DBIDRepository[BrandModel]):
@@ -562,7 +557,7 @@ from fastamu.infra.db.transaction import transactional
 from fastamu.common.errors.exceptions import ConflictException
 from fastamu.core import resources
 from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from fastamu.modules.catalog.brands.domain.models import BrandModel
+from fastamu.modules.catalog.brands.domain.entities import BrandModel
 from fastamu.modules.catalog.brands.infra.repository import BrandRepository
 
 
@@ -610,7 +605,7 @@ Other modules may only ever see this.
 from typing import Protocol
 
 from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from fastamu.modules.catalog.brands.domain.models import BrandModel
+from fastamu.modules.catalog.brands.domain.entities import BrandModel
 
 
 class IBrandService(Protocol):
@@ -754,308 +749,6 @@ HTTP error handlers only format errors; they never resolve a database session
 or perform rollback. This also covers errors translated into HTTP responses:
 uncommitted work is discarded at session close.
 
-### Messaging package imports
-
-Messaging APIs moved out of `common`; projections now have their own package.
-Update application imports to these paths (the old paths are removed):
-
-```python
-from fastamu.messaging import Call, inbox
-from fastamu.messaging.events.decorators import event
-from fastamu.messaging.outbox import api as outbox
-from fastamu.messaging.retry import RetryPolicy
-from fastamu.projections.base import AbstractProjection
-from fastamu.projections.decorators import projection
-```
-
-`messaging.outbox.api` explicitly loads application helpers. Importing
-`messaging.outbox.message` only loads the message contract; it does not
-initialize SQL or task transports. Transport adapters remain in `tasks`, and
-SQL persistence remains in `infra/db`. This package refactor does not change
-commit timing, retry budgets, queue names or wire payloads.
-
-### Independent events, projections and transactions
-
-`@transactional` in `infra/db/transaction.py` manages SQL only. It neither
-inspects messages nor dispatches them. Event declarations live in
-`messaging/events/`, projection declarations in `projections/`, and the
-shared result-selector helper in `messaging/calls.py`. Each message decorator
-awaits its wrapped call, selects the result, and publishes through its own
-transport adapter. Message decorators work without a UoW or transaction.
-
-To publish after a method's SQL commit, put message decorators **outside**
-`@transactional`:
-
-```python
-from fastamu.messaging.events.decorators import event, emit
-from fastamu.projections.decorators import (
-    projection, batch_projection, fanout_projection, unprojection,
-)
-from fastamu.infra.db.transaction import transactional
-
-@event("catalog.product.created", payload=lambda call: ProductCreated(
-    product_id=call.result.id,
-    title=call.result.title,
-))
-@projection(ProductProjection, id=lambda call: call.result.id)
-@transactional
-async def create_product(repo, data):
-    return await repo.create(ProductModel(**data.to_row()))
-```
-
-Execution is body → commit → projection → event. For directly decorated HTTP
-endpoints, keep `@router.post(...)` and `@inject` above these decorators so
-Dishka opens the UoW before the transaction. Decorating an injected service's
-application method is usually simpler.
-
-The caller owns composition. Putting `@transactional` outside message decorators
-sends messages before commit. A nested transactional call joins its parent's SQL
-transaction; message decorators around that nested call publish when it returns,
-**before the outer commit**. Put publication at the actual outer boundary when
-it must follow commit. Decorators do not validate or rearrange their order.
-
-Selectors are synchronous functions, commonly lambdas. `call.result` is the
-method's result; `call.arguments` is a read-only mapping of parameter names to
-supplied values, including defaults. A delete returning `None` can use
-`@unprojection(ProductUnProjection, id=lambda call: call.arguments["product_id"])`.
-For an event, return a Pydantic model or `None` to skip it. Each projection
-decorator enforces its own concrete class and selector contract:
-
-| Decorator | Class | Selector result | Publication |
-| --- | --- | --- | --- |
-| `projection(..., id=...)` | `AbstractProjection` | One integer | One task |
-| `batch_projection(..., ids=...)` | `AbstractBatchProjection` | Sequence of integers | One batch task |
-| `fanout_projection(..., id=...)` | `AbstractFanoutProjection` | One integer | One task building multiple documents |
-| `unprojection(..., id=...)` | `AbstractUnProjection` | One integer | One deletion task |
-
-Single, fanout and deletion decorators reject lists, including empty lists. Batch
-validates every ID before sending, deduplicates in input order, and skips empty
-sequences. A list is never expanded into individual messages. Successful
-decorators return the original result unchanged.
-
-```python
-@batch_projection(ProductBatchProjection, ids=lambda call: call.result)
-@transactional
-async def update_products(...):
-    ...
-    return product_ids
-
-@unprojection(ProductUnProjection, id=lambda call: call.arguments["product_id"])
-@transactional
-async def delete_product(product_id: int):
-    ...
-```
-
-Selectors and JSON serialization run after the wrapped call returns. With the
-order above they run after commit, so their failures cannot roll back that write.
-Load required fields and flush database-generated IDs before returning. Inner
-decorators publish first. Any selector or transport error propagates immediately:
-later sends and outer decorators do not run, and earlier sends remain delivered.
-There is no error aggregation or automatic retry.
-
-For explicit publication, use `await emit(subject, model)` or
-`await publish(ProjectionClass, argument)` from
-`fastamu.tasks.projection.publisher`. The transport adapter expects one ID or
-one batch matching the task contract. Both publish immediately and need no SQL
-scope. For a cache invalidation or a custom publisher, explicitly await it after
-the outer transaction completes:
-
-```python
-async with transaction():
-    result = await update_product(...)
-    key = result.cache_key
-await cache.delete(key)
-```
-
-This assumes the scope owns the transaction; a scope joining an existing
-transaction does not commit it. The old message buffer, `after_commit` callback
-API, dispatcher, message records and `PostCommitDeliveryError` are removed.
-`emit` is now async. The generic `enqueue` helper is removed; use the matching
-projection decorator or call the projection publisher explicitly.
-
-These immediate decorators have no durability or automatic retry. A crash or
-publication failure after commit can lose messages. Use the optional outbox
-below for durable SQL-to-broker publication. Retrying the entire business
-operation can repeat writes and already delivered messages.
-
-Broker lifecycle is still required. For standalone publishers start
-`fastamu.tasks.lifespan.task_lifespan()` first. Event subscriptions use native
-FastStream routers; each subscriber that writes SQL can call a transactional
-application method. Redis events use Pub/Sub, not a durable queue.
-
-### Optional transactional outbox
-
-The outbox uses relational transactions and RabbitMQ. It is opt-in per operation:
-the immediate event/projection decorators above keep their existing behavior.
-`transactional` and the UoW still manage SQL only.
-
-```python
-from fastamu.messaging.outbox import api as outbox
-from fastamu.infra.db.transaction import transactional
-
-class ProductBatchProjection(AbstractBatchProjection):
-    outbox_name = "catalog.products.project"  # stable across code moves
-    # Existing projection implementation and queue configuration.
-
-@outbox.deliver
-@transactional
-@outbox.batch_projection(ProductBatchProjection, ids=lambda call: call.result)
-async def update_products(...):
-    ...
-    return product_ids
-```
-
-The inner decorator serializes and inserts the message after the method returns,
-inside the business transaction. SQL and the message commit together; selector,
-serialization or insert errors roll both back. The outer `outbox.deliver` then
-awaits immediate publication. A broker failure leaves the committed message
-pending and is logged; it does not turn the committed operation into a failed
-business response. Use an open UoW, and put delivery outside the outermost SQL
-transaction. Nested delivery scopes join the outer scope.
-
-The matching tools are `outbox.event(subject, payload=...)`,
-`outbox.projection(..., id=...)`, `outbox.batch_projection(..., ids=...)`,
-`outbox.fanout_projection(..., id=...)` and `outbox.unprojection(..., id=...)`.
-Every persisted projection must explicitly declare a unique `outbox_name` and
-be registered at publisher startup. Preserve that name while pending messages
-exist. A batch projection is one message containing multiple source IDs; a
-recovery batch below groups outbox messages, independently of their payloads.
-
-For explicit composition, surround `async with transaction()` with
-`async with outbox.delivery()`, and call `record_event`, `record_projection` or
-`record_batch_projection` inside the transaction. Recording alone is supported
-when only scheduled recovery is desired.
-
-```yaml
-tasks:
-  # Existing RabbitMQ event/projection and Redis scheduler settings also apply.
-  outbox:
-    polling: true
-    poll_interval: 20
-    batch_size: 1000
-    max_parallel_batches: 10
-    concurrency: 4
-```
-
-Create `fastamu_outbox`, `fastamu_outbox_batches` and `fastamu_outbox_control` through your application's
-migration before enabling this configuration. Their definitions live in
-`fastamu.infra.db.outbox.table` and join SQLModel metadata when outbox is enabled;
-application startup does not create or migrate them automatically.
-The control table needs exactly one row, with `id=1`; include its insert in
-the migration. SQLAlchemy table creation seeds it automatically. The test
-harness preserves this control row when clearing application data.
-
-Recovery is an interval task on the existing Taskiq scheduler, with no permanent
-relay loop. Run both the scheduler and its worker. The worker must initialize
-the configured RabbitMQ event/projection publishers and projection registry in
-its startup hooks, and close them at shutdown. Goldis provides these hooks in
-`src.run.scheduler`; its worker target is `src.run.scheduler:broker`.
-
-Each tick reserves at most 10,000 eligible messages, split into jobs of at most
-1,000: zero messages produce zero jobs, 1–1,000 produce one, and 5,000 produce
-five. Queued and running reservations share the cap of ten across ticks and
-coordinators. Jobs run in parallel subject to worker capacity; each publishes
-at most four messages concurrently. The planner fetches bounded IDs instead of
-counting the whole outbox. It orders selection by readiness time and ID; neither
-parallel publication nor consumer execution guarantees business ordering.
-
-Short SQL claims keep the immediate sender and recovery jobs from owning the
-same ready message simultaneously. Network publication holds no SQL connection.
-Reservation transactions serialize on the control row using a normal SQL
-update. This replaces PostgreSQL advisory locks and SKIP LOCKED, and can wait
-for a conflicting SQL lock. The database and driver must support transactions
-and accurate affected-row counts; there is no database-name allowlist. Runtime
-concurrency tests cover PostgreSQL, MySQL and SQLite. Other engines require
-validation in their deployment environment. Database clock values are bound
-as query parameters so ready-message predicates remain indexable.
-Immediate delivery passes only one concurrency-sized group of IDs per claim.
-Confirmed messages in each group share one SQL delete/commit, with ownership
-checked per message. A slow send can delay recording the other confirmations
-in its group until that send completes or times out.
-Batch reservations expire after 60 seconds and renew while jobs claim work;
-message claims expire after 30 seconds, with a five-second publish timeout.
-Lost queued jobs and crashed workers become recoverable after expiry. Broker
-failures are rescheduled with bounded exponential delay and jitter. Consumer
-retry is configured separately using the policies described below.
-
-`polling: false` disables automatic recovery while preserving immediate delivery.
-To trigger recovery immediately with polling enabled, enqueue the registered
-`fastamu.outbox.recover` task through the application's initialized scheduler
-broker. It uses the same batch jobs and worker dependencies as a scheduled tick.
-A tick can leave backlog, delayed messages, and live reservations for later ticks.
-Twenty seconds is a scheduling interval, not a maximum recovery latency.
-
-Each message retains its UUID as the RabbitMQ message ID / Taskiq task ID.
-Broker confirmation precedes deletion from SQL. A crash between those
-steps can publish the same ID again: **this is at-least-once publication, not
-deduplication or exactly-once processing**. Consumers still need idempotency
-where duplicates matter. Deletion follows broker acceptance, not successful
-projection execution. Elasticsearch versions are unchanged.
-
-Operational costs include outbox inserts and claim/result updates, WAL and
-index maintenance, scheduler queue traffic, and broker confirms. Recovery
-concurrency is bounded separately from concurrent application requests. Monitor
-pending count and oldest pending age, `attempts`, `last_error`, and active batch
-reservations. Confirmed rows are deleted; pending rows are never automatically
-discarded. A live `claim_token` with a future `available_at` means publication is
-in progress. An absent or expired claim means pending work, subject to its next
-available time. No redundant status column or sent-message history is stored.
-
-### SQL consumer inbox
-
-Enable `tasks.inbox: true` and migrate `fastamu_inbox` before using the optional
-tools in `fastamu.messaging.inbox`. The primary key is `(consumer, message_id)`;
-receipts contain no payload and are committed with the SQL business effects.
-Use a stable consumer name and the original broker message ID on every attempt.
-Never generate a replacement ID in the consumer. Missing/empty IDs are errors.
-
-```python
-from fastamu.messaging import inbox
-from fastamu.infra.db.transaction import transactional
-
-@transactional
-@inbox.consumer("inventory.stock.apply", message_id=lambda call: call.arguments["message_id"])
-async def handle(data, *, message_id: str):
-    await repository.apply(data)
-```
-
-The selector runs before the handler (`call.result` is None). A committed
-duplicate skips the handler and returns None; it does not replay a cached
-return value. Native FastStream routers can pass `RabbitMessage.message_id` to
-this application method. Acknowledge only after the outer SQL transaction
-commits. Application policies decide retry behavior; transport middleware
-executes those decisions. No custom Taskiq receiver is introduced.
-
-For explicit control, inside an existing `transaction()` use
-`async with inbox.consume(consumer_name, message_id) as execute` and run the SQL
-effects only when `execute` is true. Concurrent duplicates contend on the
-database's unique key. `InboxRepository.claim` uses the dialect's targeted
-`ON CONFLICT DO NOTHING RETURNING` on PostgreSQL and SQLite; new receipts take
-one statement without a savepoint. MySQL/MariaDB and other dialects use an
-insert with a savepoint fallback. MySQL's no-op upsert cannot reliably identify
-the insert winner with SQLAlchemy's FOUND_ROWS setting, and `INSERT IGNORE`
-can suppress unrelated errors, so neither is used for inbox claims.
-
-The repository neither commits nor flushes pending ORM changes. Business failures
-or cancellation roll back the receipt with the outer transaction. SQLite uses
-modern transaction control (Python 3.13 as required by the package). The
-fallback needs transactional savepoints; unknown SQLAlchemy dialects do not
-need a Fastamu adapter to use it. A duplicate requires an additional exact-key
-lookup; a locking read avoids stale snapshots on MySQL.
-
-Use case-sensitive identity columns. If the database collation conflates two
-different IDs, the repository raises instead of silently skipping the new message.
-Keep receipts for the full retry/redelivery/manual replay horizon. They are not
-deleted when the originating outbox row disappears; purging them permits those
-identities to execute again. No automatic inbox expiry is configured.
-
-The inbox covers effects in the same SQL transaction. HTTP, email, Redis and
-Elasticsearch are separate systems and need their own idempotent operations or
-another outbox. Elasticsearch projections should write deterministic document
-IDs and assign current values instead of incrementing them. Replay tests cover
-single writes, deletions and partial batch/fanout failures. This does not solve
-out-of-order updates or reconciliation racing with newer source changes.
-
 A sub-section of settings can be re-provided as its own type, so a service can
 depend on exactly what it needs:
 
@@ -1080,15 +773,15 @@ behaves identically whether it was called from an HTTP route or a background job
 
 ### Model bases
 
-In `fastamu.common.models.base` — all pure, none of them a table:
+In `fastamu.common.models.entities` — all pure, none of them a table:
 
 | Base | Adds |
 |---|---|
 | `Base` | `to_row()`, `to_dict()`, `to_json()`, `patch()`, `from_obj()`, `from_objs()`, … |
 | `BaseModel` | nothing — the plain entity base |
-| `BaseIDModel` | `id` |
-| `BaseTimestampModel` | `created_at`, `updated_at` (DB-managed) |
-| `BaseIDTimestampModel` | all of the above — the usual choice |
+| `BaseIDEntity` | `id` |
+| `BaseTimestampEntity` | `created_at`, `updated_at` (DB-managed) |
+| `BaseIDTimestampEntity` | all of the above — the usual choice |
 
 `BaseTable`, in `fastamu.infra.db.table`, is what turns one into a
 table, and it is the only base that carries a `__tablename__`.
@@ -1344,7 +1037,6 @@ which registers it:
 ```python
 from dishka.integrations.taskiq import FromDishka, inject
 
-from fastamu.messaging.retry import RetryPolicy
 from fastamu.modules.catalog.brands.interfaces import IBrandService
 from fastamu.tasks.schedulers.broker import broker
 
@@ -1352,7 +1044,6 @@ from fastamu.tasks.schedulers.broker import broker
 @broker.task(
     task_name="deactivate_stale_brands",
     queue_name="brands_queue",              # optional: give the task its own stream
-    retry_policy=RetryPolicy(),             # opt in; choose an application policy
     schedule=[{"cron": "0 3 * * *"}],       # optional: run it nightly at 03:00
 )
 @inject(patch_module=True)
@@ -1369,10 +1060,7 @@ Rules that matter:
   `@transactional`, with the same commit/rollback semantics as in HTTP handlers.
 - **Enqueue from anywhere** with `await deactivate_stale_brands.kiq(arg)` — including
   from a route handler, since the web app imports the broker too.
-- **Retries are opt-in.** Declare `retry_policy=RetryPolicy(...)` on the task.
-  The worker reads the registered policy, not a policy supplied in message labels.
-  Retries are saved to the Redis schedule source; the scheduler process must run.
-  Old `retry_on_error`, `max_retries` and `delay` labels do not configure this policy.
+- No retry middleware is installed automatically during the messaging redesign.
 - `queue_name` gives the task its own Redis stream; the broker discovers every extra
   queue at boot and subscribes to it.
 - Every log line inside a job is stamped with the task id, exactly as a request is
@@ -1383,131 +1071,6 @@ Rules that matter:
   the next *enqueue* is what fails, so the queue stalls, not just the cache. Raise
   `tasks.schedulers.result_ex_time` in configuration if you need to read
   results back later.
-
-### When work fails
-
-The application chooses a policy for each job. Scheduled retries use the same
-`RetryPolicy.decide(error, attempt)` contract as events and projections:
-
-```python
-@broker.task(retry_policy=RetryPolicy(max_attempts=3, delays=(30,), jitter=0))
-async def refresh_rates() -> None: ...
-```
-
-### Application retry policies
-
-`fastamu.messaging.retry.RetryPolicy` owns error classification, the attempt budget
-and delay. Both event and projection adapters call `decide(error, attempt)`;
-Taskiq does not apply a second budget or an additional exception filter.
-
-```python
-from fastamu.messaging.retry import RetryDecision, RetryPolicy
-
-projection_policy = RetryPolicy(
-    max_attempts=5,                   # includes the initial execution
-    delays=(5, 30, 120, 600),         # seconds; last delay repeats if needed
-    jitter=0.1,                      # adds up to 10%; zero disables it
-    retry_on=(ConnectionError, TimeoutError),
-    stop_on=(),
-)
-
-class ProductProjection(AbstractProjection):
-    queue_name = "products"
-    retry_policy = projection_policy
-    # Implement the projection's query methods.
-
-class EventPolicy(RetryPolicy):
-    def decide(self, error, attempt):
-        # Application-specific classification can inspect error attributes.
-        if isinstance(error, ConnectionError) and attempt < 4:
-            return RetryDecision(delay=30, max_delay=30)
-        return RetryDecision()       # terminal failure
-```
-
-The default policy allows five total attempts for `Exception`, with delays
-5/30/120/600 seconds and 10% jitter. Choose narrower error classes for your
-application; `ValueError` and `TypeError` are not unconditionally excluded.
-Cancellation is propagated and does not consume the failure budget. A custom
-`decide` implementation owns its own bounds. For randomized delays, return a
-stable `max_delay` bucket to avoid creating a queue for every random value.
-
-Native FastStream routers remain responsible for event subscriptions:
-
-```python
-from faststream.middlewares.acknowledgement.config import AckPolicy
-from faststream.rabbit import RabbitQueue, RabbitRouter
-from fastamu.core.config import get_settings
-from fastamu.tasks.events.broker import broker
-from fastamu.tasks.events.retry import EventRetry
-
-retry = EventRetry(
-    broker,
-    {"inventory.events": EventPolicy()},
-    config=get_settings().tasks.events.retry,
-)
-router = RabbitRouter(middlewares=[retry], ack_policy=AckPolicy.MANUAL)
-
-@router.subscriber(RabbitQueue("inventory.events", durable=True))
-async def inventory_changed(data: dict):
-    ...
-```
-
-Event policies are per subscriber queue; projection policies are per class/task.
-Use manual acknowledgement on an event router whose subscriptions all have a
-policy. Subscribers without a policy retain their native behavior. EventRetry
-supports RabbitMQ; it does not add retry support to the Redis event transport.
-
-For RabbitMQ, each failure is confirmed in a persistent retry or failed queue
-before the original delivery is acknowledged. Retry queues use TTL and quorum
-at-least-once dead-lettering back to the original queue. This also avoids
-re-emitting an event to subscribers that already succeeded. Exhausted messages
-remain in a failed queue until explicitly replayed or removed. Repair the cause,
-then call `await retry.replay_failed(queue, limit=100)` for events, or
-`await projection_broker.replay_failed(queue, limit=100)` for projections.
-Replay preserves the message ID and resets the attempt counter; it confirms
-publication before acknowledging the failed copy. Invalid wire messages and
-unknown projection tasks are quarantined; they may need repair before replay.
-
-Operational settings are independent of application policy:
-
-```yaml
-tasks:
-  projection:                      # also available under events / schedulers
-    retry:
-      namespace: fastamu
-      publish_timeout: 5
-      handoff_failure_delay: 1      # bounded pause before transport redelivery
-      error_max_length: 2048
-      replay_batch_size: 100
-```
-
-RabbitMQ publisher confirms, persistent delivery and safe quorum dead-lettering
-are correctness requirements. These are not optional policy toggles. Scheduled
-Redis jobs instead store delayed retries in the existing schedule source;
-terminal errors use the configured result backend, not RabbitMQ failed queues.
-
-Capacity and correctness limits:
-
-- The default policy creates at most four waiting queues plus one failed queue
-  per destination, lazily. Quorum replication and retained failures cost disk,
-  memory and broker work. Old delay buckets are not automatically removed.
-- A handoff failure pauses for `handoff_failure_delay` before requeueing only
-  the affected delivery. It does not reopen the consumer channel. This bounds
-  repeated rejection traffic, but occupies that delivery's prefetch slot.
-- Waiting for the retry delay happens in RabbitMQ/Redis, not in a sleeping
-  handler. Missing RabbitMQ destinations can add the broker's own dead-letter
-  retry interval to the delay. Per-message TTL jitter may cause head-of-line
-  waiting within its delay bucket.
-- Projection prefetch 1 and single-active-consumer serialize each queue;
-  separate queues run concurrently. The retry-enabled listener also validates
-  and re-encodes the envelope once before native Taskiq processing.
-- The existing Redis schedule source scans stored schedules and is deprecated
-  upstream. A large scheduled-retry backlog increases that scan cost; migration
-  of existing schedules needs its own change.
-- Confirm-then-ACK can still duplicate after a crash. Use inbox/idempotent writes;
-  attempt limits count logical retries, not every possible crash redelivery.
-  Retrying a batch repeats its whole payload. Retry does not preserve ordering
-  or prevent an older projection from overwriting newer data.
 
 ### Scheduling
 
@@ -1530,89 +1093,440 @@ taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler # cron
 ## CQRS: the Elasticsearch read side
 
 The `--cqrs` scaffold supplies document, repository, command and query files.
-Events and projections can be declared on transactional application methods.
-Existing pending SMS records are not automatically dispatched.
+It requires `es` configuration and retains `ESRepository` and index discovery.
+Automatic projection delivery and the previous projection base classes have
+been removed for redesign; this flag does not start a projection worker.
 
-Projection contracts live in `fastamu/projections/`:
-
-- `convertor.Convertor[Model, Document]`: implements the synchronous
-  `convert(model)` method. Conversion has no database or messaging I/O.
-- `base.AbstractProjection[Model, Document]`: accepts a convertor instance.
-  Implements `project(id)` using `_db_query(id) -> Model | None`, conversion,
-  and `_es_query(document)` for a single destination write.
-- `base.AbstractBatchProjection[Model, Document]`: accepts a convertor instance.
-  Implements `batch_project(ids)` using `_db_query(ids) -> Sequence[Model]`
-  and `_es_query(documents)` for bulk writes. It does not call single-item
-  projections.
-- `base.AbstractUnProjection`: implements `unproject(id)` using the abstract
-  `_es_query(id)` deletion method. No source model is required.
-- `decorators.projection`: publish one ID for a single projection.
-- `decorators.batch_projection`: publish one list for a batch projection.
-- `decorators.unprojection`: publish one ID for a deletion.
-- `decorators.fanout_projection`: publish one source ID for multiple documents.
-- `base.AbstractFanoutProjection`: one source ID can produce many documents.
-
-Define concrete classes in `<module>/infra/projections.py`, or import them there. Set `queue_name` on each class (it can also
-be inherited from a shared base). Register the class and its dependencies in
-Dishka providers with REQUEST scope. Example:
+`AbstractProjection[TModel, TDocument]` runs source lookup, synchronous
+conversion and an awaited destination write. IDs are integers; model types
+extend Pydantic `BaseModel` and document types extend `AsyncDocument`.
 
 ```python
+from elasticsearch.dsl import M, AsyncDocument
+
+from fastamu.common.models.entities import BaseIDEntity
+from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.es.repository import ESRepository
+from fastamu.messaging.projections.contracts.base import AbstractProjection
+
+
+class Product(BaseIDEntity):
+    title: str
+
+
+class ProductDocument(AsyncDocument):
+    title: M[str]
+
+    class Index:
+        name: str = "products"
+
+
 class ProductProjection(AbstractProjection[Product, ProductDocument]):
-    queue_name = "product_projection_queue"
-    # Implement _db_query and _es_query.
+    def __init__(
+        self,
+        products: DBIDRepository[Product],
+        search: ESRepository[ProductDocument],
+    ) -> None:
+        self.products = products
+        self.search = search
 
-class ProductBatchProjection(AbstractBatchProjection[Product, ProductDocument]):
-    queue_name = "product_projection_queue"
-    # Implement the two bulk query methods.
+    async def _db_query(self, id: int) -> Product:
+        product = await self.products.get_by_id(id)
+        if product is None:
+            raise LookupError(f"Product {id} does not exist")
+        return product
 
-from fastamu.tasks.projection.publisher import publish
+    def _convert(self, model: Product) -> ProductDocument:
+        document = ProductDocument(title=model.title)
+        document.meta.id = str(model.id)
+        return document
 
-await publish(ProductProjection, product_id)
-await publish(ProductBatchProjection, product_ids)
+    async def _es_query(self, document: ProductDocument) -> None:
+        await self.search.save(document)
 ```
 
-Subclass creation records the definition; bootstrap registers Taskiq tasks
-and queue definitions once. There is **one projection broker with multiple
-queues**, and multiple named tasks can share a queue. Publishing only calls
-Taskiq's `kiq`; it never declares a queue or resolves a projection instance.
-Queue declaration happens on broker startup (including publisher startup).
+Call `await projection.project(42)` on the injected or constructed instance.
+Lookup must return a model or raise; missing-source handling belongs to the
+application. A failed stage stops execution and propagates its error. The base
+class does not register tasks, load settings, retry or select a write policy.
+
+The execution shapes are explicit:
+
+| Module under `fastamu.messaging.projections.contracts` | Class | Entry point | Result |
+| --- | --- | --- | --- |
+| `base` | `AbstractProjection[TModel, TDocument]` | `project(id: int)` | `None` |
+| `base` | `AbstractBatchProjection[TModel, TDocument]` | `batch_project(ids: Sequence[int])` | `list[BulkItemResult]` |
+| `base` | `AbstractFanoutProjection[TModel, TDocument]` | `project(id: int)` | `list[BulkItemResult]` |
+| `patch` | `AbstractPatchProjection[TModel, TPatch]` | `project(id: int)` | `None` |
+| `patch` | `AbstractBatchPatchProjection[TModel, TPatch]` | `batch_project(ids: Sequence[int])` | `list[BulkItemResult]` |
+| `delete` | `AbstractUnProjection` | `unproject(id: int)` | `None` |
+| `delete` | `AbstractBatchUnProjection` | `batch_unproject(ids: Sequence[int])` | `list[BulkItemResult]` |
+
+Batch projections receive IDs from their caller. ID selection, failure-store
+queries and scheduling belong to the optional repair task, outside projections.
+The previous `SyncProjection`, `get_ids()` contract and `@sync` decorator have
+been removed. Send an existing batch task explicitly:
+
+```python
+await register.get(RebuildProducts).kiq(ids=[7, 3])
+```
+
+For reusable conversion, subclass
+`AbstractConvertor[TModel, TDocument]` from
+`fastamu.messaging.projections.contracts.convertor` and implement the synchronous
+`convert(model: TModel) -> TDocument` method. The projection can receive this
+converter through its constructor and call it from `_convert`. Source and
+destination types are generic; conversion does not require a broker or settings.
+
+Patch types extend Pydantic `BaseModel`. The single writer receives `(id, patch)`;
+the batch lookup returns `Mapping[int, TModel]` keyed by patch target ID and its
+writer receives `Mapping[int, TPatch]`. IDs remain associated with their patches
+even when a query returns a different order. Serialize supplied fields with
+`patch.model_dump(mode="json", exclude_unset=True)` in the writer. Do not use
+`exclude_none=True` when an explicit null is a requested change.
+[Pydantic serialization](https://docs.pydantic.dev/latest/concepts/serialization/).
+
+Document batches read a `Sequence[TModel]`, convert all models before writing,
+then call `_es_query(documents)` once. Fanout uses that same sequence of stages
+from one source ID. Deletion calls only `_es_query`, without a lookup or converter.
+Empty input batches do no I/O. Empty query results do no destination writes;
+the application must raise from lookup if a missing source is an error. The
+framework does not infer completeness from row counts, deduplicate IDs, or
+implicitly delete documents whose sources are absent.
+
+Bulk writers return one `BulkItemResult` for each destination operation: its
+string document `id`, integer HTTP `status`, and optional structured `error`.
+Results describe destination writes, not source lookup completeness. They are
+returned unchanged, including failures. `succeeded` requires a 2xx status and no
+error. Two further outcomes need no repeat and are reported as such: `superseded`
+(409) means a newer write already holds the document, and `absent` (404) means
+there was nothing to write or to remove. `settled` covers all three, and it — not
+`succeeded` — decides whether an item raises `ProjectionBatchError`, is recorded
+as a failure, or resolves a claimed repair record.
+
+That distinction is what makes ordering fences usable. Two updates to one ID are
+independent messages, so a slower worker can overwrite newer data. Write with
+`version_type=external` and a monotonic source column, and Elasticsearch rejects
+the older write with 409; because 409 is settled, the rejection is not recorded
+as a failure and is not repaired in a loop. An application that instead uses
+`if_seq_no`/`if_primary_term` and *wants* a retry must map that conflict to a
+retryable status of its own in its bulk writer. Single-document shapes return
+`None` and have no per-item channel, so they swallow a conflict or a missing
+document inside their own destination write.
+
+An exception before a complete result is available propagates without retry.
+[Elasticsearch bulk results](https://www.elastic.co/guide/en/elasticsearch/reference/8.19/docs-bulk.html).
+
+The existing `ESRepository.bulk_*` count-returning methods do not provide this
+per-item result contract. A bulk writer can use the native `async_streaming_bulk`
+helper with `raise_on_error=False` and `yield_ok=True`, mapping each returned
+operation's `_id`, `status` and `error` to `BulkItemResult`. It must preserve
+failures, rather than report an aggregate count as full success. No repository
+adapter or transport is installed automatically by these classes.
+
+Full-document writers choose create-only or replacement explicitly; patch
+writers choose update behavior, including conflicts and upserts. Batch and fanout
+results do not raise merely because an item failed. A future task integration
+must decide how to handle them before reporting task success. Automatic
+registration with native Taskiq tasks is implemented in the projection package.
+
+### Projection discovery and task registration
+
+Declare `queue_name: ClassVar[str]` on each concrete projection. The bootstrapper
+discovers classes in `<module>/app/projections.py` or the immediate Python files
+of `<module>/app/projections/`, including definitions in its `__init__.py`.
+Abstract classes, imported classes and repeated aliases are skipped; nested
+subpackages are not scanned. Import errors inside projection modules propagate.
+
+`fastamu.tasks.projection.delivery.register.Register` owns the class-to-task dictionary
+and task construction. Its public methods are `register(projection, broker)`
+and `get(projection)`. Task construction and Dishka wrappers are protected
+methods of the same class; there is one shared `register` instance:
+
+```python
+from fastamu.tasks.projection.delivery.register import register
+
+# During startup, with the runtime's native broker and Dishka setup:
+for projection_class in bootstrapper.boot_projections():
+    register.register(projection_class, broker)
+
+# Once the producer broker has started:
+await register.get(ProductProjection).kiq(id=42)
+```
+
+The task name is the class's `module:qualname`; `queue_name` is a routing label.
+Renaming a class changes its task name. Multiple tasks can share a queue, but
+the runtime must also configure those queues on the broker. Each worker attempt
+resolves its projection through the current Dishka scope; application providers
+must supply the concrete projection and its dependencies. Producer registration
+does not instantiate projections. A repeated binding is idempotent; conflicting
+class/task bindings or task names raise instead of silently replacing tasks.
+
+The task adapter raises `ProjectionBatchError` if any returned bulk item failed;
+its `results` attribute preserves all item outcomes. Direct projection calls
+continue to return their results. Retry requires an explicit class policy;
+failure storage is enabled separately through the repair configuration.
+
+### Running and publishing projections
+
+Install `fastamu[projection]` and enable the optional backend in `config.yml`:
 
 ```yaml
 tasks:
   projection:
-    broker: rabbitmq
     url: amqp://guest:guest@localhost:5672/
-    prefetch: 1
+    exchange: fastamu.projection
+    prefetch: 10
 ```
 
-CQRS also requires the `es` connection configuration. Run the worker with:
+Each concrete class declares a nonempty `queue_name: ClassVar[str]`. The broker
+discovers the classes, declares their durable queues on a direct exchange and
+registers their tasks. The native broker's dead-letter queue is named
+`<exchange>.dead_letter`; it is not a retry/reconciliation store implemented by
+Fastamu. Queue names should belong to this application's projection runtime.
+
+Run the independent worker with the native CLI:
 
 ```bash
-fastamu projection-worker
+taskiq worker fastamu.tasks.projection.broker:broker --workers 1 --max-async-tasks 10
 ```
 
-This command uses Taskiq's standard receiver. Each queue is durable with
-single-active-consumer and RabbitMQ prefetch 1. Different queues can execute
-concurrently. Dishka supplies a fresh request scope for each execution.
+Prefetch limits unacknowledged deliveries; `--max-async-tasks` controls worker
+concurrency. The worker creates its own Dishka container and DB/ES resources.
+It closes the container on shutdown, including disposal of its DB pool.
+Producer startup registers tasks without creating the worker's container.
+The web application's `task_lifespan()` starts the configured producer broker;
+scripts can use that same context manager explicitly.
 
-Projection retry is opt-in through the class's `retry_policy`. Without one,
-execution errors retain Taskiq's normal logging and acknowledgement behavior.
-Configured policies use the native receiver and the retry middleware below.
+Publication decorators live with the Taskiq adapter:
 
-Projection publishers and workers do not allocate, compare or complete SQL
-version tickets. The framework no longer declares a projection-version table.
-All index writers must tolerate retries and stale work; a shared consumer queue
-does not guarantee SQL commit order across producers.
+```python
+from fastamu.infra.db.transaction import transactional
+from fastamu.tasks.projection.delivery.decorators import project
 
-Publication requires an actual RabbitMQ publisher ACK. Persistent messages use
-mandatory routing; an unroutable return is not confirmation. SQL commit timing depends on caller composition;
-the publisher neither commits nor inspects the transaction.
+class ProductCommands:
+    @project(ProductProjection, lambda result: result.id)
+    @transactional
+    async def update(self, command: UpdateProduct) -> Product:
+        return await self.products.update(command)
+```
 
-Single and batch projections have independent query contracts.
-Batch IDs are deduplicated in input order. Empty batches do no I/O; missing
-source models raise, without implicitly deleting destination documents.
-Conversion completes before any destination write. Methods return `None` on
-success and propagate failures. Batch execution uses bulk query hooks.
+`project`, `patch`, `unproject` and `fanout` accept a mapper returning one integer
+ID. They share the same publication behavior; the registered projection class
+determines the operation. `batch_project`, `batch_patch` and `batch_unproject`
+accept a mapper returning `Sequence[int]` and send one task containing the list.
+ID validation uses Pydantic and rejects booleans and numeric strings. Each decorator preserves
+the wrapped function's return value and publishes only after it returns.
+
+Decorators do not inspect transactions or retry errors. In the example,
+`transactional` commits before returning when it owns the transaction; nested
+transaction placement remains the application's responsibility. A mapper or
+publication error can therefore occur after commit. Native `kiq` reports a
+transport failure as `SendTaskError` with the original exception as its cause;
+the decorator does not roll back committed work or rerun the command.
+
+### Optional failure storage and periodic repair
+
+Enable `tasks.projection.repair` to record terminal execution failures and
+periodically publish batches for repair. This is independent of retry: without
+a RetryPolicy the first execution error is terminal; with a policy it is stored
+after native SmartRetry exhausts its attempts. Only source projections explicitly
+listed in `targets` participate.
+
+```yaml
+tasks:
+  projection:
+    url: amqp://guest:guest@localhost:5672/
+    exchange: shop.projection
+    prefetch: 10
+    repair:
+      interval: 30
+      batch_size: 1000
+      concurrency: 4
+      max_attempts: 5
+      max_pending: 100000
+      prefix: fastamu.projection.failures
+      targets:
+        "shop.products.app.projections:ProductPrice": "shop.products.app.projections:RebuildPrices"
+        "shop.products.app.projections:ProductStock": "shop.products.app.projections:RebuildStocks"
+```
+
+Keys and values are the exact registered task names (`module:qualname`). They
+are looked up in the existing Register, never dynamically imported. Startup
+rejects unknown names and targets that are not batch projections. Targets can
+be full-document, patch or delete batches. A batch can map to itself if its
+operation is appropriate for repair.
+
+There is nothing to migrate. Failures live in Redis lists on the client the
+application already configures, one list per projection: `<prefix>:<task name>`,
+plus `<prefix>:<task name>:dead`. Disabling repair creates no queue, no repair
+task and no keys.
+
+Redis rather than the application database, for one reason: a failure must be
+recordable when the database write path is what is broken. Storing the safety
+net in the system that just failed loses it exactly when it is needed. The cost
+is accepted deliberately — these keys are a work queue, not a ledger, and the
+source of truth stays in SQL — so a Redis flush loses pending repairs the same
+way a crash before publication does.
+
+Use the same independent projection worker and scheduler:
+
+```bash
+taskiq worker fastamu.tasks.projection.broker:broker --workers 1 --max-async-tasks 10
+taskiq scheduler fastamu.tasks.projection.scheduler:scheduler --update-interval 1
+```
+
+The scheduler uses native `LabelScheduleSource` for the periodic repair task;
+Redis is needed only if delayed retry is also configured. It publishes a tick
+to `<exchange>.repair`. A projection worker reads and groups the records and
+publishes each group to the selected batch's queue. The scheduler itself does
+not open a database connection or execute projections. There is no SyncProjection
+or SchedulerPolicy on projection classes.
+
+`targets.resolve()` checks the source-to-target mapping at import, before any
+worker starts. `Repair.run()` then takes up to `batch_size` records from each
+projection's list, **runs** that projection's batch target itself, and hands back
+whatever the result did not settle. Repair executes rather than publishes: no
+message, no reservation token, no lease, no correlation label. Publication is
+not repair, so nothing is settled on a promise; the work is finished by the same
+call that took it.
+
+Projections repair concurrently up to `concurrency` (default 4) because they
+share nothing, and the bound is what stops one tick from opening a destination
+write and a container scope per projection at once. A projection whose run
+raises has its whole batch handed back; a queue that is unreachable is logged and
+skipped without abandoning the projections whose records are already taken. The
+return value counts records that left the queue settled.
+
+Taking pops. Two overlapping ticks therefore cannot receive the same record, and
+nothing has to be reserved — but a process that dies between taking and handing
+back loses that batch, which is the price of having no lease. A record handed
+back goes to the tail with one attempt spent; `max_attempts` (default 5, and
+unrelated to a `RetryPolicy`'s per-execution attempts) bounds how long it can
+cycle. Spending them all moves it to `<prefix>:<task name>:dead` with a warning
+naming the inputs, where `LRANGE` finds it and it can be drained deliberately —
+rather than retried forever or dropped silently. A new failure for the same ID is
+a new record with its own budget. `max_pending` caps a list, dropping the oldest
+with a warning, so a failure storm cannot exhaust Redis memory.
+
+Repair targets must return one `BulkItemResult` per input ID, with `id=str(input_id)`.
+Missing results remain pending; contradictory results for one ID count as failure.
+For normal source batch failures, successful IDs are filtered only if the result
+ID set matches the input ID set; otherwise all input IDs are retained conservatively.
+Single/fanout failures record their input ID, not their destination document IDs.
+The application must adapt result IDs when its destination IDs differ.
+
+Repair is not a document lock and promises nothing about exactly-once execution:
+a normal write and a repair can still overlap, so batch repair must rebuild
+current state or otherwise tolerate replay.
+
+Records are taken oldest first and recovery is not restricted to a recent-time
+window, so an old unresolved record stays in line. `batch_size` is a ceiling:
+a list holding less returns less, and two ticks split what is there.
+
+Failure recording errors propagate before default `when_saved` ACK. They can
+leave deliveries unacknowledged until the channel is released; there is no custom
+receiver/requeue loop. Recording, broker ACK and projection writes are separate
+operations. This feature does not see messages that never reached the worker and
+is not an outbox or an atomic SQL/Elasticsearch transaction.
+
+For custom storage, implement the `FailureStore` protocol in
+`messaging/projections/repair/records.py` — `record`, `take`, `requeue` — and
+compose `ProjectionFailureMiddleware` and `Repair` with it in your own worker
+bootstrap. Three operations and no reservation protocol is the point: the same
+contract is satisfiable by a SQL table or a file, not only by a Redis list. The
+built-in configuration selects `RedisFailureQueue`. When composing middlewares
+manually, install failure middleware **before** SmartRetry and Dishka: Taskiq
+runs error hooks in reverse order, allowing scope cleanup and retry scheduling to
+happen before terminal-failure recording.
+
+### Optional projection retry
+
+Declare a policy on the concrete class (including patch, delete, batch, fanout
+operations). Without a policy the registered task has `retry_on_error=False`.
+
+```python
+from typing import ClassVar
+from fastamu.messaging.projections.contracts.policies import RetryPolicy
+
+class ProductProjection(AbstractProjection[Product, ProductDocument]):
+    queue_name: ClassVar[str] = "products"
+    retry_policy: ClassVar[RetryPolicy | None] = RetryPolicy(
+        max_attempts=3, delay=5,
+    )
+    # Implement the usual source, conversion and destination hooks.
+```
+
+`max_attempts` includes the initial execution; `1` means no repeat. `delay` is
+the fixed minimum wait in seconds before a retry, not a delay on the initial
+publication. Scheduler polling and worker load add latency. Policy settings
+are validated by Pydantic; unsupported fields are rejected. Direct instance
+calls do not retry. An inherited policy can be disabled with `retry_policy=None`.
+
+Configure the optional Redis schedule source alongside the RabbitMQ settings:
+
+```yaml
+tasks:
+  projection:
+    url: amqp://guest:guest@localhost:5672/
+    exchange: fastamu.projection
+    prefetch: 10
+    retry:
+      url: redis://localhost:6379/1
+      prefix: shop.projection.retry
+      max_connection_pool_size: 25
+      buffer_size: 100
+      socket_timeout: 5
+```
+
+Use Redis 6.2+ (the source uses `GETDEL`), persistence appropriate to the
+application, and a prefix unique to this application/environment. Prefixes
+cannot contain `:` because of the native source's time-key parser. Worker and
+scheduler must use the same settings and projection definitions. A policy
+without the Redis configuration fails at startup instead of silently disabling
+retry. Without retry configuration no Redis retry source is created.
+
+Run **one** scheduler for this prefix, separately from the projection worker:
+
+```bash
+taskiq scheduler fastamu.tasks.projection.scheduler:scheduler --update-interval 1
+```
+
+This uses native `TaskiqScheduler` and `ListRedisScheduleSource`; it does not use
+the jobs worker or construct a projection DI container. The worker installs
+native `SmartRetryMiddleware`. Register maps attempts to `max_retries` (Taskiq
+0.12.1 counts total attempts), enables `retry_on_error`, and records
+`projection_retry_delay`. `RetryLabelsMiddleware` exposes that delay to SmartRetry
+during execution and removes the transport `delay` before sending to RabbitMQ.
+This prevents both delayed initial publication and a second transport delay.
+Native retry preserves task ID, arguments and destination queue; Dishka closes
+the failed scope before scheduling and opens another for the next attempt.
+
+Retry repeats the whole task with the original IDs: a partial batch failure
+can repeat successful items. Choose a policy only when
+repetition is appropriate. Jitter, backoff and exception filters are not exposed
+as per-class options because this native middleware configures them globally.
+
+This is bounded execution retry, not durable failure storage or exactly-once
+delivery. After exhaustion, Taskiq logs/returns the error. A failure record is
+written only if the optional repair mapping covers that source projection. With the default `when_saved` acknowledgement mode, failure
+to store a retry propagates and leaves the original Rabbit delivery unacknowledged;
+redelivery requires the delivery/channel to be released, not just Redis recovery.
+The native Redis source uses separate writes for schedule data and its time
+index. The scheduler also has no leader election: multiple scheduler processes
+can publish duplicates. In Taskiq 0.12.1 a failed scheduled publication is marked
+as attempted in scheduler memory; restart the scheduler to retry a schedule
+still present in Redis. These are limits of this step, not guarantees hidden by
+custom retry code. Optional failure storage and periodic repair do not remove those native limits.
+
+`ListRedisScheduleSource` reads current/overdue schedules in batches but, with
+overdue recovery enabled, scans Redis keys on every refresh in version 1.2.1.
+`buffer_size` controls reads, not concurrency. Use a Redis database with a small
+keyspace and tune `--update-interval` against recovery latency and load. The
+source's missing pool cleanup in that version is handled at broker shutdown.
+
+References: [native SmartRetry](https://taskiq-python.github.io/available-components/middlewares.html)
+and [Redis schedule sources](https://github.com/taskiq-python/taskiq-redis#schedule-sources).
 
 ---
 
@@ -1842,8 +1756,6 @@ The scaffold writes only the optional sections selected at project creation.
 | `app` | `modules` — packages the bootstrapper scans; `features` — enabled optional backends; `settings` — optional dotted path to an application `Settings` subclass |
 | `fastapi` | `title`, `description`, `version` |
 | `db` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
-| `tasks.events` | `broker`, `url`, `exchange` — optional FastStream events |
-| `tasks.projection` | `broker`, `url`, `prefetch` — optional CQRS projections; requires `es` |
 | `tasks.schedulers` | `broker`, `url`, `max_connection_pool_size`, `result_ex_time` — optional Taskiq jobs and cron |
 | `redis` | `url`, `max_connections`, `socket_timeout`, `socket_connect_timeout`, `health_check_interval` |
 | `rate_limit` | `enabled`, `trusted_proxies`, `general` (`limit`, `window_seconds`), `rules` (name → rule) |

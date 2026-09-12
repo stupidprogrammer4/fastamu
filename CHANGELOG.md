@@ -1,5 +1,72 @@
 # Changelog
 
+## Unreleased
+
+- Keep projection failures in Redis lists instead of a SQL table, one list per
+  projection, and repair them by running their configured batch target rather
+  than publishing it. Taking pops, so overlapping runs cannot receive the same
+  record: reservation tokens, leases, correlation receipts and the migration step
+  are all gone. Records hand back to the tail with one attempt spent, and
+  `max_attempts` moves an exhausted record to a `:dead` list with a warning
+  instead of retrying it forever. `max_pending` caps a list, `concurrency` bounds
+  how many projections repair at once, and one unreachable queue no longer
+  abandons the others.
+- Let the bulk writer, not the framework, decide that a failed item is finished:
+  `BulkItemResult.final` marks an operation that repeating cannot help, and
+  `settled` is `succeeded or final`. No status code is interpreted, so an
+  external-version conflict can be final while an `if_seq_no` conflict stays
+  retryable. `succeeded` keeps its 2xx meaning.
+- Split `messaging/projections` into `contracts` (the shapes an application
+  implements) and `repair` (the optional failure capability, including its SQL
+  store and table). Move pure settlement, receipt and orchestration logic out of
+  the Taskiq layer; `Repair` now depends on a `RepairPublisher` protocol, and
+  `tasks/projection` keeps only registration, publication, middleware and
+  wiring. Taskiq middlewares live under `tasks/projection/middlewares/` and
+  label names in `tasks/projection/labels.py`. An import test asserts the
+  contract and repair packages load no SQLAlchemy, Taskiq or framework runtime.
+- Add opt-in SQL projection failure storage, terminal-error middleware and a
+  native scheduled repair task. Claim bounded records, group by source task name
+  and publish application-selected batch tasks through the existing Register.
+  Resolve only successful claimed records; newer failures and expired/reclaimed
+  reservations survive old results. Support partial results and native retry
+  without recording repair failures recursively. Schema migration is explicit.
+  Repair scheduling uses LabelScheduleSource and can run without retry Redis.
+- Add projection discovery through the bootstrapper and queue metadata on the
+  projection classes. Keep the class-to-task `Register` and its protected
+  Taskiq/Dishka task-construction methods in `tasks/projection/register.py`.
+- Add an optional native RabbitMQ projection runtime, per-class queue routing,
+  independent worker container and publication decorators using registered tasks.
+  Decorators publish after function success without inspecting transactions;
+  bulk task failures preserve their item results in `ProjectionBatchError`.
+  Optional periodic repair and failure storage are configured independently.
+- Add optional per-projection `RetryPolicy` with validated total attempts and
+  fixed delay. Use native SmartRetry, ListRedisScheduleSource and an independent
+  Taskiq scheduler; preserve immediate publication, task IDs and queue routing.
+  No-policy classes explicitly disable retry. A small middleware translates
+  delay labels without implementing a retry engine. Close the Redis source pool
+  on shutdown and document native delivery/recovery limitations.
+- Dispose the CoreProvider database pool when its application container closes.
+- Add `AbstractConvertor` for reusable typed conversion.
+- Remove the intermediate `SyncProjection`, `get_ids()` contract, publication
+  decorator and no-argument task wrapper. Repair uses existing batch projections
+  with caller-supplied IDs. Selection, grouping by source projection name and
+  scheduling belong to a separate optional repair task.
+- Add `AbstractProjection[TModel, TDocument].project(id: int)` with typed
+  source lookup, conversion and destination-write hooks. The base runs those
+  stages in order; application errors propagate without retry or registration.
+- Add typed patch, delete, batch and fanout projection tools under messaging.
+  Bulk operations return per-document results; patch batches keep target IDs
+  attached to their models. Empty batches do no I/O and deletion needs no read.
+- Remove the previous event/projection APIs and transports, outbox/inbox
+  implementation, custom retry middleware, and their configuration, discovery,
+  CLI and scaffold integration before rebuilding messaging in smaller steps.
+- Keep SQL transactions, DB/ES repositories and Taskiq jobs/scheduling.
+  Projection retry is opt-in; the removed retry API is not retained. Existing
+  applications must stop using the removed APIs before adopting this checkout.
+- Remove obsolete messaging tests while retaining SQL transaction, rollback,
+  cancellation and scheduler/scaffold coverage. No database tables or broker
+  queues are dropped by this source cleanup.
+
 ## 0.6.4
 
 - Resolve a shared `Rollback` dependency before handled HTTP errors instead
