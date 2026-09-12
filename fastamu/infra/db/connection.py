@@ -1,8 +1,13 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from fastamu.infra.db.dialects import DatabaseDialect, get_dialect
+
+if TYPE_CHECKING:
+    from fastamu.infra.db.uow import DBUnitOfWork
 
 
 class DBConnection:
@@ -30,12 +35,18 @@ class DBConnection:
                 pool_timeout=pool_timeout,
             )
         self.engine = create_async_engine(url, **options)
+        self.adapter: DatabaseDialect = get_dialect(url.get_backend_name())
+        self.uow_factory = self.adapter.uow
         self.session_factory = async_sessionmaker(
             bind=self.engine,
             autoflush=False,
             expire_on_commit=False,
             autocommit=False,
         )
+
+    def uow(self) -> "DBUnitOfWork":
+        """Open a unit of work that knows how to write on this database."""
+        return self.uow_factory(self)
 
     @property
     def dialect(self) -> Dialect:
