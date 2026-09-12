@@ -3,7 +3,6 @@ app:
   - fastamu.modules
   features:
   - cqrs
-  - events
   - scheduler
 fastapi:
   title: Fastamu
@@ -74,31 +73,28 @@ logging:
   format: console
   service: fastamu-api
 tasks:
-  # inbox: true  # Apply the consumer receipt table migration before enabling.
-  # Optional PostgreSQL outbox; apply application migrations before enabling.
-  # outbox:
-  #   polling: true
-  #   poll_interval: 20
-  #   batch_size: 1000
-  #   max_parallel_batches: 10
-  #   concurrency: 4
-  events:
-    broker: rabbitmq
-    url: amqp://guest:guest@localhost:5672/
+  # Optional: install fastamu[projection] and define app/projections.
+  # projection:
+  #   url: amqp://guest:guest@localhost:5672/
+  #   exchange: fastamu.projection
+  #   prefetch: 10
+  #   retry:
+  #     url: redis://localhost:6379/1
+  #     prefix: fastamu.projection.retry
+  #     max_connection_pool_size: 25
+  #     buffer_size: 100
+  #     socket_timeout: 5
+  #   repair:
+  #     interval: 30
+  #     batch_size: 1000
+  #     concurrency: 4
+  #     max_attempts: 5
+  #     max_pending: 100000
+  #     prefix: fastamu.projection.failures
+  #     targets:
+  #       "shop.products.app.projections:ProductPrice": "shop.products.app.projections:RebuildPrices"
   schedulers:
     broker: redis
     url: redis://0.0.0.0:6379/0
     max_connection_pool_size: 25
     result_ex_time: 86400
-  projection:
-    broker: rabbitmq
-    url: amqp://guest:guest@localhost:5672/
-    prefetch: 1
-    # Policies live on projection classes / event subscribers / scheduled tasks.
-    # Transport settings (also supported under events and schedulers):
-    # retry:
-    #   namespace: fastamu
-    #   publish_timeout: 5
-    #   handoff_failure_delay: 1
-    #   error_max_length: 2048
-    #   replay_batch_size: 100

@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field, model_validator
 
 class Feature(StrEnum):
     CQRS = "cqrs"
-    EVENTS = "events"
     SCHEDULER = "scheduler"
 
 
@@ -35,27 +34,6 @@ class FastAPIConfig(BaseModel):
     version: str
 
 
-type Broker = Literal["redis", "rabbitmq"]
-"""Supported broker names."""
-
-
-class RetryTransportConfig(BaseModel):
-    namespace: str = Field(default="fastamu", min_length=1, max_length=64)
-    publish_timeout: float = Field(default=5, gt=0, allow_inf_nan=False)
-    handoff_failure_delay: float = Field(default=1, gt=0, allow_inf_nan=False)
-    error_max_length: int = Field(default=2048, ge=1)
-    replay_batch_size: int = Field(default=100, ge=1)
-
-
-class EventsConfig(BaseModel):
-    """Connection settings for the event broker."""
-
-    broker: Broker
-    url: str = Field(min_length=1)
-    exchange: str = Field(default="events", min_length=1)
-    retry: RetryTransportConfig = Field(default_factory=RetryTransportConfig)
-
-
 class SchedulersConfig(BaseModel):
     """Jobs and the cron that starts them, on whichever broker you name.
 
@@ -68,59 +46,39 @@ class SchedulersConfig(BaseModel):
     url: str = Field(min_length=1)
     max_connection_pool_size: int = Field(default=25, ge=1)
     result_ex_time: int = Field(default=86_400, gt=0)
-    retry: RetryTransportConfig = Field(default_factory=RetryTransportConfig)
+
+
+class ProjectionRetryConfig(BaseModel):
+    url: str = Field(min_length=1)
+    prefix: str = Field(default="fastamu.projection.retry", pattern=r"^[^:]+$")
+    max_connection_pool_size: int = Field(default=25, ge=1)
+    buffer_size: int = Field(default=100, ge=1)
+    socket_timeout: float = Field(default=5, gt=0, allow_inf_nan=False)
+
+
+class ProjectionRepairConfig(BaseModel):
+    targets: dict[str, str] = Field(min_length=1)
+    interval: int = Field(default=30, ge=1)
+    batch_size: int = Field(default=1000, ge=1)
+    concurrency: int = Field(default=4, ge=1)
+    max_attempts: int = Field(default=5, ge=1)
+    max_pending: int = Field(default=100_000, ge=1)
+    prefix: str = Field(
+        default="fastamu.projection.failures", pattern=r"^[^:]+$"
+    )
 
 
 class ProjectionConfig(BaseModel):
-    broker: Literal["rabbitmq"] = "rabbitmq"
     url: str = Field(min_length=1)
-    prefetch: Literal[1] = 1
-    retry: RetryTransportConfig = Field(default_factory=RetryTransportConfig)
-
-
-class OutboxConfig(BaseModel):
-    polling: bool = True
-    poll_interval: float = Field(default=20, gt=0)
-    batch_size: int = Field(default=1000, ge=1, le=10000)
-    max_parallel_batches: int = Field(default=10, ge=1, le=10)
-    batch_lease_seconds: float = Field(default=60, gt=0)
-    concurrency: int = Field(default=4, ge=1, le=32)
-    publish_timeout: float = Field(default=5, gt=0)
-    lease_seconds: float = Field(default=30, gt=0)
-    retry_delay: float = Field(default=20, gt=0)
-    max_retry_delay: float = Field(default=300, gt=0)
-
-    @model_validator(mode="after")
-    def validate_timing(self):
-        if self.lease_seconds <= self.publish_timeout:
-            raise ValueError("Outbox lease must exceed publish_timeout")
-        if self.batch_lease_seconds <= self.lease_seconds:
-            raise ValueError("Batch lease must exceed message lease")
-        if self.max_retry_delay < self.retry_delay:
-            raise ValueError("max_retry_delay must be at least retry_delay")
-        return self
+    exchange: str = Field(default="fastamu.projection", min_length=1)
+    prefetch: int = Field(default=10, ge=1)
+    retry: ProjectionRetryConfig | None = None
+    repair: ProjectionRepairConfig | None = None
 
 
 class TasksConfig(BaseModel):
-    # Omitted/null sections are disabled; no connection settings are required.
-    events: EventsConfig | None = None
-    projection: ProjectionConfig | None = None
     schedulers: SchedulersConfig | None = None
-    outbox: OutboxConfig | None = None
-    inbox: bool = False
-
-    @model_validator(mode="after")
-    def validate_outbox_scheduler(self):
-        if (
-            self.outbox is not None
-            and self.outbox.polling
-            and self.schedulers is None
-        ):
-            raise ValueError(
-                "Outbox polling requires tasks.schedulers; "
-                "disable polling for immediate-only delivery"
-            )
-        return self
+    projection: ProjectionConfig | None = None
 
 
 class DatabaseConfig(BaseModel):
@@ -239,8 +197,6 @@ class Settings(BaseModel):
     @model_validator(mode="after")
     def validate_features(self):
         configured = {
-            Feature.CQRS: self.tasks.projection is not None,
-            Feature.EVENTS: self.tasks.events is not None,
             Feature.SCHEDULER: self.tasks.schedulers is not None,
         }
         for feature, present in configured.items():
@@ -256,13 +212,11 @@ class Settings(BaseModel):
                     "the feature"
                 )
         if Feature.CQRS in self.app.features and self.es is None:
-            raise ValueError("CQRS projection requires es configuration")
+            raise ValueError("CQRS requires es configuration")
         return self
 
 
 class FullTasksConfig(TasksConfig):
-    events: EventsConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
-    projection: ProjectionConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
     schedulers: SchedulersConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
 
 
@@ -279,20 +233,19 @@ SettingsT = TypeVar("SettingsT", bound=Settings)
 
 
 def _settings_model(raw: object) -> type[Settings]:
-    if not isinstance(raw, dict):
-        return Settings
-    app = raw.get("app")
-    if not isinstance(app, dict):
-        return Settings
-    dotted = app.get("settings")
-    if not dotted:
-        return Settings
-    if not isinstance(dotted, str) or "." not in dotted:
-        raise ValueError("app.settings must be a dotted model path")
-    module_name, class_name = dotted.rsplit(".", 1)
-    model = getattr(import_module(module_name), class_name)
-    if not isinstance(model, type) or not issubclass(model, Settings):
-        raise TypeError("app.settings must reference a Settings subclass")
+    model: type[Settings] = Settings
+    app = raw.get("app") if isinstance(raw, dict) else None
+    dotted = app.get("settings") if isinstance(app, dict) else None
+    if dotted:
+        if not isinstance(dotted, str) or "." not in dotted:
+            raise ValueError("app.settings must be a dotted model path")
+        module_name, class_name = dotted.rsplit(".", 1)
+        selected = getattr(import_module(module_name), class_name)
+        if not isinstance(selected, type) or not issubclass(
+            selected, Settings
+        ):
+            raise TypeError("app.settings must reference a Settings subclass")
+        model = selected
     return model
 
 
@@ -311,5 +264,7 @@ def get_settings(model: type[SettingsT] | None = None) -> SettingsT | Settings:
         raw = yaml.safe_load(f)
     selected = model or _settings_model(raw)
     if model is None and selected is not Settings:
-        return get_settings(selected)
-    return selected.model_validate(raw)
+        settings: SettingsT | Settings = get_settings(selected)
+    else:
+        settings = selected.model_validate(raw)
+    return settings
