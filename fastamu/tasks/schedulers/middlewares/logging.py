@@ -63,9 +63,10 @@ class LoggingMiddleware(TaskiqMiddleware):
 
     def _elapsed_ms(self) -> float:
         execution = self._execution.get()
-        if execution is None:
-            return 0.0
-        return (time.perf_counter() - execution[0]) * 1000
+        elapsed = 0.0
+        if execution is not None:
+            elapsed = (time.perf_counter() - execution[0]) * 1000
+        return elapsed
 
     def _reset(self) -> None:
         execution = self._execution.get()

@@ -79,14 +79,15 @@ class APIResponse[TOut: BaseModel | None, TMeta: BaseModel | None](BaseModel):
     def _readable_context(
         context: Optional[dict[str, Any]],
     ) -> Optional[dict[str, Any]]:
-        if not context:
-            return None
-        return {
-            key: value
-            if isinstance(value, (str, int, float, bool, type(None)))
-            else str(value)
-            for key, value in context.items()
-        }
+        readable: Optional[dict[str, Any]] = None
+        if context:
+            readable = {
+                key: value
+                if isinstance(value, (str, int, float, bool, type(None)))
+                else str(value)
+                for key, value in context.items()
+            }
+        return readable
 
     @classmethod
     def get_server_error(cls):

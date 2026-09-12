@@ -102,28 +102,30 @@ async def _check(
     *,
     closed_when_down: bool = False,
 ) -> RateLimitState | None:
+    state: RateLimitState | None = None
     try:
         result = await limiter.limit(key)
     except StoreUnavailableError:
         logger.warning("Rate limit Redis is unavailable")
-        if not closed_when_down:
-            return None
-        raise TooManyRequestsException(
-            message="rate limit temporarily unavailable",
-            message_code=resources.TOO_MANY_REQUESTS,
-            limit=rule.limit,
-            remaining=0,
-            retry_after=rule.window_seconds,
-        ) from None
-    if result.limited:
-        raise TooManyRequestsException(
-            message="too many requests, try again later",
-            message_code=resources.TOO_MANY_REQUESTS,
-            limit=result.state.limit,
-            remaining=result.state.remaining,
-            retry_after=ceil(result.state.retry_after),
-        )
-    return result.state
+        if closed_when_down:
+            raise TooManyRequestsException(
+                message="rate limit temporarily unavailable",
+                message_code=resources.TOO_MANY_REQUESTS,
+                limit=rule.limit,
+                remaining=0,
+                retry_after=rule.window_seconds,
+            ) from None
+    else:
+        if result.limited:
+            raise TooManyRequestsException(
+                message="too many requests, try again later",
+                message_code=resources.TOO_MANY_REQUESTS,
+                limit=result.state.limit,
+                remaining=result.state.remaining,
+                retry_after=ceil(result.state.retry_after),
+            )
+        state = result.state
+    return state
 
 
 def rate_limit(
@@ -173,23 +175,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         container = request.app.state.dishka_container
         settings = await container.get(Settings)
         if not settings.rate_limit.enabled:
-            return await call_next(request)
-        limiter = await container.get(Throttled)
-        # Keep the existing global counter namespace.
-        key = (await by_ip(request)).removeprefix("ip:")
-        try:
-            state = await _check(
-                limiter, f"rl:general:{key}", settings.rate_limit.general
-            )
-        except TooManyRequestsException as exc:
-            handler = request.app.exception_handlers[APPException]
-            response = await handler(request, exc)
-            response.headers["RateLimit-Reset"] = str(
-                settings.rate_limit.general.window_seconds
-            )
-            return response
-        response = await call_next(request)
-        if state is not None:
-            for name, value in _headers(state).items():
-                response.headers.setdefault(name, value)
+            response = await call_next(request)
+        else:
+            limiter = await container.get(Throttled)
+            # Keep the existing global counter namespace.
+            key = (await by_ip(request)).removeprefix("ip:")
+            try:
+                state = await _check(
+                    limiter, f"rl:general:{key}", settings.rate_limit.general
+                )
+            except TooManyRequestsException as exc:
+                handler = request.app.exception_handlers[APPException]
+                response = await handler(request, exc)
+                response.headers["RateLimit-Reset"] = str(
+                    settings.rate_limit.general.window_seconds
+                )
+            else:
+                response = await call_next(request)
+                if state is not None:
+                    for name, value in _headers(state).items():
+                        response.headers.setdefault(name, value)
         return response

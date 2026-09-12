@@ -4,12 +4,12 @@ from fastamu.common.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from fastamu.common.models.base import BaseIDModel, BaseModel
+from fastamu.common.models.entities import BaseEntity, BaseIDEntity
 from fastamu.common.schemas.results import BatchResultType
 from fastamu.core import resources
 
 
-class BaseService[TModel: BaseModel]:
+class BaseService[TModel: BaseEntity]:
     __model__: type[TModel]
     __model_name__: str
 
@@ -90,7 +90,7 @@ class BaseService[TModel: BaseModel]:
         return errors
 
 
-class BaseIDService[TIDModel: BaseIDModel](BaseService[TIDModel]):
+class BaseIDService[TIDModel: BaseIDEntity](BaseService[TIDModel]):
     def _check_for_id_existence(self, id: int, obj: TIDModel | None):
         return super()._check_for_existence(
             identifier="id", identifier_value=id, obj=obj

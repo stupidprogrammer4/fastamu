@@ -67,12 +67,14 @@ class BaseQuery(BaseDTO):
 
     @staticmethod
     def _carried(annotation: Any) -> Any:
+        carried = annotation
         if get_origin(annotation) in (Union, UnionType):
             named = [
                 arg for arg in get_args(annotation) if arg is not type(None)
             ]
-            return named[0] if len(named) == 1 else annotation
-        return annotation
+            if len(named) == 1:
+                carried = named[0]
+        return carried
 
     def folded(self, name: str) -> dict[int, list[int]]:
         return pairs_folded(getattr(self, name))

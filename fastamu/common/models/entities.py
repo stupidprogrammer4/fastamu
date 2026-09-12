@@ -1,15 +1,15 @@
-"""The model bases — what a row *is*, with no idea where it is stored.
+"""The entity bases — what a row *is*, with no idea where it is stored.
 
-A model here declares fields and nothing else: no table name, no ORM mixin, no
-`table=True`. That is what lets `domain/` own its models honestly, because the
-declaration no longer drags the persistence layer in behind it. The mapping to
-a real table is a separate class in `infra/tables.py`, and it is the only place
-that knows a database exists.
+An entity declares fields and nothing else: no table name, no ORM mixin, no
+`table=True`. That is what lets `domain/` own its entities honestly, because
+the declaration no longer drags the persistence layer in behind it. The mapping
+to a real table is a separate class in `infra/tables.py`, and it is the only
+place that knows a database exists.
 
 The split also buys the two things that used to be awkward. A wire schema can
-subclass the model instead of restating its fields, because the model is a
+subclass the entity instead of restating its fields, because the entity is a
 plain pydantic type. And a module that owns logic rather than rows can declare
-models with no table at all.
+entities with no table at all.
 """
 
 from datetime import datetime
@@ -18,12 +18,16 @@ from typing import Any, Self
 import orjson
 from sqlmodel import SQLModel
 
-from fastamu.common.models.fields import IDField, TimestampField
+from fastamu.common.models.fields import (
+    IDField,
+    TimestampField,
+    VersionField,
+)
 from fastamu.common.utils import dates
 
 
-class Base(SQLModel):
-    """Conversions every model and schema shares."""
+class BaseEntity(SQLModel):
+    """What a row is, and the conversions every entity shares."""
 
     def to_dict(self, *, exclude_unset: bool = False) -> dict[str, Any]:
         return self.model_dump(exclude_unset=exclude_unset)
@@ -78,15 +82,11 @@ class Base(SQLModel):
         return [cls.model_validate(obj) for obj in objs]
 
 
-class BaseModel(Base):
-    pass
-
-
-class BaseIDModel(BaseModel):
+class BaseIDEntity(BaseEntity):
     id: int = IDField()
 
 
-class BaseTimestampModel(BaseModel):
+class BaseTimestampEntity(BaseEntity):
     # nullable on the model, NOT NULL in the table: the database fills both
     # stamps, so a row on its way *in* has neither
     created_at: datetime | None = TimestampField(
@@ -97,5 +97,10 @@ class BaseTimestampModel(BaseModel):
     )
 
 
-class BaseIDTimestampModel(BaseIDModel, BaseTimestampModel):
+class BaseVersionEntity(BaseEntity):
+    # database-managed: every update raises it, upserts included
+    version_num: int | None = VersionField()
+
+
+class BaseIDTimestampEntity(BaseIDEntity, BaseTimestampEntity):
     pass

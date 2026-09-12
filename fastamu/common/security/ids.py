@@ -92,9 +92,10 @@ class IDEncryption:
         """`decode`, but a malformed public id is `None` instead of a raise —
         for a path that answers 404 rather than 400."""
         try:
-            return self.decode(public_id)
+            decoded = self.decode(public_id)
         except ValueError:
-            return None
+            decoded = None
+        return decoded
 
     @staticmethod
     def is_valid_coff(mod: int, coff: int) -> bool:

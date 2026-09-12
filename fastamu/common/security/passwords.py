@@ -40,10 +40,11 @@ def hash_password(
 
 def verify_password(password: str, hashed: str, *, pepper: str = "") -> bool:
     try:
-        return bcrypt.checkpw(_peppered(password, pepper), hashed.encode())
+        verified = bcrypt.checkpw(_peppered(password, pepper), hashed.encode())
     except ValueError:
         # Malformed/legacy hash string — treat as a non-match, never raise.
-        return False
+        verified = False
+    return verified
 
 
 class PasswordHasher:

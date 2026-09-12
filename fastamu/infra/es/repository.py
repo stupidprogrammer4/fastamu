@@ -123,10 +123,10 @@ class ESRepository[TDoc: AsyncDocument]:
     async def get(self, id: str) -> TDoc | None:
         """Fetch by id, or ``None`` if it doesn't exist."""
         try:
-            result = await self.__document__.get(id, using=self._using)
-            return result
+            document = await self.__document__.get(id, using=self._using)
         except NotFoundError:
-            return None
+            document = None
+        return document
 
     async def update(self, doc: TDoc, **fields: Any) -> TDoc:
         """Partial update of an existing document."""
