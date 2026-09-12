@@ -36,9 +36,7 @@ def write_module(root, path, body):
 def test_missing_task_packages_are_optional(discovery):
     _, bootstrapper = discovery
     bootstrapper.boot_schedulers()
-    bootstrapper.boot_projections()
-    assert bootstrapper.boot_subscribers() == []
-    assert bootstrapper.boot_publishers() == []
+    assert bootstrapper.boot_projections() == []
 
 
 def test_scheduler_discovery_does_not_import_event_handlers(discovery):
@@ -55,65 +53,94 @@ def test_scheduler_discovery_does_not_import_event_handlers(discovery):
     assert module.registered
 
 
-@pytest.mark.parametrize("backend", ["rabbit", "redis"])
-def test_discovers_routers_once_and_keeps_roles_separate(discovery, backend):
-    root, bootstrapper = discovery
-    cls = "RabbitRouter" if backend == "rabbit" else "RedisRouter"
-    body = f"from faststream.{backend} import {cls}\nrouter = {cls}()\n"
-    write_module(
-        root, "tasks/events/subscribers/orders.py", body + "alias = router\n"
-    )
-    write_module(root, "tasks/events/publishers/orders.py", body)
-    subscribers = bootstrapper.boot_subscribers()
-    publishers = bootstrapper.boot_publishers()
-    assert len(subscribers) == len(publishers) == 1
-    assert subscribers[0] is not publishers[0]
-    assert bootstrapper.boot_subscribers() == subscribers
-
-
 def test_broken_import_is_not_silently_skipped(discovery):
     root, bootstrapper = discovery
     write_module(
         root,
-        "tasks/events/subscribers/orders.py",
-        "import missing_event_dependency\n",
+        "tasks/schedulers/orders.py",
+        "import missing_job_dependency\n",
     )
-    with pytest.raises(ModuleNotFoundError, match="missing_event_dependency"):
-        bootstrapper.boot_subscribers()
+    with pytest.raises(ModuleNotFoundError, match="missing_job_dependency"):
+        bootstrapper.boot_schedulers()
 
 
-def test_projection_discovery_imports_the_real_infrastructure_module(
-    discovery,
-):
-    root, bootstrapper = discovery
-    write_module(root, "infra/projections.py", "registered = True\n")
-
-    bootstrapper.boot_projections()
-
-    module = importlib.import_module("discovery_probe.infra.projections")
-    assert module.registered
-
-
-def test_scaffold_creates_scheduler_and_event_task_packages():
+def test_scaffold_creates_scheduler_task_packages():
     files = _layout(
         cqrs=False, context=False, http=False, excel=False, tasks=True
     )
-    for role in (
-        "schedulers",
-        "events",
-        "events/subscribers",
-        "events/publishers",
-    ):
-        assert files[f"tasks/{role}/__init__.py"] == ""
+    assert files["tasks/schedulers/__init__.py"] == ""
     assert "tasks/schedulers/jobs.py" in files
     assert "tasks/jobs.py" not in files
     assert not any(path.startswith("tasks/projection") for path in files)
 
 
-def test_cqrs_scaffold_keeps_projections_beside_its_repositories():
+def test_cqrs_scaffold_keeps_documents_and_repositories():
     files = _layout(
         cqrs=True, context=False, http=False, excel=False, tasks=False
     )
 
-    assert "infra/projections.py" in files
+    assert "domain/documents.py" in files
+    assert "infra/repository.py" in files
+    assert "infra/projections.py" not in files
     assert not any(path.startswith("tasks/") for path in files)
+
+
+@pytest.mark.parametrize(
+    "path", ["app/projections.py", "app/projections/item.py"]
+)
+def test_projection_discovery_finds_concrete_local_classes(discovery, path):
+    root, bootstrapper = discovery
+    write_module(
+        root,
+        path,
+        "from fastamu.messaging.projections.contracts.delete import (\n"
+        "    AbstractUnProjection,\n"
+        ")\n"
+        "class AbstractDelete(AbstractUnProjection):\n"
+        "    pass\n"
+        "class DeleteProduct(AbstractDelete):\n"
+        "    queue_name = 'products'\n"
+        "    async def _es_query(self, id: int) -> None:\n"
+        "        pass\n"
+        "Alias = DeleteProduct\n",
+    )
+    write_module(root, "tasks/schedulers/jobs.py", "raise RuntimeError\n")
+    write_module(root, "tasks/events/events.py", "raise RuntimeError\n")
+
+    projections = bootstrapper.boot_projections()
+    assert len(projections) == 1
+    assert projections[0].__name__ == "DeleteProduct"
+    assert projections[0].queue_name == "products"
+    assert bootstrapper.boot_projections() == projections
+
+
+def test_projection_discovery_does_not_register_reexports_twice(discovery):
+    root, bootstrapper = discovery
+    write_module(
+        root,
+        "app/projections/item.py",
+        "from fastamu.messaging.projections.contracts.delete import (\n"
+        "    AbstractUnProjection,\n"
+        ")\n"
+        "class DeleteProduct(AbstractUnProjection):\n"
+        "    queue_name = 'products'\n"
+        "    async def _es_query(self, id: int) -> None:\n"
+        "        pass\n",
+    )
+    write_module(
+        root,
+        "app/projections/alias.py",
+        "from .item import DeleteProduct\n",
+    )
+    assert len(bootstrapper.boot_projections()) == 1
+
+
+def test_broken_projection_import_is_not_silently_skipped(discovery):
+    root, bootstrapper = discovery
+    write_module(
+        root, "app/projections.py", "import missing_projection_dependency\n"
+    )
+    with pytest.raises(
+        ModuleNotFoundError, match="missing_projection_dependency"
+    ):
+        bootstrapper.boot_projections()

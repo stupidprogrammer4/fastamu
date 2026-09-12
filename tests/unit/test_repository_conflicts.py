@@ -7,15 +7,20 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from fastamu.common.errors.exceptions import ConflictException
-from fastamu.common.models.base import BaseIDModel
+from fastamu.common.models.entities import BaseIDEntity
 from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.db.table import BaseTable
 
 
-class WidgetModel(BaseIDModel):
+class WidgetEntity(BaseIDEntity):
     code: str = ""
 
 
-class WidgetRepository(DBIDRepository[WidgetModel]):
+class WidgetTable(WidgetEntity, BaseTable, table=True):
+    pass
+
+
+class WidgetRepository(DBIDRepository[WidgetEntity]):
     def __init__(self) -> None:  # no unit of work; only the translation here
         from fastamu.infra.db.dialects.postgresql import PostgreSQLDialect
 

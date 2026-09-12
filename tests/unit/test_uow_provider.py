@@ -25,9 +25,9 @@ async def transaction(provider):
     session = SimpleNamespace(
         commit=AsyncMock(), rollback=AsyncMock(), close=AsyncMock()
     )
-    connection = cast(
-        DBConnection, SimpleNamespace(session_factory=lambda: session)
-    )
+    stub = SimpleNamespace(session_factory=lambda: session)
+    stub.uow = lambda: DBUnitOfWork(cast(DBConnection, stub))
+    connection = cast(DBConnection, stub)
 
     class DatabaseProvider(Provider):
         @provide(scope=Scope.APP, override=True)

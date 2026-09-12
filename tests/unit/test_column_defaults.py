@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from fastamu.common.models.base import BaseIDModel
+from fastamu.common.models.entities import BaseIDEntity
 from fastamu.common.models.fields import (
     BoolField,
     CharField,
@@ -16,7 +16,7 @@ from fastamu.common.models.fields import (
 from fastamu.infra.db.table import BaseTable
 
 
-class DefaultsModel(BaseIDModel):
+class DefaultsModel(BaseIDEntity):
     stamped: datetime = TimestampField(server_default="now()")
     label: str = CharField(20, server_default="'pending'")
     bare_label: str = CharField(20, server_default="pending")

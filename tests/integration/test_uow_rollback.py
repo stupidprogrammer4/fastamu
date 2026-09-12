@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi_csrf_protect.exceptions import CsrfProtectError
 from httpx import ASGITransport, AsyncClient
-from pydantic import BaseModel
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select
 from starlette.exceptions import HTTPException
 
@@ -16,7 +15,6 @@ from fastamu.core.provider import CoreProvider
 from fastamu.infra.db.connection import DBConnection
 from fastamu.infra.db.transaction import transactional
 from fastamu.infra.db.uow import DBUnitOfWork
-from fastamu.messaging.events.decorators import event
 from fastamu.web.error_handlers import setup_exception_handlers
 
 
@@ -53,7 +51,7 @@ async def records(database):
 
 
 @pytest.fixture
-async def client(database, records, monkeypatch):
+async def client(database, records):
     class DatabaseProvider(Provider):
         @provide(scope=Scope.APP, override=True)
         def database(self) -> DBConnection:
@@ -64,23 +62,8 @@ async def client(database, records, monkeypatch):
     setup_dishka(container, app)
     setup_exception_handlers(app)
 
-    class Written(BaseModel):
-        outcome: str
-
-    async def send(subject, data):
-        async with database.session_factory() as observer:
-            assert await observer.scalar(select(records.c.id)) == 1
-        if data["outcome"] == "delivery":
-            raise ConnectionError("broker unavailable")
-
-    monkeypatch.setattr("fastamu.tasks.events.publisher.publish", send)
-
     @app.post("/{outcome}")
     @inject
-    @event(
-        "written",
-        payload=lambda call: Written(outcome=call.arguments["outcome"]),
-    )
     @transactional
     async def write(outcome: str, uow: FromDishka[DBUnitOfWork]):
         await uow.session.execute(insert(records).values(id=1))
@@ -144,12 +127,3 @@ async def test_success_response_commits_the_write(client, database, records):
     async with database.session_factory() as session:
         result = await session.execute(select(records.c.id))
         assert result.scalars().all() == [1]
-
-
-async def test_delivery_error_response_keeps_committed_data(
-    client, database, records
-):
-    response = await client.post("/delivery")
-    assert response.status_code == 500
-    async with database.session_factory() as session:
-        assert await session.scalar(select(records.c.id)) == 1

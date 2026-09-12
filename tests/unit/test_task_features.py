@@ -7,15 +7,13 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from fastamu import scaffold
-from fastamu.core.config import ProjectionConfig, Settings, get_settings
+from fastamu.core.config import Settings, get_settings
 from fastamu.manager import app
 
 
 def test_minimal_project_omits_optional_backends_and_es():
     files = scaffold.files("shop", "Shop")
     config = Settings.model_validate(yaml.safe_load(files["config.yml"]))
-    assert config.tasks.events is None
-    assert config.tasks.projection is None
     assert config.tasks.schedulers is None
     assert config.es is None
     assert config.app.features == set()
@@ -31,7 +29,6 @@ def test_cli_features_add_independent_config_and_extras(tmp_path):
             "--dir",
             str(tmp_path / "shop"),
             "--cqrs",
-            "--events",
             "--scheduler",
         ],
     )
@@ -40,23 +37,16 @@ def test_cli_features_add_independent_config_and_extras(tmp_path):
     config = Settings.model_validate(
         yaml.safe_load((root / "config.yml").read_text())
     )
-    assert config.tasks.projection.prefetch == 1
-    assert config.tasks.events.broker == "rabbitmq"
+    assert config.es is not None
     assert config.tasks.schedulers.broker == "redis"
     assert {feature.value for feature in config.app.features} == {
         "cqrs",
-        "events",
         "scheduler",
     }
-    assert (
-        "fastamu[cqrs,scheduler,events]"
-        in (root / "pyproject.toml").read_text()
-    )
+    assert "fastamu[scheduler]" in (root / "pyproject.toml").read_text()
 
 
-def test_projection_rejects_non_serial_prefetch_and_missing_es():
-    with pytest.raises(ValidationError):
-        ProjectionConfig(url="amqp://localhost", prefetch=2)
+def test_cqrs_requires_es():
     files = scaffold.files("shop", "Shop", cqrs=True)
     raw = yaml.safe_load(files["config.yml"])
     raw.pop("es")
@@ -66,15 +56,12 @@ def test_projection_rejects_non_serial_prefetch_and_missing_es():
 
 def test_feature_and_configuration_must_match():
     raw = yaml.safe_load(scaffold.files("shop", "Shop")["config.yml"])
-    raw["app"]["features"] = ["events"]
+    raw["app"]["features"] = ["scheduler"]
     with pytest.raises(ValidationError, match="configuration is missing"):
         Settings.model_validate(raw)
 
     raw["app"]["features"] = []
-    raw["tasks"]["events"] = {
-        "broker": "rabbitmq",
-        "url": "amqp://localhost",
-    }
+    raw["tasks"]["schedulers"] = {"url": "redis://localhost"}
     with pytest.raises(ValidationError, match="requires enabling"):
         Settings.model_validate(raw)
 
