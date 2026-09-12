@@ -60,13 +60,14 @@ _FIELD_MANAGED_KEYS = ("nullable", "index", "unique", "primary_key")
 
 
 def _model_defaults(kwargs: ColumnKwargs) -> dict[str, Any]:
+    defaults: dict[str, Any] = {}
     if "default" in kwargs:
         default = kwargs["default"]
         key = "default_factory" if callable(default) else "default"
-        return {key: default}
-    if kwargs.get("nullable") or "server_default" in kwargs:
-        return {"default": None}
-    return {}
+        defaults = {key: default}
+    elif kwargs.get("nullable") or "server_default" in kwargs:
+        defaults = {"default": None}
+    return defaults
 
 
 def _split_kwargs(
@@ -178,6 +179,17 @@ def TimestampField(**kwargs: Unpack[ColumnKwargs]) -> Any:
         **field_kwargs,
         **defaults,
     )
+
+
+def VersionField(**kwargs: Unpack[ColumnKwargs]) -> Any:
+    """A counter the database raises on every update of the row.
+
+    Send it as a destination write's external version to fence a lost race.
+    Keep the name ``version_num``: the increment is SQL that names it.
+    """
+    kwargs.setdefault("server_default", "1")
+    kwargs.setdefault("onupdate", text("version_num + 1"))
+    return _field(BigInteger, **kwargs)
 
 
 def JSONField(**kwargs: Unpack[ColumnKwargs]) -> Any:
