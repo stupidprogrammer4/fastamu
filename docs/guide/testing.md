@@ -75,7 +75,7 @@ Run `python -m pytest` from the generated root. This checks separate requests an
 
 ## Framework test helpers
 
-`papilio.testing.plugin` is the lightweight automatically loaded pytest plugin. It adds markers based on test folders. `papilio.testing.fixtures` is a separate opt-in, infrastructure-heavy reference harness; importing it is not required for a plain project. Its database preparation can modify a test database, so read its configuration before adopting it.
+`papilio.testing.plugin` is the lightweight automatically loaded pytest plugin. It adds markers based on test folders. `papilio.testing.fixtures` is a separate opt-in infrastructure harness for application-owned modules; importing it is not required for a plain project. Install `test`, `postgresql`, `es`, `redis`, `http` and `rate-limit` to use that harness. Its database preparation can modify a test database, so read its configuration before adopting it.
 
 ## Maintain migrations
 

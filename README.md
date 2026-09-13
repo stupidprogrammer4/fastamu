@@ -32,7 +32,6 @@ CLI command. Python imports use `papilio`.
 - [Migrations](#migrations)
 - [Testing](#testing)
 - [Configuration reference](#configuration-reference)
-- [Reference modules](#reference-modules)
 - [House rules](#house-rules)
 
 ---
@@ -84,7 +83,6 @@ pip install -e ".[test]"
 | `excel` | Spreadsheet reader/writer; no pandas or NumPy |
 | `files`, `csv` | Async file and CSV tools using AnyIO worker threads |
 | `persian` | Jalali/Persian utility functions |
-| `ops` | Reference ops modules and their infrastructure dependencies |
 | `test` | Pytest, async testing and HTTP test client |
 | `all` / `dev` | All optional runtime tools / runtime plus development tools |
 
@@ -92,7 +90,7 @@ Installing an extra makes its imports available. Add its provider to
 `create_app(providers=...)` to manage its resources. CoreProvider provides only
 settings and password hashing. `db`, `redis`, `http` and `es` configuration may
 be absent; rate limiting is off by default. Module discovery defaults to an
-empty list, so reference modules are adopted explicitly.
+empty list; only application-selected packages are discovered.
 
 ```bash
 papilio new minimal
@@ -151,9 +149,9 @@ the framework reads, alembic wiring and a test suite. **The framework stays in
 the installed package**: there is no vendored copy to keep in step. Until the
 first release, update the local checkout and reinstall it in editable mode.
 
-Working *on* Papilio itself instead? Clone it and `pip install -e ".[dev]"` —
-its own `config.yml` points `app.modules` at `papilio.modules`, so the `ops`
-reference modules are discovered when you call `create_app()`.
+Working *on* Papilio itself instead? Clone it and `pip install -e ".[dev]"`.
+The framework ships no application modules; configure your own package roots
+or pass routers and providers directly to `create_app()`.
 
 Swagger UI is served at **`/docs`**, self-hosted from `/static/swagger` — no CDN,
 so it works on an air-gapped box.
@@ -207,18 +205,15 @@ papilio/
 │   └── docs.py         # Offline Swagger UI
 ├── cli/             # Project/module commands
 ├── scaffolding/     # Renderers and packaged template files
-├── testing/         # Pytest fixtures
-└── modules/
-    └── ops/{messages,storage,system}/   # Reference modules — see below
+└── testing/         # Pytest fixtures
 ```
 
-Adopt the reference modules by naming the package in `config.yml`:
+Select your own module package in `config.yml`:
 
 ```yaml
 app:
   modules:
-    - "shop.modules"      # yours, always first
-    - "papilio.modules"   # optional: adds ops/{messages,storage,system}
+    - "shop.modules"
 ```
 
 **Dependency direction is strictly inward.** `routers` / `app` / `infra`
@@ -293,7 +288,7 @@ modules/[<group>/]<name>/
 ```
 
 Everything except `domain/` or `app/` is optional — a module with no table, no
-router is perfectly legal (`ops/system` is exactly that).
+router is perfectly legal.
 
 ### Context modules: when the module owns logic, not rows
 
@@ -508,11 +503,9 @@ Constraints and indexes that span columns live here too — `__table_args__`, a
 against the **model** (`PostgreSQLIdentifiedRepository[BrandModel]`) and bind
 `table = BrandTable` explicitly in `infra/`.
 
-> **Table naming gotcha.** `__tablename__` is derived as
-> `tbl_ + pluralize(ClassName.removesuffix("Table").lower())`. It does **not**
-> snake-case, so `ProductTagTable` becomes `tbl_producttags`. Multi-word tables and
-> irregular plurals should set `__tablename__` explicitly — as `ops/storage` does
-> (`tbl_media`).
+> **Table naming.** The class name becomes snake case and its final word is
+> pluralized: `ProductTagTable` becomes `tbl_product_tags`. Set `__tablename__`
+> explicitly when your application uses a different convention.
 
 ### 2. Validated input — `domain/dtos.py`
 
@@ -580,8 +573,8 @@ from sqlmodel import col, select
 from papilio.schemas.results import PagedType
 from papilio.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
 from papilio.infra.db.tools.read import fetch_page
-from papilio.modules.catalog.brands.domain.entities import BrandModel
-from papilio.modules.catalog.brands.infra.tables import BrandTable
+from shop.modules.catalog.brands.domain.entities import BrandModel
+from shop.modules.catalog.brands.infra.tables import BrandTable
 
 
 class BrandRepository(PostgreSQLIdentifiedRepository[BrandModel]):
@@ -613,9 +606,9 @@ from papilio.services import BaseIDService
 from papilio.infra.db.tools.decorators import transactional
 from papilio.errors.exceptions import ConflictException
 from papilio.core import resources
-from papilio.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from papilio.modules.catalog.brands.domain.entities import BrandModel
-from papilio.modules.catalog.brands.infra.repository import BrandRepository
+from shop.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
+from shop.modules.catalog.brands.domain.entities import BrandModel
+from shop.modules.catalog.brands.infra.repository import BrandRepository
 
 
 class BrandService(BaseIDService[BrandModel]):
@@ -663,8 +656,8 @@ Other modules may only ever see this.
 ```python
 from typing import Protocol
 
-from papilio.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from papilio.modules.catalog.brands.domain.entities import BrandModel
+from shop.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
+from shop.modules.catalog.brands.domain.entities import BrandModel
 
 
 class IBrandService(Protocol):
@@ -679,9 +672,9 @@ class IBrandService(Protocol):
 ```python
 from dishka import Provider, Scope, provide
 
-from papilio.modules.catalog.brands.app.services import BrandService
-from papilio.modules.catalog.brands.infra.repository import BrandRepository
-from papilio.modules.catalog.brands.interfaces import IBrandService
+from shop.modules.catalog.brands.app.services import BrandService
+from shop.modules.catalog.brands.infra.repository import BrandRepository
+from shop.modules.catalog.brands.interfaces import IBrandService
 
 
 class BrandProvider(Provider):
@@ -706,9 +699,9 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends
 
 from papilio.types.aliases import IdType
-from papilio.modules.catalog.brands.domain.dtos import BrandCreate
-from papilio.modules.catalog.brands.routers.schemas import BrandOut
-from papilio.modules.catalog.brands.interfaces import IBrandService
+from shop.modules.catalog.brands.domain.dtos import BrandCreate
+from shop.modules.catalog.brands.routers.schemas import BrandOut
+from shop.modules.catalog.brands.interfaces import IBrandService
 from papilio.api.authentication import require_access
 from papilio.api.responses.envelope import APIResponse
 
@@ -1331,9 +1324,8 @@ _guarded = [Depends(require_access("storage"))]          # …or guard per route
 The JWT contract is `sub` (subject) + `scopes` (a list of strings); a decoded token
 becomes a `Principal`, which a handler can also take as a value.
 
-`require_access` accepts an application-defined scope string. The reference
-modules keep their `AccessScope` enum under `modules/ops/scopes.py`; applications
-can define their own vocabulary without changing framework authentication.
+`require_access` accepts an application-defined scope string. Define your scope
+vocabulary in your own package; no application scopes ship with Papilio.
 An identity adapter can replace `get_current_principal` while preserving the
 `Principal` contract.
 
@@ -1615,8 +1607,8 @@ The automatically loaded `papilio.testing.plugin` only marks test folders and
 imports no optional infrastructure. Generated projects own an `anonymous`
 HTTP-client fixture using a fresh app and its lifespan; install `papilio[test]`
 for it. SQL uses `db.test_dsn` and rate limiting is disabled in that fixture.
-The PostgreSQL/reference harness is opt-in: install its dependencies
-(`papilio[test,ops,rate-limit]`) and declare
+The infrastructure harness is opt-in: install its dependencies
+(`papilio[test,postgresql,es,redis,http,rate-limit]`) and declare
 `pytest_plugins = ["papilio.testing.fixtures"]` in your test conftest. The table
 below describes that optional harness, not a base installation.
 
@@ -1631,8 +1623,8 @@ below describes that optional harness, not a base installation.
 | `anonymous` (in `tests/api`) | An `AsyncClient` over the live app — bootstrapped routers, the framework's error handlers, the same container — with no credentials |
 
 `test_settings_of()` and `core_provider_of()` are plain functions, not fixtures, so
-a suite can build its own container from the same wiring — that is how
-[tests/api/conftest.py](tests/api/conftest.py) mounts the app. Test settings turn
+a suite can build its own container from the same wiring in its application
+conftest. Test settings turn
 rate limiting **off**: a suite hits a route far faster than any real client, and a
 test failing on a budget it never meant to exercise teaches nothing. A test *about*
 limiting turns it back on for itself, since the guards read whichever settings their
@@ -1666,37 +1658,6 @@ The scaffold writes only the optional sections selected at project creation.
 | `storage` | `path`, `temp_dir`, `max_file_size`, `allowed_extensions` |
 | `csrf` | `secret_key` |
 | `logging` | `level`, `format` (`console` \| `json`), `service`, `index` |
-
----
-
-## Reference modules
-
-The `ops` group ships as **living documentation** — real, working modules that
-demonstrate the conventions. Read them, then delete or keep them as you see fit.
-
-- **`ops/storage`** — the most complete example: streamed file upload with
-  content-hash dedupe, a paged listing, and a public download route. Shows a mixed
-  router (per-route guards with one unauthenticated route), a settings sub-section
-  re-provided as its own injectable type, `PagedType` + `PagerMeta`, and a
-  module-scoped `resources.py`.
-- **`ops/messages`** — pending SMS records, provider gateways, delivery results
-  and encrypted public IDs. Background dispatch belongs to Papilio Tasks; the sender service remains callable explicitly.
-
-  ```
-  PUT   /messages/providers          register a provider + credentials (upsert by code)
-  PATCH /messages/providers/active   switch the provider in use
-  PUT   /messages/patterns           map a key (otp) to the provider's template
-  POST  /messages                    queue one — answers before anything is sent
-  GET   /messages?status=failed      the log, paged
-  POST  /messages/{id}/retry         owe a failed one again
-  ```
-
-  Out of the box the `console` provider "delivers" to the log, when the sender service
-  is called explicitly. The three real gateways (Kavenegar, Melipayamak,
-  SMS.ir) need `sms-providers-sdk`, which is imported at call time and installed
-  separately:
-  `pip install "git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master"`.
-- **`ops/system`** — health/info endpoints; the smallest possible module.
 
 ---
 

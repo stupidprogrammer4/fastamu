@@ -2,6 +2,8 @@
 
 ## 0.8.0
 
+- Ship no application modules or predefined application scopes; CLI templates
+  generate modules owned by the consuming application.
 - Rename the distribution and import package to Papilio, with an application-owned
   FastAPI factory and separate API, schema, security and database modules.
 - Remove task and projection runtime code from the web package. Infrastructure

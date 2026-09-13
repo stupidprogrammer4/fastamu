@@ -32,7 +32,6 @@ On PowerShell, activate with `.venv\Scripts\Activate.ps1`. Run `python` and `pap
 | `persian` | Optional localized date and text utilities |
 | `test` | pytest, pytest-asyncio and HTTPX |
 | `docs` | This documentation site tooling |
-| `ops` | Dependencies for the reference module bundle |
 | `all` / `dev` | All runtime extras / development and test environment |
 
 For example:

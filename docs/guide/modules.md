@@ -67,8 +67,8 @@ The first module root is the CLI generation target. Packages must be importable 
 
 For a different structure, pass routers and providers directly to [create_app](application.md), leaving `app.modules` empty if you do not want discovery.
 
-## Templates versus reference modules
+## Application-owned modules
 
-`papilio.modules.ops` is the optional reference bundle containing messages, storage and system modules. It participates in discovery only if you add `papilio.modules` to `app.modules`. Its dependencies and infrastructure must also be configured. It is unnecessary for a normal CRUD or plain module.
+Papilio ships no application modules or predefined application scope vocabulary. Use the CLI to generate modules inside your own package, or create them manually. You choose their names, fields, routes, authorization and behavior. Only roots you supply through `app.modules` participate in discovery.
 
 To generate files from your own developer tool, use the render/write functions in the [scaffolding reference](../reference/scaffolding.md).

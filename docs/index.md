@@ -40,4 +40,4 @@ Use the reference for your selected database. Return values and bulk method argu
 
 This package does not provide a task runtime, projection delivery, event publishing, automatic retries or an outbox. The CQRS template separates SQL commands and Elasticsearch queries; it does not synchronize those stores. Infrastructure is installed through extras and connected through explicit providers.
 
-CLI templates are distinct from the optional `papilio.modules.ops` reference modules. Start with your own modules; adopting that reference bundle is an explicit choice.
+Papilio ships no application modules. CLI templates generate source into your own package; you decide which modules exist and what they do.
