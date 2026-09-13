@@ -85,4 +85,6 @@ media/
 # graphify tool cache/output
 graphify-out/
 
-docs/*
+/docs/plans/
+# Built documentation
+/site/

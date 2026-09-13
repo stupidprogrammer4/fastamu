@@ -1,0 +1,223 @@
+# SQL models and fields
+
+Generated from this checkout. Code blocks show signatures; `...` replaces implementation bodies. These are reference declarations, not standalone executable modules.
+
+Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
+
+## `papilio.infra.db.fields`
+
+### `FieldOptions`
+
+```python
+class FieldOptions(TypedDict):
+    default: Any
+    default_factory: Callable[[], Any]
+    nullable: bool
+    index: bool
+    unique: bool
+    primary_key: bool
+    db_column: str
+    comment: str
+    alias: str
+    description: str
+    server_default: Any
+    onupdate: Any
+    server_onupdate: Any
+    sa_column_kwargs: Mapping[str, Any]
+```
+
+### `IDField`
+
+```python
+def IDField(*, autoincrement: bool=True, db_column: str | None=None) -> Any:
+    ...
+```
+
+### `SmallIntField`
+
+```python
+def SmallIntField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `IntField`
+
+```python
+def IntField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `BigIntField`
+
+```python
+def BigIntField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `BoolField`
+
+```python
+def BoolField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `FloatField`
+
+```python
+def FloatField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `NumericField`
+
+```python
+def NumericField(precision: int | None=None, scale: int | None=None, **options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `CharField`
+
+```python
+def CharField(length: int, **options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `TextField`
+
+```python
+def TextField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `DateField`
+
+```python
+def DateField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `TimestampField`
+
+```python
+def TimestampField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `VersionField`
+
+```python
+def VersionField(**options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `JSONField`
+
+```python
+def JSONField(*, none_as_null: bool=False, **options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `EnumField`
+
+```python
+def EnumField(enum_cls: type[enum.Enum], **options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `ComputedField`
+
+```python
+def ComputedField(expression: str, type_: Any=Boolean, *, persisted: bool=True, **options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+### `ForeignKeyField`
+
+```python
+def ForeignKeyField(target: str, *, ondelete: str | None=None, **options: Unpack[FieldOptions]) -> Any:
+    ...
+```
+
+## `papilio.infra.db.models`
+
+### `BaseEntity`
+
+```python
+class BaseEntity(SQLModel):
+    def to_dict(self, *, exclude_unset: bool=False) -> dict[str, Any]:
+        ...
+
+    def to_row(self, *, exclude_unset: bool=True) -> dict[str, Any]:
+        ...
+
+    def to_json(self, *, exclude_unset: bool=False) -> str:
+        ...
+
+    @classmethod
+    def patch(cls, **fields: Any) -> Self:
+        ...
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        ...
+
+    @classmethod
+    def from_dicts(cls, data: list[dict[str, Any]]) -> list[Self]:
+        ...
+
+    @classmethod
+    def from_json(cls, raw: str | bytes) -> Self:
+        ...
+
+    @classmethod
+    def carried(cls, raw: str | bytes) -> Any:
+        ...
+
+    @classmethod
+    def from_obj(cls, obj: Any) -> Self:
+        ...
+
+    @classmethod
+    def from_objs(cls, objs: Any) -> list[Self]:
+        ...
+```
+
+### `IdentifiedEntity`
+
+```python
+class IdentifiedEntity(BaseEntity):
+    id: int = IDField()
+    def to_changes(self) -> dict[str, Any]:
+        ...
+```
+
+### `TimestampEntity`
+
+```python
+class TimestampEntity(BaseEntity):
+    created_at: datetime | None = TimestampField(default=None, server_default=func.current_timestamp())
+    updated_at: datetime | None = TimestampField(default=None, server_default=func.current_timestamp(), onupdate=dates.utc_now)
+```
+
+### `VersionEntity`
+
+```python
+class VersionEntity(BaseEntity):
+    version_num: int | None = VersionField(default=None, server_default=text('1'))
+```
+
+### `PersistenceEntity`
+
+```python
+class PersistenceEntity(IdentifiedEntity, TimestampEntity):
+    ...
+```
+
+## `papilio.infra.db.table`
+
+### `BaseTable`
+
+```python
+class BaseTable(AsyncAttrs, SQLModel):
+    ...
+```
