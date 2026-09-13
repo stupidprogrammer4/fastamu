@@ -49,6 +49,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+docs = ["mkdocs>=1.6,<2.0", "mkdocs-material>=9.6,<10.0"]
 server = ["uvicorn[standard]>=0.38.0,<0.39.0"]
 db = ["SQLAlchemy>=2.0.49,<3.0.0", "sqlmodel>=0.0.38,<0.1.0", "alembic>=1.18.4,<2.0.0"]
 postgresql = ["papilio[db]", "asyncpg>=0.31.0,<0.32.0", "psycopg2-binary>=2.9.11,<3.0.0"]
@@ -83,7 +84,7 @@ packages = ["papilio"]
 [tool.hatch.build.targets.sdist]
 # the docs and the suite belong in the source distribution; the reference
 # modules are already inside the package
-include = ["papilio", "tests", "README.md", "LICENSE", "pytest.ini"]
+include = ["papilio", "tests", "README.md", "LICENSE", "pytest.ini", "docs", "mkdocs.yml"]
 
 # pytest configuration lives in pytest.ini (single source of truth — pytest.ini
 # takes precedence over pyproject, so do not re-add [tool.pytest.ini_options]).

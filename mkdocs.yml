@@ -1,0 +1,72 @@
+site_name: Papilio
+site_description: Learn to build modular APIs with Papilio
+strict: true
+site_dir: site
+exclude_docs: |
+  plans/
+theme:
+  name: material
+  language: en
+  direction: ltr
+  font: false
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    primary: indigo
+    accent: teal
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: [docs]
+      check_paths: true
+nav:
+  - Home: index.md
+  - Learn:
+      - Installation and first application: guide/start.md
+      - Build a complete feature: guide/tutorial.md
+      - Modules and scaffolding: guide/modules.md
+      - Application and dependency injection: guide/application.md
+      - Configuration: guide/configuration.md
+      - SQL models and fields: guide/models.md
+      - Repositories and reporting: guide/repositories.md
+      - Transactions and UnitOfWork: guide/transactions.md
+      - API inputs, outputs and errors: guide/api.md
+      - Authentication and rate limits: guide/security.md
+      - Elasticsearch and CQRS: guide/cqrs.md
+      - HTTP and Redis: guide/clients.md
+      - Files, CSV and Excel: guide/files.md
+      - Supporting utilities: guide/utilities.md
+      - Testing and migrations: guide/testing.md
+      - Operations and troubleshooting: guide/operations.md
+  - Runnable examples: examples/index.md
+  - API reference:
+      - Configuration: reference/configuration.md
+      - Application and discovery: reference/application.md
+      - API tools: reference/api.md
+      - SQL models and fields: reference/models.md
+      - Repository contracts: reference/contracts.md
+      - PostgreSQL: reference/postgresql.md
+      - MySQL: reference/mysql.md
+      - MariaDB: reference/mariadb.md
+      - SQLite: reference/sqlite.md
+      - SQL Server: reference/mssql.md
+      - Oracle: reference/oracle.md
+      - UnitOfWork and transactions: reference/transactions.md
+      - SQL tools and dialects: reference/sql-tools.md
+      - Elasticsearch: reference/elasticsearch.md
+      - HTTP and Redis: reference/clients.md
+      - Files, CSV and Excel: reference/files.md
+      - Schemas, services and errors: reference/schemas.md
+      - Security and utilities: reference/utilities.md
+      - CLI and scaffolding: reference/scaffolding.md
+  - Maintaining the documentation: contributing.md
