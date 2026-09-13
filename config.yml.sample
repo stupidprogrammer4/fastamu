@@ -1,16 +1,15 @@
 app:
   modules:
-  - fastamu.modules
+  - papilio.modules
   features:
   - cqrs
-  - scheduler
 fastapi:
-  title: Fastamu
+  title: Papilio
   description: A FastAPI + dishka + taskiq modular-monolith template.
   version: 0.0.0
 db:
-  test_dsn: postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/fastamu_test_db
-  dsn: postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/fastamu_db
+  test_dsn: postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/papilio_test_db
+  dsn: postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/papilio_db
   pool_timeout: 30
   pool_recycle: 1800
   pool_size: 20
@@ -71,30 +70,4 @@ http:
 logging:
   level: INFO
   format: console
-  service: fastamu-api
-tasks:
-  # Optional: install fastamu[projection] and define app/projections.
-  # projection:
-  #   url: amqp://guest:guest@localhost:5672/
-  #   exchange: fastamu.projection
-  #   prefetch: 10
-  #   retry:
-  #     url: redis://localhost:6379/1
-  #     prefix: fastamu.projection.retry
-  #     max_connection_pool_size: 25
-  #     buffer_size: 100
-  #     socket_timeout: 5
-  #   repair:
-  #     interval: 30
-  #     batch_size: 1000
-  #     concurrency: 4
-  #     max_attempts: 5
-  #     max_pending: 100000
-  #     prefix: fastamu.projection.failures
-  #     targets:
-  #       "shop.products.app.projections:ProductPrice": "shop.products.app.projections:RebuildPrices"
-  schedulers:
-    broker: redis
-    url: redis://0.0.0.0:6379/0
-    max_connection_pool_size: 25
-    result_ex_time: 86400
+  service: papilio

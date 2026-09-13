@@ -4,8 +4,8 @@ off the event loop."""
 
 import threading
 
-from fastamu.common.security import passwords
-from fastamu.common.security.passwords import PasswordHasher
+from papilio.security import passwords
+from papilio.security.passwords import PasswordHasher
 
 
 async def test_a_password_verifies_against_its_own_hash() -> None:

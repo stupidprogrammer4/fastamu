@@ -10,21 +10,21 @@ from dishka import Provider, Scope, make_async_container, provide
 from dishka.exceptions import GraphMissingFactoryError, NoFactoryError
 from sqlmodel import Field
 
-from fastamu.common.models.entities import BaseEntity
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.repositories.backends.postgresql import (
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.models import BaseEntity
+from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLRepository,
 )
-from fastamu.infra.db.repositories.backends.sqlite import (
+from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteRepository,
 )
-from fastamu.infra.db.repositories.contracts.base import RepositoryContract
-from fastamu.infra.db.repositories.contracts.sqlite import (
+from papilio.infra.db.repositories.contracts.base import RepositoryContract
+from papilio.infra.db.repositories.contracts.sqlite import (
     SQLiteRepositoryContract,
 )
-from fastamu.infra.db.table import BaseTable
-from fastamu.infra.db.transaction import transaction
-from fastamu.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
+from papilio.infra.db.table import BaseTable
+from papilio.infra.db.transaction import transaction
+from papilio.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
 
 
 class BindingEntity(BaseEntity):
@@ -63,12 +63,12 @@ class BindingProvider(Provider):
 )
 def test_each_implementation_fulfills_its_own_contract(backend, prefix, shape):
     contracts = importlib.import_module(
-        f"fastamu.infra.db.repositories.contracts.{backend}"
+        f"papilio.infra.db.repositories.contracts.{backend}"
     )
     implementations = importlib.import_module(
-        f"fastamu.infra.db.repositories.backends.{backend}"
+        f"papilio.infra.db.repositories.backends.{backend}"
     )
-    units = importlib.import_module("fastamu.infra.db.uow")
+    units = importlib.import_module("papilio.infra.db.uow")
     name = f"{prefix}{shape}Repository"
     contract = getattr(contracts, name + "Contract")
     implementation = getattr(implementations, name)

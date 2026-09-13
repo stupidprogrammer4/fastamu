@@ -8,14 +8,14 @@ import pytest
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select
 from sqlalchemy.exc import IntegrityError, InvalidRequestError
 
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.tools.decorators import transactional
-from fastamu.infra.db.transaction import (
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.tools.decorators import transactional
+from papilio.infra.db.transaction import (
     TransactionRollbackOnly,
     current_transaction,
     transaction,
 )
-from fastamu.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
+from papilio.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
 
 
 @pytest.fixture

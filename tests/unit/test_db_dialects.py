@@ -24,27 +24,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CreateTable
 from sqlmodel import Field
 
-from fastamu.common.models.entities import (
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.dialects.oracle import OracleJSON
+from papilio.infra.db.models import (
     BaseEntity,
     PersistenceEntity,
     TimestampEntity,
     VersionEntity,
 )
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.dialects.oracle import OracleJSON
-from fastamu.infra.db.repositories.backends import (
+from papilio.infra.db.repositories.backends import (
     mariadb as maria_repos,
 )
-from fastamu.infra.db.repositories.backends import mssql as ms_repos
-from fastamu.infra.db.repositories.backends import mysql as my_repos
-from fastamu.infra.db.repositories.backends import oracle as ora_repos
-from fastamu.infra.db.repositories.backends import (
+from papilio.infra.db.repositories.backends import mssql as ms_repos
+from papilio.infra.db.repositories.backends import mysql as my_repos
+from papilio.infra.db.repositories.backends import oracle as ora_repos
+from papilio.infra.db.repositories.backends import (
     postgresql as pg_repos,
 )
-from fastamu.infra.db.repositories.backends import sqlite as lite_repos
-from fastamu.infra.db.table import BaseTable
-from fastamu.infra.db.transaction import transaction
-from fastamu.infra.db.uow import (
+from papilio.infra.db.repositories.backends import sqlite as lite_repos
+from papilio.infra.db.table import BaseTable
+from papilio.infra.db.transaction import transaction
+from papilio.infra.db.uow import (
     MariaDBUnitOfWork,
     MSSQLUnitOfWork,
     MySQLUnitOfWork,

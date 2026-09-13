@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from fastamu.infra.db.dialects.postgresql import PostgreSQLDialect
+from papilio.infra.db.dialects.postgresql import PostgreSQLDialect
 
 
 @pytest.mark.parametrize(

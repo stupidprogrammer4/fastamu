@@ -8,16 +8,18 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from throttled.asyncio.store import MemoryStore, RedisStore
 
-from fastamu.core.config import RateLimitRule, Settings, get_settings
-from fastamu.infra.db.uow import UnitOfWork
-from fastamu.web.error_handlers import setup_exception_handlers
-from fastamu.web.ratelimit import (
-    RateLimitMiddleware,
-    RateLimitProvider,
+from papilio.api.rate_limit.dependencies import (
     by_body_field,
     by_ip,
     rate_limit,
 )
+from papilio.api.rate_limit.middleware import RateLimitMiddleware
+from papilio.api.rate_limit.provider import RateLimitProvider
+from papilio.api.responses.handlers import (
+    setup_exception_handlers,
+)
+from papilio.core.config import RateLimitRule, Settings, get_settings
+from papilio.infra.db.uow import UnitOfWork
 
 
 @pytest.mark.asyncio

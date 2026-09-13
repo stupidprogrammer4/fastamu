@@ -1,7 +1,7 @@
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ValidationError, field_validator
 
-from fastamu.web.response import APIResponse
+from papilio.api.responses.envelope import APIResponse
 
 
 class Payload(BaseModel):

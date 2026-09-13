@@ -3,7 +3,7 @@ and talks to it through the unit of work. Marked `integration` by path."""
 
 import pytest
 
-from fastamu.infra.db.uow import UnitOfWork
+from papilio.infra.db.uow import UnitOfWork
 
 
 @pytest.mark.usefixtures("migrated_test_db")

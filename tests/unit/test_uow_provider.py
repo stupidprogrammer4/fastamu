@@ -6,17 +6,17 @@ from unittest.mock import AsyncMock
 import pytest
 from dishka import Provider, Scope, make_async_container, provide
 
-from fastamu.core.config import get_settings
-from fastamu.core.provider import CoreProvider
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import PostgreSQLUnitOfWork
-from fastamu.testing.fixtures import core_provider_of
+from papilio.core.config import get_settings
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.provider import PostgreSQLProvider
+from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.testing.fixtures import core_provider_of
 
 
 @pytest.fixture(params=["runtime", "testing"])
 def provider(request):
     if request.param == "runtime":
-        return CoreProvider()
+        return PostgreSQLProvider(get_settings().db)
     return core_provider_of(get_settings())
 
 
@@ -68,7 +68,7 @@ async def test_provider_disposes_database_on_container_close(
 ):
     from sqlalchemy import select
 
-    from fastamu.core.config import Settings
+    from papilio.core.config import Settings
 
     settings = get_settings().model_copy(deep=True)
     settings.db.dsn = f"sqlite+aiosqlite:///{tmp_path}/provider.db"
@@ -78,7 +78,11 @@ async def test_provider_disposes_database_on_container_close(
         def settings(self) -> Settings:
             return settings
 
-    container = make_async_container(provider, SettingsProvider())
+    if isinstance(provider, PostgreSQLProvider):
+        provider.config = settings.db
+        container = make_async_container(provider)
+    else:
+        container = make_async_container(provider, SettingsProvider())
     database = await container.get(DBConnection[PostgreSQLUnitOfWork])
     original_dispose = database.dispose
     dispose = AsyncMock(wraps=original_dispose)

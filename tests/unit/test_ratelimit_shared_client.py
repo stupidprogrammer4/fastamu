@@ -5,16 +5,22 @@ from dishka import make_async_container
 from throttled.asyncio import Throttled
 from throttled.asyncio.store import RedisStore
 
-from fastamu.common.errors.exceptions import TooManyRequestsException
-from fastamu.core.config import RateLimitRule
-from fastamu.core.provider import CoreProvider
-from fastamu.infra.redis.client import RedisClient
-from fastamu.web.ratelimit import RateLimitProvider, _check
+from papilio.api.rate_limit.dependencies import _check
+from papilio.api.rate_limit.provider import RateLimitProvider
+from papilio.core.config import RateLimitRule, get_settings
+from papilio.core.provider import CoreProvider
+from papilio.errors.exceptions import TooManyRequestsException
+from papilio.infra.redis.client import RedisClient
+from papilio.infra.redis.provider import RedisProvider
 
 
 @pytest.mark.asyncio
 async def test_limits_use_shared_client_without_creating_another_pool():
-    container = make_async_container(CoreProvider(), RateLimitProvider())
+    container = make_async_container(
+        CoreProvider(),
+        RedisProvider(get_settings().redis),
+        RateLimitProvider(),
+    )
     try:
         redis = await container.get(RedisClient)
         script = AsyncMock(side_effect=[(0, 1, "0"), (1, 1, "10")])
@@ -43,7 +49,11 @@ async def test_limits_use_shared_client_without_creating_another_pool():
 
 @pytest.mark.asyncio
 async def test_container_alone_closes_shared_client():
-    container = make_async_container(CoreProvider(), RateLimitProvider())
+    container = make_async_container(
+        CoreProvider(),
+        RedisProvider(get_settings().redis),
+        RateLimitProvider(),
+    )
     redis = await container.get(RedisClient)
     await container.get(Throttled)
     with patch.object(redis.client, "aclose", new_callable=AsyncMock) as close:

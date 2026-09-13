@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock
 import pytest
 from starlette.requests import Request
 
-from fastamu.core.config import get_settings
-from fastamu.web.ratelimit import by_ip
+from papilio.api.rate_limit.dependencies import by_ip
+from papilio.core.config import get_settings
 
 
 def make_request(peer: str | None, forwarded: str | None = None) -> Request:

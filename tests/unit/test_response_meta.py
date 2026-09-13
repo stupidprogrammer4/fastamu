@@ -1,7 +1,11 @@
 from pydantic import BaseModel
 
-from fastamu.common.schemas.meta import BaseMeta, FilterMeta, SortMeta
-from fastamu.common.types.enums import FaStrEnum, FilterType
+from papilio.api.responses.meta import (
+    BaseMeta,
+    FilterMeta,
+    SortMeta,
+)
+from papilio.types.enums import FaStrEnum, FilterType
 
 
 class SortOption(FaStrEnum):

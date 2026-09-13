@@ -10,12 +10,15 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select
 from starlette.exceptions import HTTPException
 
-from fastamu.common.errors.exceptions import ValidationException
-from fastamu.core.provider import CoreProvider
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.tools.decorators import transactional
-from fastamu.infra.db.uow import PostgreSQLUnitOfWork
-from fastamu.web.error_handlers import setup_exception_handlers
+from papilio.api.responses.handlers import (
+    setup_exception_handlers,
+)
+from papilio.core.config import get_settings
+from papilio.errors.exceptions import ValidationException
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.provider import PostgreSQLProvider
+from papilio.infra.db.tools.decorators import transactional
+from papilio.infra.db.uow import PostgreSQLUnitOfWork
 
 
 @pytest.fixture
@@ -62,7 +65,9 @@ async def client(database, records):
         def database(self) -> DBConnection[PostgreSQLUnitOfWork]:
             return database
 
-    container = make_async_container(CoreProvider(), DatabaseProvider())
+    container = make_async_container(
+        PostgreSQLProvider(get_settings().db), DatabaseProvider()
+    )
     app = FastAPI()
     setup_dishka(container, app)
     setup_exception_handlers(app)

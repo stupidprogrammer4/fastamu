@@ -1,8 +1,8 @@
 import pytest
 
-from fastamu.common.errors.exceptions import ValidationException
-from fastamu.common.models.entities import IdentifiedEntity
-from fastamu.common.services import BaseIDService
+from papilio.errors.exceptions import ValidationException
+from papilio.infra.db.models import IdentifiedEntity
+from papilio.services import BaseIDService
 
 
 class ThingModel(IdentifiedEntity):

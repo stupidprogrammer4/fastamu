@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 from elasticsearch.dsl import AsyncDocument
 
-from fastamu.infra.es.repository import ESRepository
+from papilio.infra.es.repository import ESRepository
 
 
 class SearchDocument(AsyncDocument):

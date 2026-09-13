@@ -2,8 +2,8 @@ from datetime import timedelta
 
 import pytest
 
-from fastamu.common.errors.exceptions import UnAuthorizedException
-from fastamu.common.security.tokens import create_token, decode_token
+from papilio.errors.exceptions import UnAuthorizedException
+from papilio.security.tokens import create_token, decode_token
 
 
 def test_decode_can_require_the_intended_audience() -> None:

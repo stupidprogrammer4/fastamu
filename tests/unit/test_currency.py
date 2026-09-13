@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from fastamu.common.utils import currency as cu
+from papilio.utils import currency as cu
 
 
 @pytest.mark.parametrize(

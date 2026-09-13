@@ -5,10 +5,10 @@ import pytest
 from sqlalchemy import bindparam, insert, select, update
 from sqlmodel import Field
 
-from fastamu.common.models.entities import IdentifiedEntity
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.table import BaseTable
-from fastamu.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.table import BaseTable
+from papilio.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
 
 
 class UowRecord(IdentifiedEntity, BaseTable, table=True):

@@ -7,23 +7,23 @@ import pytest
 from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError
 
-from fastamu.common.models.entities import IdentifiedEntity
-from fastamu.common.models.fields import CharField, IntField, JSONField
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.repositories.backends.mariadb import (
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.fields import CharField, IntField, JSONField
+from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.repositories.backends.mariadb import (
     MariaDBIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.mysql import (
+from papilio.infra.db.repositories.backends.mysql import (
     MySQLIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.postgresql import (
+from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.sqlite import (
+from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
 )
-from fastamu.infra.db.table import BaseTable
-from fastamu.infra.db.uow import (
+from papilio.infra.db.table import BaseTable
+from papilio.infra.db.uow import (
     MariaDBUnitOfWork,
     MySQLUnitOfWork,
     PostgreSQLUnitOfWork,

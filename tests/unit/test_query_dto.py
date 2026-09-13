@@ -3,7 +3,7 @@ from typing import ClassVar
 import pytest
 from pydantic import Field
 
-from fastamu.common.schemas.dtos import BaseQuery
+from papilio.api.requests.queries import BaseQuery
 
 
 class SearchQuery(BaseQuery):

@@ -8,15 +8,15 @@ from sqlalchemy import Integer, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from fastamu.common.models.entities import IdentifiedEntity, VersionEntity
-from fastamu.common.models.fields import (
+from papilio.infra.db.dialects.postgresql import ArrayField
+from papilio.infra.db.fields import (
     BoolField,
     CharField,
     JSONField,
     TimestampField,
 )
-from fastamu.infra.db.dialects.postgresql import ArrayField
-from fastamu.infra.db.table import BaseTable
+from papilio.infra.db.models import IdentifiedEntity, VersionEntity
+from papilio.infra.db.table import BaseTable
 
 
 class DefaultsModel(IdentifiedEntity):
@@ -126,7 +126,7 @@ def test_array_gin_index_is_declared_with_its_column():
 def test_oracle_json_type_preserves_the_requested_null_semantics(none_as_null):
     from sqlalchemy import JSON
 
-    from fastamu.infra.db.dialects.oracle import OracleJSON
+    from papilio.infra.db.dialects.oracle import OracleJSON
 
     type_ = OracleJSON(none_as_null=none_as_null)
     assert type_.process_bind_param(None, None) == (
@@ -143,7 +143,7 @@ def test_foreign_keys_computed_fields_and_scalar_helpers_declare_native_sql():
 
     from sqlalchemy import Boolean
 
-    from fastamu.common.models.fields import (
+    from papilio.infra.db.fields import (
         BigIntField,
         ComputedField,
         DateField,

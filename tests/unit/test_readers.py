@@ -19,16 +19,16 @@ from sqlalchemy import (
     select,
 )
 
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.repositories.backends.sqlite import SQLiteReader
-from fastamu.infra.db.repositories.contracts.base import (
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.repositories.backends.sqlite import SQLiteReader
+from papilio.infra.db.repositories.contracts.base import (
     ReaderContract,
 )
-from fastamu.infra.db.tools.read import (
+from papilio.infra.db.tools.read import (
     fetch_page,
     stream,
 )
-from fastamu.infra.db.uow import SQLiteUnitOfWork
+from papilio.infra.db.uow import SQLiteUnitOfWork
 
 metadata = MetaData()
 groups = Table(
@@ -95,12 +95,12 @@ class ReportReader(SQLiteReader):
 )
 async def test_each_backend_has_its_own_reader(backend, prefix):
     contracts = importlib.import_module(
-        f"fastamu.infra.db.repositories.contracts.{backend}"
+        f"papilio.infra.db.repositories.contracts.{backend}"
     )
     implementations = importlib.import_module(
-        f"fastamu.infra.db.repositories.backends.{backend}"
+        f"papilio.infra.db.repositories.backends.{backend}"
     )
-    units = importlib.import_module("fastamu.infra.db.uow")
+    units = importlib.import_module("papilio.infra.db.uow")
     contract = getattr(contracts, f"{prefix}ReaderContract")
     implementation = getattr(implementations, f"{prefix}Reader")
     unit_type = getattr(units, f"{prefix}UnitOfWork")

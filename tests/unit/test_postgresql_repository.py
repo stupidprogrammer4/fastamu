@@ -10,16 +10,16 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel import Field
 
-from fastamu.common.models.entities import BaseEntity
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.repositories.backends.postgresql import (
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.models import BaseEntity
+from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLReader,
     PostgreSQLRepository,
 )
-from fastamu.infra.db.repositories.backends.sqlite import SQLiteRepository
-from fastamu.infra.db.table import BaseTable
-from fastamu.infra.db.transaction import transaction
-from fastamu.infra.db.uow import PostgreSQLUnitOfWork, SQLiteUnitOfWork
+from papilio.infra.db.repositories.backends.sqlite import SQLiteRepository
+from papilio.infra.db.table import BaseTable
+from papilio.infra.db.transaction import transaction
+from papilio.infra.db.uow import PostgreSQLUnitOfWork, SQLiteUnitOfWork
 
 
 class ToolEntity(BaseEntity):
