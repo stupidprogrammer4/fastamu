@@ -21,11 +21,8 @@ if TYPE_CHECKING:
 class Bootstrapper:
     """Finds everything a running app is made of, by walking packages.
 
-    `base_pkgs` are the roots it scans — your application's modules package,
-    and packages of modules you want to adopt (the built-in `ops` group,
-    a shared library of modules across services). Nothing is registered
-    anywhere: a module is discovered because it is in one of these packages
-    and has the layout.
+    `base_pkgs` contains application-selected package roots. Modules are
+    discovered from their layout; the framework supplies none of its own.
     """
 
     def __init__(self, base_pkgs: Sequence[str] = ()) -> None:

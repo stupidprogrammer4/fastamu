@@ -16,6 +16,7 @@ def test_distribution_does_not_require_task_frameworks():
     )
     assert metadata["project"]["name"] == "papilio"
     assert metadata["project"]["scripts"] == {"papilio": "papilio.cli.app:app"}
+    assert "ops" not in metadata["project"]["optional-dependencies"]
 
 
 def test_web_scaffold_does_not_create_task_packages():

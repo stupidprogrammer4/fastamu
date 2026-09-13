@@ -66,9 +66,8 @@ excel = ["openpyxl>=3.1.5,<4.0.0"]
 files = ["anyio>=4.13.0,<5.0.0"]
 csv = ["anyio>=4.13.0,<5.0.0"]
 persian = ["jdatetime>=5.2.0,<6.0.0", "persiantools>=5.4.0,<6.0.0"]
-ops = ["papilio[postgresql,redis,es,http,persian]", "aiofiles>=25.1.0,<26.0.0"]
 test = ["pytest==9.0.1", "pytest-asyncio==1.3.0", "httpx>=0.28.1,<0.29.0"]
-all = ["papilio[server,postgresql,mssql,oracle,mysql,sqlite,es,redis,rate-limit,http,excel,files,csv,persian,ops]"]
+all = ["papilio[server,postgresql,mssql,oracle,mysql,sqlite,es,redis,rate-limit,http,excel,files,csv,persian]"]
 dev = ["papilio[all,test]", "ruff", "pyright==1.1.390"]
 
 [project.scripts]
@@ -82,8 +81,7 @@ papilio = "papilio.testing.plugin"
 packages = ["papilio"]
 
 [tool.hatch.build.targets.sdist]
-# the docs and the suite belong in the source distribution; the reference
-# modules are already inside the package
+# Include documentation and tests in the source distribution.
 include = ["papilio", "tests", "README.md", "LICENSE", "pytest.ini", "docs", "mkdocs.yml"]
 
 # pytest configuration lives in pytest.ini (single source of truth — pytest.ini

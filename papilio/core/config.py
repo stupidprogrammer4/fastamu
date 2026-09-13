@@ -15,12 +15,7 @@ class Feature(StrEnum):
 
 
 class AppConfig(BaseModel):
-    """What this application *is* — the packages its modules live in.
-
-    The bootstrapper walks these and finds everything else. List your own
-    package first; add `papilio.modules` to adopt the framework's `ops`
-    reference modules (messages, storage, system) as they are.
-    """
+    """Application-owned module roots and feature settings."""
 
     modules: list[str] = Field(default_factory=list)
     features: set[Feature] = Field(default_factory=set)

@@ -1,11 +1,9 @@
 app:
-  modules:
-  - papilio.modules
-  features:
-  - cqrs
+  modules: []
+  features: []
 fastapi:
   title: Papilio
-  description: A FastAPI + dishka + taskiq modular-monolith template.
+  description: A modular API framework built on FastAPI and Dishka.
   version: 0.0.0
 db:
   test_dsn: postgresql+asyncpg://postgres:secure_pwd@0.0.0.0:5432/papilio_test_db

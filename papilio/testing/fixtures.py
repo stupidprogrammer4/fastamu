@@ -1,4 +1,4 @@
-"""Opt-in PostgreSQL/reference fixtures; load via pytest_plugins."""
+"""Opt-in infrastructure fixtures for application tests."""
 
 from __future__ import annotations
 
