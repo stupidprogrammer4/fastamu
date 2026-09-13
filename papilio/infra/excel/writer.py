@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from typing import Any
 
 from openpyxl import load_workbook
@@ -18,10 +19,12 @@ class ExcelWriter:
     """
 
     def __init__(self, max_workers: int = 1) -> None:
-        self._pool = ProcessPoolExecutor(max_workers=max_workers)
+        self._pool = ProcessPoolExecutor(
+            max_workers=max_workers, mp_context=get_context("spawn")
+        )
 
+    @staticmethod
     def _write_rows_job(
-        self,
         template: str,
         output: str,
         sheet: str | None,
@@ -30,25 +33,28 @@ class ExcelWriter:
         rows: list[list[Any]],
     ) -> str:
         wb = load_workbook(template)
-        ws = wb[sheet] if sheet else wb.active
-        if ws is None:
-            raise ValueError("workbook has no active worksheet")
+        try:
+            ws = wb[sheet] if sheet else wb.active
+            if ws is None:
+                raise ValueError("workbook has no active worksheet")
 
-        r = start_row
-        if titles is not None:
-            for c, title in enumerate(titles, start=1):
-                ws.cell(row=r, column=c, value=title)
-            r += 1
-        for values in rows:
-            for c, value in enumerate(values, start=1):
-                ws.cell(row=r, column=c, value=value)
-            r += 1
+            r = start_row
+            if titles is not None:
+                for c, title in enumerate(titles, start=1):
+                    ws.cell(row=r, column=c, value=title)
+                r += 1
+            for values in rows:
+                for c, value in enumerate(values, start=1):
+                    ws.cell(row=r, column=c, value=value)
+                r += 1
 
-        wb.save(output)
+            wb.save(output)
+        finally:
+            wb.close()
         return output
 
+    @staticmethod
     def _write_cell_job(
-        self,
         template: str,
         output: str,
         sheet: str | None,
@@ -56,11 +62,14 @@ class ExcelWriter:
         value: Any,
     ) -> str:
         wb = load_workbook(template)
-        ws = wb[sheet] if sheet else wb.active
-        if ws is None:
-            raise ValueError("workbook has no active worksheet")
-        ws[cell] = value
-        wb.save(output)
+        try:
+            ws = wb[sheet] if sheet else wb.active
+            if ws is None:
+                raise ValueError("workbook has no active worksheet")
+            ws[cell] = value
+            wb.save(output)
+        finally:
+            wb.close()
         return output
 
     async def write_rows(
@@ -114,5 +123,5 @@ class ExcelWriter:
         )
         return result
 
-    def close(self) -> None:
-        self._pool.shutdown()
+    async def close(self) -> None:
+        await asyncio.to_thread(self._pool.shutdown)

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -19,13 +19,20 @@ class ExcelRow(BaseModel):
     document. Declare columns as fields via `Row(...)`; column order follows
     field-definition order."""
 
+    column_names: ClassVar[tuple[str, ...]] = ()
+    _titles: ClassVar[tuple[str, ...]] = ()
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        cls.column_names = tuple(cls.model_fields)
+        cls._titles = tuple(
+            field.title or name for name, field in cls.model_fields.items()
+        )
+
     @classmethod
     def titles(cls) -> list[str]:
-        """Column headers, in column order (falls back to the field name)."""
-        return [
-            field.title or name for name, field in cls.model_fields.items()
-        ]
+        return list(cls._titles)
 
     def cells(self) -> list[Any]:
-        """Cell values, in column order."""
-        return [getattr(self, name) for name in type(self).model_fields]
+        return [self.__dict__[name] for name in self.column_names]

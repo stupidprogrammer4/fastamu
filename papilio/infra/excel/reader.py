@@ -1,5 +1,6 @@
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from typing import Any
 
 from openpyxl import load_workbook
@@ -17,10 +18,12 @@ class ExcelReader:
     """
 
     def __init__(self, max_workers: int = 1) -> None:
-        self._pool = ProcessPoolExecutor(max_workers=max_workers)
+        self._pool = ProcessPoolExecutor(
+            max_workers=max_workers, mp_context=get_context("spawn")
+        )
 
+    @staticmethod
     def _read_rows_job(
-        self,
         path: str,
         sheet: str | None,
         start_row: int,
@@ -48,7 +51,8 @@ class ExcelReader:
         finally:
             wb.close()
 
-    def _read_cell_job(self, path: str, sheet: str | None, cell: str) -> Any:
+    @staticmethod
+    def _read_cell_job(path: str, sheet: str | None, cell: str) -> Any:
         wb = load_workbook(path, data_only=True)
         try:
             ws = wb[sheet] if sheet else wb.active
@@ -70,7 +74,7 @@ class ExcelReader:
         """Read rows from ``start_row`` (1-based) into ``row_model`` instances,
         mapping columns to fields by order. Stops at the first blank row or
         after ``limit`` rows."""
-        names = list(row_model.model_fields)
+        names = row_model.column_names
         loop = asyncio.get_running_loop()
         raw = await loop.run_in_executor(
             self._pool,
@@ -93,5 +97,5 @@ class ExcelReader:
         )
         return result
 
-    def close(self) -> None:
-        self._pool.shutdown()
+    async def close(self) -> None:
+        await asyncio.to_thread(self._pool.shutdown)
