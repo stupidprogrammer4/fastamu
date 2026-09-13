@@ -8,7 +8,7 @@ from fastamu.common.schemas.results import PagedType
 from fastamu.common.services import BaseIDService
 from fastamu.common.utils import dates
 from fastamu.core import resources
-from fastamu.infra.db.transaction import transactional
+from fastamu.infra.db.tools.decorators import transactional
 from fastamu.modules.ops.messages.config.constants import (
     MESSAGE_ID_ENCRYPTION,
 )
@@ -90,7 +90,7 @@ class SMSProviderService(BaseIDService[SMSProviderEntity]):
         Returns:
             (SMSProviderEntity): The stored provider.
         """
-        provider = await self.repo.upsert(
+        provider = await self.repo.save(
             SMSProviderEntity(**data.to_row(exclude_unset=False))
         )
         return provider
@@ -155,7 +155,7 @@ class SMSPatternService(BaseIDService[SMSPatternEntity]):
         Returns:
             (SMSPatternEntity): The registered pattern.
         """
-        pattern = await self.repo.upsert(
+        pattern = await self.repo.save(
             SMSPatternEntity(**data.to_row(exclude_unset=False))
         )
         return pattern
@@ -265,7 +265,7 @@ class MessageService(BaseIDService[MessageEntity]):
             messages = await self.repo.get_by_ids(list(results))
             rows = [self._stamped(row, results[row.id]) for row in messages]
             if rows:
-                delivered = await self.repo.bulk_update(rows)
+                delivered = await self.repo.save_delivery_results(rows)
         return delivered
 
     def _stamped(

@@ -1,44 +1,49 @@
-"""SQL session lifetime, commit/rollback, and the writes themselves."""
+"""Typed SQL units of work: session lifetime and transaction tools."""
 
-from abc import ABC, abstractmethod
-from collections.abc import Sequence
+import asyncio
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, contextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from types import MappingProxyType, TracebackType
+from typing import TYPE_CHECKING, Any, Self, overload
 
-from sqlalchemy import (
-    and_,
-    func,
-    insert,
-    inspect,
-    or_,
-    select,
-    tuple_,
+from sqlalchemy import Result, func, select
+from sqlalchemy.ext.asyncio import (
+    AsyncResult,
+    AsyncSession,
+    AsyncSessionTransaction,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.dml import Delete, Insert, Update
-from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.base import Executable
+from sqlalchemy.sql.selectable import TypedReturnsRows
 
-if TYPE_CHECKING:  # a dialect names its unit of work, so the import is a cycle
+if TYPE_CHECKING:
     from fastamu.infra.db.connection import DBConnection
+    from fastamu.infra.db.transaction import Transaction
 
-type Mutation = Update | Delete
+
+type StatementParameters = Mapping[str, Any] | Sequence[Mapping[str, Any]]
 
 
-class DBUnitOfWork(ABC):
-    """An open session. Leaving its scope never commits implicitly.
+class UnitOfWork:
+    """Own one session per operation; closing never commits implicitly.
 
-    Use ``@transactional`` or ``async with transaction()`` to commit.
+    Repositories receive a backend-specific subclass. Each concurrent task
+    needs its own unit. Use transaction() for managed commit/rollback, or
+    commit()/rollback() explicitly when managing the boundary yourself.
     """
 
-    _current: ContextVar["DBUnitOfWork | None"] = ContextVar(
-        "db_unit_of_work", default=None
+    _scope: ContextVar[tuple["UnitOfWork", ...]] = ContextVar(
+        "units_of_work", default=()
     )
 
-    def __init__(self, db: "DBConnection"):
-        self.db = db
+    def __init__(self, connection: "DBConnection[Self]") -> None:
+        self.connection = connection
         self._session: AsyncSession | None = None
-        self._parent: DBUnitOfWork | None = None
+
+    @property
+    def is_open(self) -> bool:
+        return self._session is not None
 
     @property
     def session(self) -> AsyncSession:
@@ -46,185 +51,202 @@ class DBUnitOfWork(ABC):
             raise RuntimeError("Unit of work is not open")
         return self._session
 
-    @classmethod
-    def current(cls) -> "DBUnitOfWork | None":
-        unit = cls._current.get()
-        return unit if unit is not None and unit._session is not None else None
+    @property
+    def in_transaction(self) -> bool:
+        return self.session.in_transaction()
 
-    async def begin(self) -> "DBUnitOfWork":
-        if self._session is not None:
+    async def open(self) -> Self:
+        """Create the session; a SQL transaction starts when it is needed."""
+        if self.is_open:
             raise RuntimeError("Unit of work is already open")
-        self._session = self.db.session_factory()
-        self._parent = self.current()
-        self._current.set(self)
+        self._session = self.connection.session_factory()
+        self._scope.set((*self._scope.get(), self))
         return self
 
     async def close(self) -> None:
+        """Finish session cleanup before propagating caller cancellation."""
         if self._session is None:
             return
+        cleanup = asyncio.create_task(self._session.close())
+        cancellation: asyncio.CancelledError | None = None
         try:
-            await self._session.close()
+            while True:
+                try:
+                    await asyncio.shield(cleanup)
+                    break
+                except asyncio.CancelledError as exc:
+                    if cleanup.cancelled():
+                        raise
+                    # Repeated cancellation must not interrupt cleanup.
+                    cancellation = exc
         finally:
             self._session = None
-            if self._current.get() is self:
-                self._current.set(self._parent)
-            self._parent = None
+            self._scope.set(
+                tuple(unit for unit in self._scope.get() if unit is not self)
+            )
+        if cancellation is not None:
+            raise cancellation
+
+    async def __aenter__(self) -> Self:
+        return await self.open()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.close()
+
+    @classmethod
+    def current(cls) -> "UnitOfWork | None":
+        """Return the current open unit for this operation."""
+        for unit in reversed(cls._scope.get()):
+            if unit.is_open:
+                return unit
+        return None
+
+    @contextmanager
+    def activate(self) -> Generator[Self]:
+        """Select this open unit temporarily for an operation."""
+        if not self.is_open:
+            raise RuntimeError("Unit of work is not open")
+        token = self._scope.set((*self._scope.get(), self))
+        try:
+            yield self
+        finally:
+            self._scope.reset(token)
+
+    def transaction(self) -> AbstractAsyncContextManager["Transaction"]:
+        """Manage commit/rollback, joining this unit's outer operation."""
+        from fastamu.infra.db.transaction import transaction
+
+        return transaction(self)
+
+    def savepoint(self) -> AsyncSessionTransaction:
+        """Open a SQLAlchemy savepoint; entering flushes pending ORM changes.
+
+        Catch a savepoint failure outside its scope to keep the outer
+        transaction usable. Do not enter @transactional inside a savepoint.
+        """
+        return self.session.begin_nested()
 
     async def commit(self) -> None:
+        """Flush and commit when manually owning the transaction boundary."""
         await self.session.commit()
 
     async def rollback(self) -> None:
+        """Roll back pending changes when manually owning the boundary."""
         await self.session.rollback()
 
+    async def flush(self) -> None:
+        """Send pending ORM changes to the database without committing."""
+        await self.session.flush()
+
+    async def refresh(
+        self, instance: object, *, attributes: Sequence[str] | None = None
+    ) -> None:
+        """Explicitly reload an ORM instance or selected mapped attributes."""
+        await self.session.refresh(instance, attribute_names=attributes)
+
+    @overload
+    async def execute[T: tuple[Any, ...]](
+        self,
+        stmt: TypedReturnsRows[T],
+        params: StatementParameters | None = None,
+        *,
+        execution_options: Mapping[str, Any] = MappingProxyType({}),
+        bind_arguments: dict[str, Any] | None = None,
+    ) -> Result[T]: ...
+
+    @overload
+    async def execute(
+        self,
+        stmt: Executable,
+        params: StatementParameters | None = None,
+        *,
+        execution_options: Mapping[str, Any] = MappingProxyType({}),
+        bind_arguments: dict[str, Any] | None = None,
+    ) -> Result[Any]: ...
+
+    async def execute(
+        self,
+        stmt: Executable,
+        params: StatementParameters | None = None,
+        *,
+        execution_options: Mapping[str, Any] = MappingProxyType({}),
+        bind_arguments: dict[str, Any] | None = None,
+    ) -> Result[Any]:
+        """Execute SQL and return its unmodified buffered result."""
+        return await self.session.execute(
+            stmt,
+            params,
+            execution_options=execution_options,
+            bind_arguments=bind_arguments,
+        )
+
+    @overload
+    async def stream[T: tuple[Any, ...]](
+        self,
+        stmt: TypedReturnsRows[T],
+        params: StatementParameters | None = None,
+        *,
+        execution_options: Mapping[str, Any] = MappingProxyType({}),
+        bind_arguments: dict[str, Any] | None = None,
+    ) -> AsyncResult[T]: ...
+
+    @overload
+    async def stream(
+        self,
+        stmt: Executable,
+        params: StatementParameters | None = None,
+        *,
+        execution_options: Mapping[str, Any] = MappingProxyType({}),
+        bind_arguments: dict[str, Any] | None = None,
+    ) -> AsyncResult[Any]: ...
+
+    async def stream(
+        self,
+        stmt: Executable,
+        params: StatementParameters | None = None,
+        *,
+        execution_options: Mapping[str, Any] = MappingProxyType({}),
+        bind_arguments: dict[str, Any] | None = None,
+    ) -> AsyncResult[Any]:
+        """Execute SQL and return an open cursor; the caller closes it."""
+        return await self.session.stream(
+            stmt,
+            params,
+            execution_options=execution_options,
+            bind_arguments=bind_arguments,
+        )
+
     async def now(self) -> datetime:
-        result = await self.session.execute(select(func.current_timestamp()))
+        """Read the current timestamp from this database transaction."""
+        stmt = select(func.current_timestamp())
+        result = await self.execute(stmt)
         return result.scalar_one()
 
-    async def __aenter__(self) -> "DBUnitOfWork":
-        return await self.begin()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
-
-    @abstractmethod
-    async def insert(
-        self, table: type[Any], rows: Sequence[dict[str, Any]]
-    ) -> Sequence[Any]: ...
-
-    @abstractmethod
-    async def update(
-        self, table: type[Any], stmt: Update, where: ColumnElement[bool]
-    ) -> Sequence[Any]: ...
-
-    @abstractmethod
-    async def delete(
-        self, table: type[Any], stmt: Delete, where: ColumnElement[bool]
-    ) -> Sequence[Any]: ...
-
-    @abstractmethod
-    async def upsert(
-        self,
-        table: type[Any],
-        stmt: Insert,
-        rows: Sequence[dict[str, Any]],
-        keys: Sequence[str],
-    ) -> Sequence[Any]: ...
+class PostgreSQLUnitOfWork(UnitOfWork):
+    pass
 
 
-class ReturningUnitOfWork(DBUnitOfWork):
-    """One statement per write, where the database returns its rows."""
-
-    async def _returned(
-        self, table: type[Any], stmt: Insert | Mutation
-    ) -> Sequence[Any]:
-        # a row already in the session would otherwise keep its loaded values
-        result = await self.session.execute(
-            stmt.returning(table).execution_options(populate_existing=True)
-        )
-        return result.scalars().all()
-
-    async def insert(
-        self, table: type[Any], rows: Sequence[dict[str, Any]]
-    ) -> Sequence[Any]:
-        return await self._returned(table, insert(table).values(rows))
-
-    async def update(
-        self, table: type[Any], stmt: Update, where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        return await self._returned(table, stmt)
-
-    async def delete(
-        self, table: type[Any], stmt: Delete, where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        return await self._returned(table, stmt)
-
-    async def upsert(
-        self,
-        table: type[Any],
-        stmt: Insert,
-        rows: Sequence[dict[str, Any]],
-        keys: Sequence[str],
-    ) -> Sequence[Any]:
-        return await self._returned(table, stmt)
+class MySQLUnitOfWork(UnitOfWork):
+    pass
 
 
-class FetchUnitOfWork(DBUnitOfWork):
-    """Read the rows back, where the database cannot return them."""
+class MariaDBUnitOfWork(UnitOfWork):
+    pass
 
-    def _identity(
-        self, table: type[Any], rows: Sequence[Any]
-    ) -> ColumnElement[bool]:
-        columns = list(inspect(table).primary_key)
-        if not columns:
-            raise ValueError("Repository tables require a primary key")
-        keys = [str(column.key) for column in columns]
-        if len(columns) == 1:
-            return columns[0].in_([getattr(row, keys[0]) for row in rows])
-        return tuple_(*columns).in_(
-            [tuple(getattr(row, key) for key in keys) for row in rows]
-        )
 
-    async def _read(
-        self, table: type[Any], where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        result = await self.session.execute(
-            select(table)
-            .where(where)
-            .execution_options(populate_existing=True)
-        )
-        return result.scalars().all()
+class SQLiteUnitOfWork(UnitOfWork):
+    pass
 
-    async def _changed(
-        self, table: type[Any], stmt: Mutation, where: ColumnElement[bool]
-    ) -> tuple[Sequence[Any], ColumnElement[bool] | None]:
-        """Hold the rows first: after the write the filter may not match."""
-        locked = await self.session.execute(
-            select(table).where(where).with_for_update()
-        )
-        rows = locked.scalars().all()
-        if not rows:
-            return [], None
-        identity = self._identity(table, rows)
-        await self.session.execute(
-            stmt.where(identity).execution_options(synchronize_session=False)
-        )
-        return rows, identity
 
-    async def insert(
-        self, table: type[Any], rows: Sequence[dict[str, Any]]
-    ) -> Sequence[Any]:
-        # a bulk INSERT reports only the first generated key
-        objects = [table(**row) for row in rows]
-        self.session.add_all(objects)
-        await self.session.flush()
-        return await self._read(table, self._identity(table, objects))
+class OracleUnitOfWork(UnitOfWork):
+    pass
 
-    async def update(
-        self, table: type[Any], stmt: Update, where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        _, identity = await self._changed(table, stmt, where)
-        return [] if identity is None else await self._read(table, identity)
 
-    async def delete(
-        self, table: type[Any], stmt: Delete, where: ColumnElement[bool]
-    ) -> Sequence[Any]:
-        rows, _ = await self._changed(table, stmt, where)
-        return rows
-
-    async def upsert(
-        self,
-        table: type[Any],
-        stmt: Insert,
-        rows: Sequence[dict[str, Any]],
-        keys: Sequence[str],
-    ) -> Sequence[Any]:
-        await self.session.execute(stmt)
-        return await self._read(
-            table,
-            or_(
-                *(
-                    and_(*(getattr(table, key) == row[key] for key in keys))
-                    for row in rows
-                )
-            ),
-        )
+class MSSQLUnitOfWork(UnitOfWork):
+    pass

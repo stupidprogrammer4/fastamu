@@ -3,10 +3,10 @@ and talks to it through the unit of work. Marked `integration` by path."""
 
 import pytest
 
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import UnitOfWork
 
 
 @pytest.mark.usefixtures("migrated_test_db")
-async def test_database_is_migrated_and_reachable(uow: DBUnitOfWork) -> None:
+async def test_database_is_migrated_and_reachable(uow: UnitOfWork) -> None:
     now = await uow.now()
     assert now is not None

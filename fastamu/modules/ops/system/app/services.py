@@ -7,6 +7,7 @@ from fastamu.common.utils import dates
 from fastamu.core.config import Settings
 from fastamu.core.logger import logger
 from fastamu.infra.db.connection import DBConnection
+from fastamu.infra.db.uow import PostgreSQLUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.redis.client import RedisClient
 from fastamu.modules.ops.system.routers.schemas import (
@@ -23,7 +24,7 @@ class SystemService:
     def __init__(
         self,
         settings: Settings,
-        db: DBConnection,
+        db: DBConnection[PostgreSQLUnitOfWork],
         redis: RedisClient,
         es: ESClient,
     ) -> None:

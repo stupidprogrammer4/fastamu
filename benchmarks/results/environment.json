@@ -1,0 +1,47 @@
+{
+  "cpu": "AMD Ryzen 7 3750H with Radeon Vega Mobile Gfx",
+  "logical_cpus": 8,
+  "memory": [
+    "MemTotal:       15263152 kB",
+    "MemFree:         4232812 kB",
+    "MemAvailable:    7611516 kB",
+    "Buffers:          728500 kB"
+  ],
+  "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+  "drivers": {
+    "asyncpg": "0.31.0",
+    "asyncmy": "0.2.14",
+    "oracledb": "4.0.2",
+    "aiosqlite": "0.22.1",
+    "aioodbc": "0.5.0",
+    "pyodbc": "5.3.0"
+  },
+  "git_head": "d9039abb006e4bcc91a7738b4e808d5888a5de1c",
+  "source_sha256": {
+    "fastamu/infra/db/repositories/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fastamu/infra/db/repositories/backends/mssql.py": "542e64b93ffed3d1d844d995c3f22a862b27f98410293bc0445e7cc553715134",
+    "fastamu/infra/db/repositories/backends/sqlite.py": "a1c79922eddf2cee3b4b0bf3210e47281ac6e25ae8c21e4f604b024036c715ec",
+    "fastamu/infra/db/repositories/backends/postgresql.py": "054e67a81202ac4c9a7ba44d7cf6d63a65800c7b37d54c73abc30361af3d4b65",
+    "fastamu/infra/db/repositories/backends/mysql.py": "fba64a6d673c9d13e8d682f502eb29f327ce680095d774ad727fd1f436b7075f",
+    "fastamu/infra/db/repositories/backends/oracle.py": "358783e99538a83013a6ed66b1985dfc76e02c973f9d86af517ea255ec312adb",
+    "fastamu/infra/db/repositories/backends/mariadb.py": "ab1fc2615bf1b5e5efadf35daae272908064b612c97c18c8a0a5fa7a17018a16",
+    "fastamu/infra/db/repositories/backends/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fastamu/infra/db/repositories/contracts/mssql.py": "a3bdac61b8b52c2c049ecf89d47b1e9c2c4d34880f791fdab7f3f570d298b388",
+    "fastamu/infra/db/repositories/contracts/sqlite.py": "033ba8518d93e5f2b8f56e7f9679678f12511d50a7836636ec6e4afc2817cb16",
+    "fastamu/infra/db/repositories/contracts/postgresql.py": "352df896fc0ae6a18f58f5a1d5e20d4baf93e81887179a40cda097634acfe00a",
+    "fastamu/infra/db/repositories/contracts/mysql.py": "bdf3f530524638db11ada1100a246dc6e47b18ae7081b95ac6995a77880dd00c",
+    "fastamu/infra/db/repositories/contracts/oracle.py": "a3c19ee324ab373ac8eb04cc2277b7987f5fe291de7f0806d64f43a6955005f4",
+    "fastamu/infra/db/repositories/contracts/base.py": "192c61bdc6e81c61f1b0ee8d56b771f08c6e758b54e93ed544aaee81051d2b35",
+    "fastamu/infra/db/repositories/contracts/mariadb.py": "0be3ba83d878555aafe5a91b5c47763c52ad2dda1400e9aacc97eb236aefb64f",
+    "fastamu/infra/db/repositories/contracts/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fastamu/infra/db/uow.py": "5347bc0eba77e3b7311a62be327acd91e1ebc1e0517be5e0697bd478e5a7a39a",
+    "fastamu/infra/db/connection.py": "4b580a4ac10277cc471b76fb1d45554f145c210c0c369c84678e49bb2e4e2611",
+    "fastamu/common/models/entities.py": "22704c7e40cb74de0599509e5baf82af5bd92561758b8079c1c7d26cbbee9374"
+  },
+  "methodology": "One benchmark database container running at a time; preexisting user services left running. No hardware isolation. SQLite file on workspace disk. Server defaults except SQL Server memory limit 1536 MB, Oracle XE product limits. Compare strategies within each backend, not server rankings.",
+  "measurement_date": "2026-09-13",
+  "benchmark_sha256": {
+    "benchmarks/db_repository.py": "9922d62fb31461d60904fdccf6d2ba95af2d6dba6951ba156879fb8721cb6966",
+    "benchmarks/run_local.py": "4816042519049e420c76fb153b237a77f9965e4704efa74d36a44970f15ee2f2"
+  }
+}

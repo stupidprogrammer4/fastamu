@@ -82,7 +82,7 @@ behave as one thing.
 | HTTP, validation, OpenAPI | **FastAPI** | Auto-included routers, a uniform response envelope, typed error handlers, offline (CDN-free) Swagger UI |
 | Dependency injection | **dishka** | A `CoreProvider` with the whole infra layer pre-wired; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes shared identically by the web app *and* the task worker |
 | Scheduled jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, logging middleware |
-| Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Generic `DBRepository` hierarchy with dialect-specific SQL, patch-semantics writes, statement-agnostic pagination, bulk upsert/update helpers, a `UnitOfWork` bound to the request |
+| Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Explicit repositories for each database and entity shape, native writes, paging/streaming helpers, and a request-scoped `UnitOfWork` |
 | Read side / search | **Elasticsearch DSL** (async) | `ESRepository` and index auto-creation on boot |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
@@ -184,7 +184,7 @@ fastamu/
 │   └── resources.py # Global message codes
 │
 ├── infra/           # Adapters to the outside world
-│   ├── db/          # shared repository, connection, uow, table; dialects/
+│   ├── db/          # repository contracts/tools, typed connections and UoWs
 │   ├── es/          # client, repository, analyzers
 │   ├── redis/       # pooled async client
 │   ├── http/        # pooled httpx client + BaseGateway
@@ -284,8 +284,9 @@ modules/pricing/
 ├── routers/  interfaces.py  providers.py
 ```
 
-The reader extends `DBReader` — a repository base with no model bound to it,
-just the session — and returns a context instead of rows. The service splits in
+The reader extends `PostgreSQLReader` — a repository base
+with no model or table bound to it. It receives its typed UoW and session and
+returns the context its logic needs. The service splits in
 two: `run()` sits at the edge and does the reading, `calculate()` stays pure.
 
 ```python
@@ -413,23 +414,48 @@ no ORM base, no `__tablename__`. That is what keeps `domain/` honest — it name
 what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
-from fastamu.common.models.entities import BaseIDTimestampEntity
+from fastamu.common.models.entities import PersistenceEntity
 from fastamu.common.models.fields import BoolField, CharField
 
 
-class BrandModel(BaseIDTimestampEntity):
+class BrandModel(PersistenceEntity):
     name: str = CharField(35, index=True)
     slug: str = CharField(55, unique=True)
     is_active: bool = BoolField(default=True)
 ```
 
-`BaseIDTimestampEntity` contributes `id`, `created_at` and `updated_at`. Columns use
+`PersistenceEntity` contributes `id`, `created_at` and `updated_at`. Columns use
 the **field factories** from
 [fastamu/common/models/fields.py](fastamu/common/models/fields.py), which default to
-`NOT NULL` — nullability is opt-in, not opt-out.
+`NOT NULL`. Common options are direct named arguments:
 
-Bases: `BaseModel` (bare), `BaseIDEntity`, `BaseTimestampEntity`,
-`BaseIDTimestampEntity`.
+```python
+name: str = CharField(100, unique=True, db_column="display_name")
+metadata: dict = JSONField(default_factory=dict)
+note: str | None = TextField(default=None, nullable=True)
+```
+
+`default` and `default_factory` declare model defaults. `nullable` and
+`server_default` do not implicitly add a model default. A callable factory is
+passed as `default_factory`, never inferred from `default`. Strings supplied
+as `server_default` remain literal strings; pass `text(...)` or a SQLAlchemy
+expression when SQL should run. For example, use `server_default="pending"`
+for a string and `server_default=func.current_timestamp()` for a timestamp.
+`db_column` renames the physical column without changing the model field.
+`onupdate`, `server_onupdate`, `index`, `unique` and `comment` are also direct
+options. Advanced SQLAlchemy column options can use `sa_column_kwargs`.
+The helpers neither inspect nor modify the supplied options per query.
+
+`JSONField(none_as_null=False)` stores Python `None` as JSON `null`;
+`none_as_null=True` selects SQL `NULL`. MySQL ORM inserts follow SQLAlchemy's
+native omission rules for scalar columns with defaults; use an explicit SQL
+`null()` in a custom statement when required. Repositories never rewrite None.
+`VersionField` stores a version number; choose its default and update
+expression explicitly. `VersionEntity` starts at database version 1 and does
+not install an implicit increment.
+
+Bases: `BaseEntity` (bare), `IdentifiedEntity`, `TimestampEntity`,
+`PersistenceEntity`.
 
 Field factories: `IDField`, `SmallIntField`, `IntField`, `BigIntField`, `BoolField`,
 `FloatField`, `NumericField`, `CharField`, `TextField`, `DateField`,
@@ -452,8 +478,8 @@ class BrandTable(BrandModel, BaseTable, table=True):
 
 Constraints and indexes that span columns live here too — `__table_args__`, a
 `UniqueConstraint`, an explicit `__tablename__`. Repositories are still declared
-against the **model** (`DBIDRepository[BrandModel]`) and find the table
-themselves, so no layer above `infra/` ever names `BrandTable`.
+against the **model** (`PostgreSQLIdentifiedRepository[BrandModel]`) and bind
+`table = BrandTable` explicitly in `infra/`.
 
 > **Table naming gotcha.** `__tablename__` is derived as
 > `tbl_ + pluralize(ClassName.removesuffix("Table").lower())`. It does **not**
@@ -525,22 +551,26 @@ Inherit and you get the whole CRUD surface for free.
 from sqlmodel import col, select
 
 from fastamu.common.schemas.results import PagedType
-from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
+from fastamu.infra.db.tools.read import fetch_page
 from fastamu.modules.catalog.brands.domain.entities import BrandModel
+from fastamu.modules.catalog.brands.infra.tables import BrandTable
 
 
-class BrandRepository(DBIDRepository[BrandModel]):
+class BrandRepository(PostgreSQLIdentifiedRepository[BrandModel]):
+    table = BrandTable
+
     async def get_by_slug(self, slug: str) -> BrandModel | None:
         stmt = select(BrandModel).where(col(BrandModel.slug) == slug)
-        result = await self.session.execute(stmt)
+        result = await self.uow.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_paged(self, page: int, per_page: int) -> PagedType[BrandModel]:
-        stmt = select(BrandModel).order_by(col(BrandModel.id).desc())
-        return await self._paginate(stmt, (page - 1) * per_page, per_page)
+        stmt = select(self.table).order_by(col(self.table.id).desc())
+        return await fetch_page(self.uow, stmt, offset=(page - 1) * per_page, limit=per_page)
 ```
 
-`_paginate` returns the page **and** the total match count. The count is its own
+`fetch_page` returns the page **and** the total match count. The count is its own
 statement (the filters wrapped in a subquery, ordering dropped), which costs a
 round-trip and buys a paginator that behaves the same whatever select you hand it —
 a window function riding along on the page would have to be added to your statement,
@@ -553,7 +583,7 @@ generic parameter and gives you guards that raise the framework's typed errors.
 
 ```python
 from fastamu.common.services import BaseIDService
-from fastamu.infra.db.transaction import transactional
+from fastamu.infra.db.tools.decorators import transactional
 from fastamu.common.errors.exceptions import ConflictException
 from fastamu.core import resources
 from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
@@ -585,7 +615,9 @@ class BrandService(BaseIDService[BrandModel]):
         return self._check_for_id_existence(id, await self.repo.get_by_id(id))
 
     async def remove(self, id: int) -> BrandModel:
-        return self._check_for_id_existence(id, await self.repo.delete_by_id(id))
+        record = self._check_for_id_existence(id, await self.repo.get_by_id(id))
+        await self.repo.remove_by_id(id)
+        return record
 ```
 
 Guards on `BaseService` / `BaseIDService`:
@@ -634,7 +666,7 @@ class BrandProvider(Provider):
 
 `provide(BrandService, provides=IBrandService)` binds the implementation to the
 `Protocol`. Callers depend on `IBrandService`; only this line knows the concrete
-class. `BrandRepository`'s `DBUnitOfWork` argument is resolved by `CoreProvider`
+class. `BrandRepository`'s `PostgreSQLUnitOfWork` argument is resolved by `CoreProvider`
 — you never construct it.
 
 **This file is the entire registration.** No import into a central module, no list
@@ -711,38 +743,65 @@ layer injectable out of the box:
 | Inject this | Scope | What you get |
 |---|---|---|
 | `Settings` | APP | The parsed `config.yml` |
-| `DBConnection` | APP | The async engine + session factory |
-| `DBUnitOfWork` | **REQUEST** | An open session; application operations own commit/rollback |
+| `DBConnection[PostgreSQLUnitOfWork]` | APP | The default async engine + session factory |
+| `PostgreSQLUnitOfWork` | **REQUEST** | An open PostgreSQL session; operations own commit/rollback |
 | `ESClient` | APP | Async Elasticsearch client |
 | `RedisClient` | APP | Pooled async Redis client |
 | `ScheduleSource` | APP | The taskiq Redis schedule source (for scheduling jobs at runtime) |
 
 **The transaction boundary is an application operation.** Dishka opens a
-`DBUnitOfWork` when it is first resolved and closes it at scope exit. Scope exit
+backend-specific UoW when it is first resolved and closes it at scope exit. Scope exit
 never commits. SQLAlchemy discards any outstanding transaction when the session
-closes. Repositories only use `uow.session`; they do not own the transaction.
+closes. Repositories execute SQL through `uow.execute()`; they do not own the transaction.
 
 Use `@transactional` on a writing application method. It requires an open UoW,
 commits before returning, and rolls back on an exception or cancellation before
 commit. Nested decorated calls join the outer operation; only its owner commits.
 A failed nested operation marks the outer transaction rollback-only even if its
-exception is caught. Do not manually commit/rollback or use savepoints inside
-this boundary. Concurrent operations need separate UoWs; a child task cannot
+exception is caught. Do not manually commit/rollback inside this boundary.
+Use `unit.savepoint()` to isolate a SQL failure and catch it outside the
+savepoint scope. A decorated operation cannot start inside a savepoint.
+Concurrent operations need separate UoWs; a child task cannot
 borrow an inherited application transaction.
 
 ```python
-from fastamu.infra.db.transaction import transaction, transactional
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.tools.decorators import transactional
+from fastamu.infra.db.transaction import transaction
 
 @transactional
 async def rename_product(repo, product_id, title):
     return await repo.update_by_id(product_id, {"title": title})
 
 # Outside Dishka, open a session and use an explicit operation boundary:
-async with DBUnitOfWork(database) as unit:
-    async with transaction():
-        await unit.session.execute(statement)
+async with database.uow() as unit:
+    async with unit.transaction():
+        await unit.execute(statement)
 ```
+
+The UoW tools are explicit:
+
+| Tool | Behavior |
+|---|---|
+| `open()` / `close()` | Own the session lifetime; also used by `async with` |
+| `transaction()` | Commit on success, roll back on failure; select this UoW explicitly |
+| `commit()` / `rollback()` | Manually manage a transaction boundary |
+| `flush()` | Send pending ORM changes without committing |
+| `refresh(instance, attributes=...)` | Explicitly reload an object or chosen fields |
+| `savepoint()` | SQLAlchemy nested transaction; entering flushes pending ORM changes |
+| `is_open` / `in_transaction` | Inspect session lifetime / active SQL transaction state |
+| `now()` | Read the database timestamp |
+| `execute(stmt, params, ...)` | Return the buffered SQLAlchemy `Result`, preserving its row types |
+| `stream(stmt, params, ...)` | Return a raw `AsyncResult`; the caller closes the cursor |
+| `session` | Access SQLAlchemy directly, including ORM `add` / `add_all` |
+
+`open()` replaces the old session-opening `begin()` method, with no deprecated
+alias. Closing permanently closes that session; reopening a UoW creates a new
+one. Repositories from an expired scope cannot silently reuse its session.
+Cancellation during close is propagated after session cleanup finishes,
+including when the caller is cancelled repeatedly.
+When several databases are open, use `unit.transaction()` or
+`transaction(unit)` to choose the boundary explicitly. Each repository uses
+the UoW injected into it; selecting a transaction does not redirect repositories.
 
 The UoW has no message callbacks, version allocation or broker operations.
 HTTP error handlers only format errors; they never resolve a database session
@@ -779,62 +838,373 @@ In `fastamu.common.models.entities` — all pure, none of them a table:
 |---|---|
 | `Base` | `to_row()`, `to_dict()`, `to_json()`, `patch()`, `from_obj()`, `from_objs()`, … |
 | `BaseModel` | nothing — the plain entity base |
-| `BaseIDEntity` | `id` |
-| `BaseTimestampEntity` | `created_at`, `updated_at` (DB-managed) |
-| `BaseIDTimestampEntity` | all of the above — the usual choice |
+| `IdentifiedEntity` | `id` |
+| `TimestampEntity` | `created_at`, `updated_at` (DB-managed) |
+| `PersistenceEntity` | all of the above — the usual choice |
 
 `BaseTable`, in `fastamu.infra.db.table`, is what turns one into a
 table, and it is the only base that carries a `__tablename__`.
 
-### Repository bases
+### Explicit repositories
 
-Pick by the shape of your model: `DBRepository[M]`, `DBIDRepository[M]`,
-`DBTimestampRepository[M]`, `DBTimestampIDRepository[M]`. Every write uses
-native `RETURNING` where supported, or locks and re-reads rows inside the same
-transaction where it is not. The public repository is `DBRepository`, with
-`DBIDRepository`, `DBTimestampRepository`, and `DBTimestampIDRepository` variants.
-Connection, unit of work, and table definitions are shared in `infra/db`;
-backend-specific SQL lives in `infra/db/dialects`.
-
-A repository is parameterised by the **model**, and locates the table that carries
-it — the class in `infra/tables.py` that subclasses it with `table=True`. Nothing
-above `infra/` mentions a table class, and a model that no table carries raises an
-error naming the file to declare it in.
-
-**`DBRepository`**
+Choose both the database and the entity shape. Declare the table directly;
+there is no repository factory, table discovery or runtime generic inspection.
 
 ```python
-create(data: TModel) -> TModel
-bulk_create(data: Sequence[TModel]) -> Sequence[TModel]
-get_all() -> Sequence[TModel]
-get_all_stream(yield_per: int = 100) -> AsyncIterator[TModel]   # server-side cursor
-_paginate(stmt, offset, limit) -> PagedType[TModel]             # page + total match count
-_upsert_stmt(data, index_elements) -> ReturningInsert           # INSERT … ON CONFLICT DO UPDATE
-_bulk_update_stmt(data, key) -> ReturningUpdate                 # many rows, one UPDATE via a VALUES grid
+from fastamu.infra.db.repositories.backends.postgresql import (
+    PostgreSQLPersistenceRepository,
+)
+from shop.modules.catalog.products.domain.entities import ProductEntity
+from shop.modules.catalog.products.infra.tables import ProductTable
+
+
+class ProductRepository(PostgreSQLPersistenceRepository[ProductEntity]):
+    table = ProductTable
 ```
 
-**`DBIDRepository`** adds:
+Each database provides four entity repository shapes and a reader.
+Replace `PostgreSQL` with `MySQL`,
+`MariaDB`, `SQLite`, `MSSQL` or `Oracle` and import from its corresponding file
+under `fastamu.infra.db.repositories.backends`.
+
+| Shape | Example | Methods |
+|---|---|---|
+| Reader | `PostgreSQLReader` | Typed UoW for custom joins, aggregates and reports; no bound table |
+| Base | `PostgreSQLRepository[T]` | Explicit-column SQL builders; create/upsert/bulk writes; `get_one`, `get_all`, `get_all_stream`, `exists`, `count`, `get_page`, conditional `update` and `remove` |
+| ID | `PostgreSQLIdentifiedRepository[T]` | Base methods plus `get_by_id`, `get_by_ids`, `get_paged`, `update_by_id`, `update_by_ids`, `update_row_by_id`, `remove_by_id`, `remove_by_ids` |
+| Timestamp | `PostgreSQLTimestampRepository[T]` | Base methods plus `get_stream_range`, `get_paged_range` and `gt`, `ge`, `lt`, `le` stream/page variants |
+| ID + timestamp | `PostgreSQLPersistenceRepository[T]` | Combines the ID and timestamp methods |
+
+Reusable database tools live together, separate from session and transaction ownership:
+
+```text
+db/
+├── connection.py
+├── uow.py
+├── transaction.py       # transaction scope and ownership
+├── tools/
+│   ├── read.py          # scalar/model pagination and streaming
+│   └── decorators.py    # @transactional
+├── dialects/            # backend behavior, SQL types and database-specific tools
+└── repositories/
+```
+
+Import `transactional` from `fastamu.infra.db.tools.decorators`, reading helpers
+from `fastamu.infra.db.tools.read`. Database-specific helpers stay in
+`dialects`: PostgreSQL fields, `reset_schema` and `truncate_tables` are in
+`fastamu.infra.db.dialects.postgresql`.
+
+Repositories are separated into declarations and executable tools:
+
+```text
+repositories/
+├── contracts/
+│   ├── base.py         # common abstract obligations and reader contract
+│   ├── postgresql.py   # PostgreSQL contracts for all four shapes
+│   └── ...             # one contract module per database
+└── backends/
+    ├── postgresql.py   # native PostgreSQL statements and execution
+    └── ...             # one implementation module per database
+```
+
+Each implementation inherits its database's abstract contract. Incomplete
+implementations cannot be instantiated. `contracts/base.py` declares only
+shared operations; database contracts specify their native write results and
+supported tools. For example, MySQL/MariaDB ID updates return `int`, while
+PostgreSQL ID updates return models. Oracle/MSSQL contracts expose no upsert.
+All six databases have Base, Identified, Timestamp and Persistence contracts.
+
+Database families share no executable repository base. Their constructors take
+backend-specific UoWs: `PostgreSQLRepository` takes `PostgreSQLUnitOfWork`,
+`MySQLRepository` takes `MySQLUnitOfWork`, and likewise for the other backends.
+A single `DBConnection[U]` takes `uow_factory` and creates that UoW type.
+There is no repository
+`validate()` or custom binding registry. Static type checking rejects the wrong
+UoW argument; Dishka rejects a missing typed dependency when building the
+container. A DSN is configuration data, so its correctness is checked by the
+database driver when connecting.
+
+Application providers use native Dishka registration:
 
 ```python
-get_by_id(id) -> TIDModel | None
-get_by_ids(ids) -> Sequence[TIDModel]
-update_by_id(id, row: dict) -> TIDModel | None
-update_row_by_id(id, data: TIDModel) -> TIDModel | None
-update_by_ids(ids, row: dict) -> Sequence[TIDModel]
-upsert_by_id(id, row: dict) -> TIDModel
-delete_by_id(id) -> TIDModel | None
-delete_by_ids(ids) -> Sequence[TIDModel]
+from dishka import Provider, Scope, provide
+from fastamu.infra.db.repositories.contracts.postgresql import (
+    PostgreSQLPersistenceRepositoryContract,
+)
+
+class CatalogProvider(Provider):
+    products = provide(
+        ProductRepository,
+        provides=PostgreSQLPersistenceRepositoryContract[ProductEntity],
+        scope=Scope.REQUEST,
+    )
 ```
 
-**`DBTimestampRepository`** adds `get_stream_by_date_range`,
-`update_by_date_range`, `delete_by_date_range`.
+`CoreProvider` configures the default connection explicitly:
 
-**`DBReader`** is the base underneath all of them: the session, and nothing else.
-Extend it directly when the code owns no table — a [context module](#context-modules-when-the-module-owns-logic-not-rows)
-selecting the few columns its logic needs.
+```python
+connection = DBConnection(
+    dsn=settings.db.dsn,
+    pool_size=settings.db.pool_size,
+    max_overflow=settings.db.max_overflow,
+    pool_timeout=settings.db.pool_timeout,
+    pool_recycle=settings.db.pool_recycle,
+    uow_factory=PostgreSQLUnitOfWork,
+)
+# Inferred type: DBConnection[PostgreSQLUnitOfWork]
+# connection.uow() returns PostgreSQLUnitOfWork.
+```
 
-Note the write API takes a **model or a column dict** — never a DTO. The service
-converts (`data.to_row()`); the repository stays ignorant of validation.
+For another backend, pass its UoW class as the factory and register it in the
+application's ordinary Dishka provider. There are no per-database connection
+classes or framework database providers. The provider opens the unit directly:
+
+```python
+@provide(scope=Scope.REQUEST)
+async def uow(
+    self, connection: DBConnection[PostgreSQLUnitOfWork]
+) -> AsyncIterator[PostgreSQLUnitOfWork]:
+    async with connection.uow() as unit:
+        yield unit
+```
+
+For several connections of the same type, register their connection, UoW and
+repositories in matching Dishka components. The factory is chosen explicitly
+at configuration time; no backend discovery occurs in repository operations.
+
+The example modules and scaffold explicitly choose PostgreSQL. Changing the
+DSN does not change their repository or dependency types.
+
+```python
+# database is a DBConnection[PostgreSQLUnitOfWork].
+async with database.uow() as uow:
+    repo = ProductRepository(uow)
+    async with uow.transaction():
+        product = await repo.create(ProductEntity(name="Example"))
+        product = await repo.update_by_id(product.id, {"name": "Updated"})
+```
+
+Writes never commit implicitly. MySQL `create`/`bulk_create` use ORM `add`,
+`flush` and `refresh`; native returning implementations use SQLAlchemy DML with
+`RETURNING` or the database equivalent. MySQL/MariaDB update methods execute
+only UPDATE and return the affected-row count. PostgreSQL, SQLite, Oracle and
+MSSQL return rows from the write statement.
+Update methods never issue a SELECT; callers read explicitly when needed.
+Bulk updates join a typed input relation: PostgreSQL and MSSQL use VALUES,
+SQLite uses a VALUES CTE, and MySQL/MariaDB use a UNION ALL derived table.
+Oracle uses a correlated multi-column assignment from a UNION ALL input
+relation, retaining native RETURNING without requiring UPDATE FROM.
+Each backend exposes `_values_grid(rows, *, columns, name="incoming")` for
+custom queries. PostgreSQL takes its existing sequence of SQL columns; the
+other backends take an explicit input-name-to-column mapping. No builder
+discovers fields or executes SQL.
+
+MySQL also provides `bulk_insert(data, *, insert_columns) -> int` for a native
+batch INSERT without loading or refreshing ORM objects. `insert_columns` maps
+input field names to SQL columns, just as for `bulk_upsert`; every selected
+field must be supplied in every row. The result is the driver's affected-row
+count (zero for empty input). Failed inserts raise; the caller owns rollback.
+`_bulk_insert_stmt(rows, *, insert_columns)` exposes the same native SQL builder.
+The existing `bulk_create` continues to return fully refreshed models.
+
+```python
+columns = ProductTable.__table__.c
+count = await repo.bulk_insert(
+    products,
+    insert_columns={"name": columns.name, "price": columns.price},
+)
+```
+
+`remove_by_id(s)` returns the driver's affected-row count; it does not read
+deleted records. Obtain a record explicitly first
+when its contents are needed after deletion.
+
+`update_by_id(s)` accepts a field mapping. An omitted field stays untouched;
+explicit `None` follows the column's SQLAlchemy type semantics. Callers supply
+a nonempty change mapping without primary-key changes. `update_row_by_id`
+accepts a partial entity; its `id` argument identifies the target row.
+`bulk_update` accepts a nonempty batch with distinct IDs, at least one change field, and the
+values for every explicitly selected update field. SQLite, MySQL, MariaDB,
+Oracle and MSSQL take `update_columns={"field_name": column}`. PostgreSQL
+accepts raw row mappings and its own explicit match/update columns. Callers
+validate their inputs before calling the repository; it performs no batch validation or fallback reads.
+Returned rows from bulk writes are not guaranteed to match input order;
+use their IDs. Timestamp
+ranges use `created_at`, inclusive endpoints, and UTC datetimes. Persistence
+pages use `(created_at, id)` ordering; timestamp-only repositories order by
+`created_at` and applications can override `_time_query` to break ties with
+their own key.
+
+### PostgreSQL tools and prepared operations
+
+PostgreSQL builders live on `PostgreSQLRepository[T: BaseEntity]` and have no
+ID convention. They accept row mappings and explicit SQLAlchemy columns
+(`Table.__table__.c`), rather than deriving columns from an entity or the first
+row. All four builders perform no I/O and leave RETURNING and execution
+options to the caller:
+
+| Builder | Explicit inputs | Result |
+|---|---|---|
+| `_values_grid(rows, *, columns, name="incoming")` | Ordered columns and their SQL types | `Values`, usable in joins and CTEs |
+| `_upsert_stmt(row, *, conflict_columns, update_columns, changes=None)` | Conflict keys, fields copied from `excluded`, optional column-to-expression assignments | PostgreSQL `Insert` |
+| `_bulk_upsert_stmt(rows, *, insert_columns, conflict_columns, update_columns, changes=None)` | Exact insertion columns and native conflict/update expressions | PostgreSQL `Insert` |
+| `_bulk_update_stmt(rows, *, key_columns, update_columns)` | Match keys (including composite keys) and fields copied from the grid | `Update` |
+
+Upsert input mappings use model/data field names. `insert_columns` maps each
+input field name to its SQLAlchemy column. PostgreSQL VALUES and bulk-update
+row mappings use the supplied column keys. Batches must be nonempty; the caller supplies
+valid conflict/match keys and the required row values. Batch update keys must
+be unique and disjoint from update columns. An upsert needs at least one update
+column or explicit change expression. Builders do not validate application
+input, discover fields, exclude `id`, or synthesize fallback updates.
+
+```python
+# Inside a custom repository; rows are mappings, not model instances.
+columns = ProductTable.__table__.c
+stmt = self._bulk_upsert_stmt(
+    rows,
+    insert_columns={"code": columns.code, "name": columns.name, "price": columns.price},
+    conflict_columns=[columns.code],
+    update_columns=[columns.name, columns.price],
+    changes={columns.version: columns.version + 1},
+)
+stmt = stmt.returning(columns.id, columns.version)
+result = await self.uow.execute(stmt)
+return result.all()
+```
+
+For ready operations, `upsert(data, ...)` accepts one entity and
+`bulk_upsert(items, ...)` accepts a sequence. Both require `conflict_columns`
+and `update_columns` and return the model(s) from native RETURNING.
+`bulk_upsert` additionally requires an `insert_columns` field-to-column mapping.
+Every item must explicitly
+supply every selected insertion column; use explicit `None` for SQL NULL where
+the column allows it. A missing selected value raises `KeyError` before SQL
+execution. Extra fields outside `insert_columns` are deliberately excluded.
+For different insertion shapes, the caller submits separate batches. Column
+selection never depends on the first item or assumes matching SQL/model names. Single upsert uses `_upsert_stmt`
+and bulk upsert uses `_bulk_upsert_stmt`; neither routes through the other.
+PostgreSQL `bulk_update(rows, *, key_columns, update_columns)` accepts mappings,
+returns updated models, and works without an `id` column. Custom repository
+methods choose their columns; services need not know SQLAlchemy tables.
+
+`get_one(*conditions)` raises if several records match. `get_all(*conditions)`,
+`exists(*conditions)` and `count(*conditions)` accept SQLAlchemy expressions.
+`get_page(order_by=..., limit=..., offset=..., where=...)` requires explicit
+ordering. `get_all_stream(batch_size, where=...)` streams filtered models.
+`update(where, changes)` returns written models; `remove(where)` returns the
+affected-row count. Both require an explicit predicate and execute only a
+write statement. ID repositories add convenience operations with fixed ID
+predicates; timestamp repositories add their time-range operations.
+
+Repository reads follow normal ORM identity-map behavior and preserve pending
+model changes. Query helpers preserve the caller's execution options. For an
+explicit refresh, build a select with
+`.execution_options(populate_existing=True)` and execute it with the session;
+this deliberately replaces the loaded state, including unflushed changes.
+Public returning writes populate models from their own write results.
+This also replaces unflushed changes on those returned models, just like an
+explicit refresh. UPDATE and DELETE disable automatic session synchronization;
+they do not issue a SELECT to synchronize other loaded objects.
+Count-returning writes do not reload existing ORM objects; call
+`await uow.refresh(record)` explicitly when you need their database state.
+
+Every backend's protected `_bulk_update_stmt` returns an `Update` without
+RETURNING or execution options. Custom methods choose their own result columns
+and session policy. Public `bulk_update` applies the backend's result and
+synchronization policy after building the statement, including when a subclass
+replaces the builder.
+
+### Other backends and optional upsert
+
+Native upsert tools live on the database repository itself, so all four
+entity shapes can use them without an `id` convention. PostgreSQL and SQLite
+use `ON CONFLICT`; MySQL and MariaDB use `ON DUPLICATE KEY UPDATE`. Oracle and
+MSSQL expose no upsert methods in this API. The shared base contract and
+readers do not require or provide upsert.
+
+```python
+columns = ProductTable.__table__.c
+
+# SQLite: the caller chooses the conflict target and copied columns.
+product = await repo.upsert(
+    data,
+    conflict_columns=[columns.code],
+    update_columns=[columns.name],
+)
+products = await repo.bulk_upsert(
+    items,
+    insert_columns={"code": columns.code, "name": columns.name},
+    conflict_columns=[columns.code],
+    update_columns=[columns.name],
+)
+
+# MySQL / MariaDB: conflicts use the database's unique indexes.
+result = await repo.upsert(data, update_columns=[columns.name])
+results = await repo.bulk_upsert(
+    items,
+    insert_columns={"code": columns.code, "name": columns.name},
+    update_columns=[columns.name],
+)
+```
+
+Each supported backend supplies independent `_upsert_stmt(row, ...)` and
+`_bulk_upsert_stmt(rows, *, insert_columns, ...)` builders. Both return the
+native dialect's `Insert` without executing, adding RETURNING, or selecting
+execution options. Subclasses can extend the statement before execution.
+SQLite and MariaDB public upserts return models from the native write result.
+MySQL returns the affected-row count, which is not the number of input items;
+read records explicitly when needed. All supported backends accept optional
+`changes={column: expression}`; these explicit assignments override copied
+update columns. Upsert does not infer `Column.onupdate` values; supply those
+explicitly. No primary-key fields are implicitly selected or excluded.
+
+Constraint errors remain SQLAlchemy exceptions. Translate them at the
+application boundary if an HTTP/domain error is required; repositories do not
+parse driver errors on every write.
+
+### Queries without a table repository
+
+Each database has its own reader: `PostgreSQLReader`,
+`MySQLReader`, `MariaDBReader`, `SQLiteReader`,
+`OracleReader`, and `MSSQLReader`. Each implements its own
+reader contract and takes the matching UoW. These readers can query several
+tables. Each contract provides a typed UoW; it requires no `table`,
+entity model or predefined query methods. A reader defines its own methods,
+constructs its joins/CTEs/aggregates, and maps the full result into its context
+or report type.
+
+```python
+from sqlalchemy import func, select
+from sqlmodel import col
+from fastamu.infra.db.repositories.backends.postgresql import (
+    PostgreSQLReader,
+)
+
+class CatalogReader(PostgreSQLReader):
+    async def counts_by_category(self) -> dict[str, int]:
+        stmt = (
+            select(CategoryTable.name, func.count(ProductTable.id))
+            .join(ProductTable, col(ProductTable.category_id) == CategoryTable.id)
+            .group_by(CategoryTable.name)
+        )
+        result = await self.uow.execute(stmt)
+        return {name: count for name, count in result}
+```
+
+Register the reader with Dishka's ordinary `provide(CatalogReader)`; its
+constructor receives `PostgreSQLUnitOfWork`. Choose `result.mappings()` for
+named report fields, iterate full rows for joined columns/entities, or use
+`result.scalars()` when the query deliberately selects a single value/model.
+The base does not collapse results to their first column. `uow.execute()` and
+`uow.stream()` forward parameters, execution options and bind arguments to
+SQLAlchemy. They do not map results, refresh objects or commit. Result
+consumption and conversion belong to the reader or repository.
+
+Standalone `fetch_page(uow, stmt, ...)` and `stream(uow, stmt, ...)`
+remain optional helpers for **single-value/model** queries. They are not
+requirements of the reader contract. Streaming closes the result when the
+generator is closed; use `aclosing` when stopping early.
 
 ---
 
@@ -1056,7 +1426,7 @@ Rules that matter:
 - **`@broker.task` outside, `@inject(patch_module=True)` inside.** The broker must
   see the already-injected callable. `patch_module=True` is required.
 - Dependencies are `FromDishka[T]` annotations. **A task execution is a REQUEST
-  scope**, so it gets its own `DBUnitOfWork`. Writing application methods use
+  scope**, so it gets its own typed UoW. Writing application methods use
   `@transactional`, with the same commit/rollback semantics as in HTTP handlers.
 - **Enqueue from anywhere** with `await deactivate_stale_brands.kiq(arg)` — including
   from a route handler, since the web app imports the broker too.
@@ -1104,13 +1474,14 @@ extend Pydantic `BaseModel` and document types extend `AsyncDocument`.
 ```python
 from elasticsearch.dsl import M, AsyncDocument
 
-from fastamu.common.models.entities import BaseIDEntity
-from fastamu.infra.db.repository import DBIDRepository
+from fastamu.common.models.entities import IdentifiedEntity
+from fastamu.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
+from fastamu.infra.db.tools.read import fetch_page
 from fastamu.infra.es.repository import ESRepository
 from fastamu.messaging.projections.contracts.base import AbstractProjection
 
 
-class Product(BaseIDEntity):
+class Product(IdentifiedEntity):
     title: str
 
 
@@ -1124,7 +1495,7 @@ class ProductDocument(AsyncDocument):
 class ProductProjection(AbstractProjection[Product, ProductDocument]):
     def __init__(
         self,
-        products: DBIDRepository[Product],
+        products: PostgreSQLIdentifiedRepository[Product],
         search: ESRepository[ProductDocument],
     ) -> None:
         self.products = products
@@ -1301,7 +1672,7 @@ scripts can use that same context manager explicitly.
 Publication decorators live with the Taskiq adapter:
 
 ```python
-from fastamu.infra.db.transaction import transactional
+from fastamu.infra.db.tools.decorators import transactional
 from fastamu.tasks.projection.delivery.decorators import project
 
 class ProductCommands:
@@ -1722,8 +2093,8 @@ nothing to keep in step. Fastamu's own `tests/conftest.py` is empty for that rea
 | Fixture | Gives you |
 |---|---|
 | `migrated_test_db` (session) | Drops and recreates the `public` schema of `db.test_dsn`, then runs `alembic upgrade head`. **Refuses to run against a database whose name lacks `test`.** Skips cleanly if the DB is unreachable — but a migration that fails *after* connecting is still reported as a failure. |
-| `pg` | A `DBConnection` on the test DSN |
-| `uow` | An open `DBUnitOfWork`; use `transaction()` for writes that must commit |
+| `pg` | A `DBConnection[PostgreSQLUnitOfWork]` on the test DSN |
+| `uow` | An open `PostgreSQLUnitOfWork`; use `uow.transaction()` for writes that must commit |
 | `clean_db` | Empties every discovered table **and read-model index** between tests |
 | `es` | An `ESClient` on the configured hosts |
 | `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and a hermetic schedule source that never touches Redis |
@@ -1842,45 +2213,35 @@ Event router discovery only returns routers; the event consumer application
 includes them before startup. Keep package
 `__init__.py` files empty and declare routers in the leaf Python files.
 
-## Database dialects
+## Database backends
 
-Configure the connection under `db` (renamed from `postgresql`). SQLAlchemy
-selects the async driver from the DSN; do not maintain a second dialect setting.
-The framework adapters cover PostgreSQL, MySQL, MariaDB, SQLite, SQL Server,
-and Oracle. Third-party SQLAlchemy dialects need their own adapter registered
-in `fastamu.infra.db.dialects.DIALECTS`.
+Configure the async driver in `db.dsn`; select the matching repository class
+explicitly. Install the relevant extras (`mysql`, `sqlite`, `mssql`, `oracle`).
+The core connection supplies sessions and never chooses a repository.
 
-| Family | DSN example | Repository behavior |
-| --- | --- | --- |
-| PostgreSQL | `postgresql+asyncpg://...` | RETURNING, ON CONFLICT, VALUES bulk updates |
-| MySQL / MariaDB | `mysql+asyncmy://...` | Transactional readback, ON DUPLICATE KEY UPDATE, CASE bulk updates |
-| SQLite 3.35+ | `sqlite+aiosqlite:///app.db` | RETURNING, ON CONFLICT, CASE bulk updates |
-| SQL Server | `mssql+aioodbc://...` | Transactional readback and CASE bulk updates; atomic upsert not implemented |
-| Oracle | `oracle+oracledb://...` | Transactional readback and CASE bulk updates; atomic upsert not implemented |
+| Backend | Write implementation | Upsert API |
+|---|---|---|
+| PostgreSQL | INSERT/UPDATE RETURNING; VALUES-based bulk update | ON CONFLICT, returns models |
+| MySQL | ORM create; count-returning bulk_insert; derived-table bulk update | ON DUPLICATE KEY UPDATE, returns affected-row count |
+| MariaDB 10.5+ | INSERT RETURNING; derived-table bulk update, returns count | Native upsert RETURNING |
+| SQLite 3.35+ | INSERT/UPDATE RETURNING; VALUES CTE bulk update | ON CONFLICT, returns models |
+| SQL Server | Native OUTPUT and VALUES-based bulk update | Not exposed |
+| Oracle | Native RETURNING, executemany insert and correlated input-relation bulk update | Not exposed |
 
-Install the corresponding extras: `fastamu[mysql]`, `fastamu[sqlite]`,
-`fastamu[mssql]`, or `fastamu[oracle]`. Vendor client requirements still apply.
-SQL Server and Oracle upsert raise `NotImplementedError` before performing I/O.
-MariaDB currently uses the conservative MySQL execution path. MySQL upsert can
-match any unique index, unlike PostgreSQL's explicit conflict target; callers
-must supply keys that identify the resulting row consistently.
+Portable field helpers remain available. `JSONField` uses JSONB on PostgreSQL,
+native JSON where supported, and serialized text on Oracle. PostgreSQL-only
+`JSONBField` and `ArrayField` are in `fastamu.infra.db.dialects.postgresql`.
 
-`JSONField` is portable: JSONB on PostgreSQL, native JSON where supported, and
-serialized text on Oracle. PostgreSQL-only `JSONBField` and `ArrayField` live
-in `fastamu.infra.db.dialects.postgresql`. IDs use SQLAlchemy Identity (ignored
-where the backend provides its own mechanism) and SQLite's INTEGER variant.
-Existing PostgreSQL databases continue to use their existing sequences; review
-Identity-related Alembic differences when generating future migrations.
+Repository tests exercise SQLite and the ORM flush/refresh path on SQLite.
+Native SQL compilation tests cover the database families. Set
+`FASTAMU_TEST_POSTGRESQL`, `FASTAMU_TEST_MYSQL`, `FASTAMU_TEST_MARIADB`,
+`FASTAMU_TEST_ORACLE`, or `FASTAMU_TEST_MSSQL` to run the same behavioral suite
+against actual servers. Compilation and SQLite tests do not establish live
+compatibility with those servers.
 
-Use `upsert_rows` and `bulk_update_rows` when results are required across
-backends. Statement-only `_upsert_stmt` and `_bulk_update_stmt` require a
-RETURNING-capable adapter. `_values_grid` is PostgreSQL-specific. On databases
-without RETURNING, bulk creates use ORM flush to obtain generated IDs and a
-bulk readback; the driver may issue multiple INSERTs. No consecutive-ID
-assumption is made. Bulk result order is not guaranteed.
-
-Runtime CRUD, bulk update, upsert, JSON, conflict handling and rollback tests
-cover PostgreSQL, MySQL and SQLite. SQL Server and Oracle currently have SQL
-compilation checks; MariaDB has native-upsert compilation checks. Live testing
-is still required before deploying those three backends. Test cleanup on
-non-PostgreSQL databases deletes rows in dependency order without resetting IDs.
+The [database benchmark report](benchmarks/results/REPORT.md) records live
+measurements on all six backends and includes reproduction scripts. Large
+bulk updates still have measured limitations: Oracle timed out at 1,000 rows,
+and SQL Server rejected statements exceeding its parameter budget. Successful
+smaller batches do not establish a universal safe batch size; column count
+also affects the number of parameters.

@@ -463,8 +463,8 @@ taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler
 Swagger UI is at `/docs`.
 
 Writing application methods use `@transactional` from
-`fastamu.infra.db.transaction`. Request scope only manages session lifetime;
-it does not commit automatically.
+`fastamu.infra.db.tools.decorators`. Request scope only manages session
+lifetime; it does not commit automatically.
 
 ## Adding a feature
 

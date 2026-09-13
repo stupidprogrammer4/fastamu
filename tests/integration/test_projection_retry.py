@@ -21,7 +21,7 @@ import time
 from typing import ClassVar
 from sqlalchemy import text
 from taskiq import TaskiqMessage
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import PostgreSQLUnitOfWork
 from fastamu.messaging.projections.contracts.delete import AbstractUnProjection
 from fastamu.messaging.projections.contracts.policies import RetryPolicy
 
@@ -31,7 +31,9 @@ class Product(AbstractUnProjection):
         max_attempts=3, delay=2,
     )
 
-    def __init__(self, unit: DBUnitOfWork, message: TaskiqMessage) -> None:
+    def __init__(
+        self, unit: PostgreSQLUnitOfWork, message: TaskiqMessage
+    ) -> None:
         self.unit = unit
         self.message = message
 

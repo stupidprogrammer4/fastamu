@@ -16,13 +16,10 @@ from datetime import datetime
 from typing import Any, Self
 
 import orjson
+from sqlalchemy import func, text
 from sqlmodel import SQLModel
 
-from fastamu.common.models.fields import (
-    IDField,
-    TimestampField,
-    VersionField,
-)
+from fastamu.common.models.fields import IDField, TimestampField, VersionField
 from fastamu.common.utils import dates
 
 
@@ -82,25 +79,36 @@ class BaseEntity(SQLModel):
         return [cls.model_validate(obj) for obj in objs]
 
 
-class BaseIDEntity(BaseEntity):
+class IdentifiedEntity(BaseEntity):
     id: int = IDField()
 
+    def to_changes(self) -> dict[str, Any]:
+        """Serialize supplied update fields, excluding the primary key."""
+        return self.model_dump(exclude={"id"}, exclude_unset=True)
 
-class BaseTimestampEntity(BaseEntity):
+
+class TimestampEntity(BaseEntity):
     # nullable on the model, NOT NULL in the table: the database fills both
     # stamps, so a row on its way *in* has neither
     created_at: datetime | None = TimestampField(
-        server_default="CURRENT_TIMESTAMP"
+        default=None,
+        server_default=func.current_timestamp(),
     )
     updated_at: datetime | None = TimestampField(
-        server_default="CURRENT_TIMESTAMP", onupdate=lambda: dates.utc_now()
+        default=None,
+        server_default=func.current_timestamp(),
+        onupdate=dates.utc_now,
     )
 
 
-class BaseVersionEntity(BaseEntity):
-    # database-managed: every update raises it, upserts included
-    version_num: int | None = VersionField()
+class VersionEntity(BaseEntity):
+    """A stored version with application-controlled advancement."""
+
+    version_num: int | None = VersionField(
+        default=None,
+        server_default=text("1"),
+    )
 
 
-class BaseIDTimestampEntity(BaseIDEntity, BaseTimestampEntity):
+class PersistenceEntity(IdentifiedEntity, TimestampEntity):
     pass

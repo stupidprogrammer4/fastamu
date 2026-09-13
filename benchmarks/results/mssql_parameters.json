@@ -1,0 +1,32 @@
+[
+  {
+    "batch": 100,
+    "method": "grid",
+    "expanded_parameter_count": 300
+  },
+  {
+    "batch": 100,
+    "method": "case",
+    "expanded_parameter_count": 500
+  },
+  {
+    "batch": 500,
+    "method": "grid",
+    "expanded_parameter_count": 1500
+  },
+  {
+    "batch": 500,
+    "method": "case",
+    "expanded_parameter_count": 2500
+  },
+  {
+    "batch": 1000,
+    "method": "grid",
+    "expanded_parameter_count": 3000
+  },
+  {
+    "batch": 1000,
+    "method": "case",
+    "expanded_parameter_count": 5000
+  }
+]

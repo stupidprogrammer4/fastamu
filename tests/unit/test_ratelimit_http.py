@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from throttled.asyncio.store import MemoryStore, RedisStore
 
 from fastamu.core.config import RateLimitRule, Settings, get_settings
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import UnitOfWork
 from fastamu.web.error_handlers import setup_exception_handlers
 from fastamu.web.ratelimit import (
     RateLimitMiddleware,
@@ -32,13 +32,13 @@ async def test_global_cross_path_and_independent_account_limits(general):
         "login": RateLimitRule(limit=1, window_seconds=60)
     }
 
-    unit = AsyncMock(spec=DBUnitOfWork)
+    unit = AsyncMock(spec=UnitOfWork)
 
     class TestProvider(Provider):
         scope = Scope.APP
 
         @provide(scope=Scope.REQUEST)
-        def uow(self) -> DBUnitOfWork:
+        def uow(self) -> UnitOfWork:
             return unit
 
         @provide

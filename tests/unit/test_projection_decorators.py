@@ -10,8 +10,9 @@ from taskiq import InMemoryBroker
 from taskiq.exceptions import SendTaskError
 
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.transaction import transaction, transactional
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.tools.decorators import transactional
+from fastamu.infra.db.transaction import transaction
+from fastamu.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
 from fastamu.tasks.projection.delivery import decorators
 from fastamu.tasks.projection.delivery.fallback import PublicationFallback
 from fastamu.tasks.projection.delivery.register import Register
@@ -217,7 +218,12 @@ async def test_an_unreachable_queue_does_not_fail_a_committed_write(
 @pytest.fixture
 async def database(tmp_path) -> AsyncIterator[DBConnection]:
     db = DBConnection(
-        f"sqlite+aiosqlite:///{tmp_path}/command.db", 2, 0, 5, 1800
+        f"sqlite+aiosqlite:///{tmp_path}/command.db",
+        2,
+        0,
+        5,
+        1800,
+        uow_factory=SQLiteUnitOfWork,
     )
     async with db.engine.begin() as connection:
         await connection.execute(text("CREATE TABLE records (id INTEGER)"))
@@ -241,7 +247,7 @@ async def test_transaction_composition_commits_before_publish(
     @decorators.project(ProductUnProjection, lambda result: result)
     @transactional
     async def command() -> int:
-        await DBUnitOfWork.current().session.execute(
+        await UnitOfWork.current().session.execute(
             text("INSERT INTO records VALUES (42)")
         )
         return 42
@@ -270,7 +276,7 @@ async def test_commit_failure_prevents_publication(
     @decorators.project(ProductUnProjection, lambda result: result)
     @transactional
     async def command() -> int:
-        await DBUnitOfWork.current().session.execute(
+        await UnitOfWork.current().session.execute(
             text("INSERT INTO records VALUES (42)")
         )
         return 42

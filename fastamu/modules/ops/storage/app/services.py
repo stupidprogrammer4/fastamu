@@ -9,7 +9,7 @@ from fastamu.common.errors.exceptions import (
 from fastamu.common.schemas.results import PagedType
 from fastamu.common.services import BaseIDService
 from fastamu.core.config import StorageConfig
-from fastamu.infra.db.transaction import transactional
+from fastamu.infra.db.tools.decorators import transactional
 from fastamu.modules.ops.storage import resources
 from fastamu.modules.ops.storage.app.helpers import StreamMeter
 from fastamu.modules.ops.storage.domain.entities import MediaEntity
@@ -174,7 +174,8 @@ class MediaService(BaseIDService[MediaEntity]):
         Returns:
             (MediaEntity): The deleted record.
         """
-        media = await self.repo.delete_by_id(id)
+        media = await self.repo.get_by_id(id)
         media = self._check_for_id_existence(id, media)
+        await self.repo.remove_by_id(id)
         await self.storage.delete(media.path)
         return media

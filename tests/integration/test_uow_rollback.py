@@ -13,15 +13,20 @@ from starlette.exceptions import HTTPException
 from fastamu.common.errors.exceptions import ValidationException
 from fastamu.core.provider import CoreProvider
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.transaction import transactional
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.tools.decorators import transactional
+from fastamu.infra.db.uow import PostgreSQLUnitOfWork
 from fastamu.web.error_handlers import setup_exception_handlers
 
 
 @pytest.fixture
 async def database(tmp_path):
     db = DBConnection(
-        f"sqlite+aiosqlite:///{tmp_path}/requests.db", 3, 0, 5, 1800
+        f"sqlite+aiosqlite:///{tmp_path}/requests.db",
+        3,
+        0,
+        5,
+        1800,
+        uow_factory=PostgreSQLUnitOfWork,
     )
     try:
         yield db
@@ -54,7 +59,7 @@ async def records(database):
 async def client(database, records):
     class DatabaseProvider(Provider):
         @provide(scope=Scope.APP, override=True)
-        def database(self) -> DBConnection:
+        def database(self) -> DBConnection[PostgreSQLUnitOfWork]:
             return database
 
     container = make_async_container(CoreProvider(), DatabaseProvider())
@@ -65,7 +70,7 @@ async def client(database, records):
     @app.post("/{outcome}")
     @inject
     @transactional
-    async def write(outcome: str, uow: FromDishka[DBUnitOfWork]):
+    async def write(outcome: str, uow: FromDishka[PostgreSQLUnitOfWork]):
         await uow.session.execute(insert(records).values(id=1))
         if outcome == "validation":
             raise ValidationException(

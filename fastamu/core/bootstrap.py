@@ -169,8 +169,8 @@ class Bootstrapper:
     def boot_providers(self) -> list[Provider]:
         """Find and instantiate all subclasses of dishka.Provider.
 
-        Tables are imported first: a repository binds its table when its class
-        is created, and a provider is what imports the repository.
+        Tables are imported first; concrete repositories name their table
+        explicitly, and providers import those repositories.
         """
         self.boot_sqlmodels()
         providers = []

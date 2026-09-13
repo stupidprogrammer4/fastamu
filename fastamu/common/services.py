@@ -4,14 +4,14 @@ from fastamu.common.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from fastamu.common.models.entities import BaseEntity, BaseIDEntity
+from fastamu.common.models.entities import BaseEntity, IdentifiedEntity
 from fastamu.common.schemas.results import BatchResultType
 from fastamu.core import resources
 
 
 class BaseService[TModel: BaseEntity]:
-    __model__: type[TModel]
-    __model_name__: str
+    __entity__: type[TModel]
+    __entity_name__: str
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -28,8 +28,8 @@ class BaseService[TModel: BaseEntity]:
 
             if isinstance(origin, type) and issubclass(origin, BaseService):
                 model_cls = args[0]
-                cls.__model__ = model_cls
-                cls.__model_name__ = model_cls.__name__.removesuffix("Model")
+                cls.__entity__ = model_cls
+                cls.__entity_name__ = model_cls.__name__.removesuffix("Entity")
                 break
 
     def _check_not_empty_dict(self, d: dict):
@@ -60,11 +60,11 @@ class BaseService[TModel: BaseEntity]:
                 identifier=identifier,
                 identifier_value=identifier_value,
                 message=(
-                    f"Cannot find {self.__model_name__} by {identifier} "
+                    f"Cannot find {self.__entity_name__} by {identifier} "
                     f"with value {identifier_value}"
                 ),
                 message_code=resources.NOT_FOUND_ERROR,
-                entity=self.__model_name__,
+                entity=self.__entity_name__,
             )
         return obj
 
@@ -81,7 +81,7 @@ class BaseService[TModel: BaseEntity]:
                 errors.append(
                     ValidationException(
                         message=(
-                            f"Cannot find {self.__model_name__} with id {id}"
+                            f"Cannot find {self.__entity_name__} with id {id}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,
                         loc=prefix_loc + [idx],
@@ -90,7 +90,7 @@ class BaseService[TModel: BaseEntity]:
         return errors
 
 
-class BaseIDService[TIDModel: BaseIDEntity](BaseService[TIDModel]):
+class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
     def _check_for_id_existence(self, id: int, obj: TIDModel | None):
         return super()._check_for_existence(
             identifier="id", identifier_value=id, obj=obj
@@ -119,7 +119,7 @@ class BaseIDService[TIDModel: BaseIDEntity](BaseService[TIDModel]):
         founded_ids = {o.id: o for o in founded_objs}
 
         items, errors, ids = [], [], []
-        base_loc = loc or [f"{self.__model_name__.lower()}_ids"]
+        base_loc = loc or [f"{self.__entity_name__.lower()}_ids"]
         positions = {}
         for index, value in enumerate(input_ids):
             positions.setdefault(value, index)
@@ -131,7 +131,7 @@ class BaseIDService[TIDModel: BaseIDEntity](BaseService[TIDModel]):
                 errors.append(
                     ValidationException(
                         message=(
-                            f"Cannot find {self.__model_name__} with id {id}"
+                            f"Cannot find {self.__entity_name__} with id {id}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,
                         loc=base_loc + [positions[id]],
@@ -174,7 +174,7 @@ class BaseIDService[TIDModel: BaseIDEntity](BaseService[TIDModel]):
         founded_values = {key(o): o for o in founded_objs}
 
         items, errors, ids = [], [], []
-        base_loc = loc or [f"{self.__model_name__.lower()}_{identifier}s"]
+        base_loc = loc or [f"{self.__entity_name__.lower()}_{identifier}s"]
         positions = {}
         for index, value in enumerate(input_values):
             positions.setdefault(value, index)
@@ -186,7 +186,7 @@ class BaseIDService[TIDModel: BaseIDEntity](BaseService[TIDModel]):
                 errors.append(
                     ValidationException(
                         message=(
-                            f"Cannot find {self.__model_name__} with "
+                            f"Cannot find {self.__entity_name__} with "
                             f"{identifier} {value}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,

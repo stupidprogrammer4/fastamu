@@ -1,8 +1,8 @@
-from fastamu.common.models.entities import BaseIDTimestampEntity
+from fastamu.common.models.entities import PersistenceEntity
 from fastamu.common.models.fields import BigIntField, CharField
 
 
-class MediaEntity(BaseIDTimestampEntity):
+class MediaEntity(PersistenceEntity):
     backend: str = CharField(20)
     path: str = CharField(255, unique=True)
     filename: str = CharField(255)

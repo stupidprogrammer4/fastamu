@@ -1,11 +1,11 @@
 import pytest
 
 from fastamu.common.errors.exceptions import ValidationException
-from fastamu.common.models.entities import BaseIDEntity
+from fastamu.common.models.entities import IdentifiedEntity
 from fastamu.common.services import BaseIDService
 
 
-class ThingModel(BaseIDEntity):
+class ThingModel(IdentifiedEntity):
     code: str
 
 

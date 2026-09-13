@@ -6,20 +6,28 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
 
 from fastamu.infra.db.connection import DBConnection
+from fastamu.infra.db.tools.decorators import transactional
 from fastamu.infra.db.transaction import (
     TransactionRollbackOnly,
     current_transaction,
     transaction,
-    transactional,
 )
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
 
 
 @pytest.fixture
 async def runtime(tmp_path):
-    db = DBConnection(f"sqlite+aiosqlite:///{tmp_path}/data.db", 4, 0, 5, 1800)
+    db = DBConnection(
+        f"sqlite+aiosqlite:///{tmp_path}/data.db",
+        4,
+        0,
+        5,
+        1800,
+        uow_factory=SQLiteUnitOfWork,
+    )
     metadata = MetaData()
     records = Table(
         "records", metadata, Column("id", Integer, primary_key=True)
@@ -33,7 +41,7 @@ async def runtime(tmp_path):
 
 
 async def write(runtime, id=1):
-    unit = DBUnitOfWork.current()
+    unit = UnitOfWork.current()
     await unit.session.execute(insert(runtime.records).values(id=id))
 
 
@@ -47,7 +55,7 @@ async def test_transaction_requires_an_open_unit():
     async def operation():
         pytest.fail("The body must not run without a UoW")
 
-    with pytest.raises(RuntimeError, match="open DBUnitOfWork"):
+    with pytest.raises(RuntimeError, match="open UnitOfWork"):
         await operation()
 
 
@@ -181,3 +189,71 @@ async def test_cancellation_respects_commit_boundary(
 def test_transactional_rejects_sync_functions():
     with pytest.raises(TypeError, match="async function"):
         transactional(lambda: None)
+
+
+async def test_explicit_transaction_rejects_closed_unit(runtime):
+    with pytest.raises(RuntimeError, match="not open"):
+        async with transaction(runtime.db.uow()):
+            pytest.fail("Closed units must not start transactions")
+
+
+async def test_explicit_transaction_cannot_switch_parent_unit(runtime):
+    async with runtime.db.uow() as first, runtime.db.uow() as second:
+        async with transaction(first):
+            with pytest.raises(RuntimeError, match="Cannot switch UoW"):
+                async with transaction(second):
+                    pytest.fail("A nested transaction cannot change databases")
+            assert UnitOfWork.current() is first
+        assert UnitOfWork.current() is second
+
+
+async def test_explicit_transaction_restores_previous_unit_on_failure(runtime):
+    async with runtime.db.uow() as first, runtime.db.uow() as second:
+        with pytest.raises(ValueError, match="operation failed"):
+            async with transaction(first):
+                await write(runtime)
+                raise ValueError("operation failed")
+        assert UnitOfWork.current() is second
+    assert await rows(runtime) == []
+
+
+async def test_savepoint_failure_preserves_outer_transaction(runtime):
+    async with runtime.db.uow() as unit:
+        async with unit.transaction():
+            await write(runtime, 1)
+            with pytest.raises(IntegrityError):
+                async with unit.savepoint():
+                    await write(runtime, 1)
+            assert unit.in_transaction
+            await write(runtime, 2)
+    assert await rows(runtime) == [1, 2]
+
+
+async def test_released_savepoint_is_rolled_back_with_outer_scope(runtime):
+    async with runtime.db.uow() as unit:
+        with pytest.raises(ValueError):
+            async with unit.transaction():
+                async with unit.savepoint():
+                    await write(runtime, 1)
+                raise ValueError("abort outer transaction")
+    assert await rows(runtime) == []
+
+
+async def test_application_transaction_inside_savepoint_is_rejected(runtime):
+    async with runtime.db.uow() as unit:
+        async with unit.transaction():
+            async with unit.savepoint():
+                with pytest.raises(RuntimeError, match="inside a savepoint"):
+                    async with unit.transaction():
+                        pytest.fail(
+                            "Application nesting cannot join a savepoint"
+                        )
+            await write(runtime, 1)
+    assert await rows(runtime) == [1]
+
+
+async def test_session_cannot_be_reused_after_unit_closes(runtime):
+    async with runtime.db.uow() as unit:
+        session = unit.session
+    with pytest.raises(InvalidRequestError, match="permanently closed"):
+        await session.execute(select(runtime.records))

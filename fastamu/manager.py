@@ -159,10 +159,10 @@ def _render(
 
 # --- templates --------------------------------------------------------------
 
-MODELS = """from fastamu.common.models.entities import BaseIDTimestampEntity
+MODELS = """from fastamu.common.models.entities import PersistenceEntity
 
 
-class <<P>>Model(BaseIDTimestampEntity):
+class <<P>>Model(PersistenceEntity):
     # fields only — the table that carries them is in infra/tables.py
     ...
 """
@@ -246,20 +246,28 @@ class <<P>>Service(BaseIDService[<<P>>Model]):
 HELPERS = "# helper functions for the <<S>> module\n"
 
 REPOSITORY = """\
-from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.db.repositories.backends.postgresql import (
+    PostgreSQLIdentifiedRepository,
+)
+from <<PKG>>.<<M>>.infra.tables import <<P>>Table
 from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
-class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
+class <<P>>Repository(PostgreSQLIdentifiedRepository[<<P>>Model]):
+    table = <<P>>Table
 """
 
 REPOSITORY_CQRS = """from fastamu.infra.es.repository import ESRepository
-from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.db.repositories.backends.postgresql import (
+    PostgreSQLIdentifiedRepository,
+)
+from <<PKG>>.<<M>>.infra.tables import <<P>>Table
 from <<PKG>>.<<M>>.domain.documents import <<P>>Document
 from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 
 
-class <<P>>Repository(DBIDRepository[<<P>>Model]): ...
+class <<P>>Repository(PostgreSQLIdentifiedRepository[<<P>>Model]):
+    table = <<P>>Table
 
 
 class <<P>>ESRepository(ESRepository[<<P>>Document]): ...
@@ -373,11 +381,13 @@ class <<P>>Out(BaseOutput): ...
 """
 
 CONTEXT_READERS = """\
-from fastamu.infra.db.repository import DBReader
+from fastamu.infra.db.repositories.backends.postgresql import (
+    PostgreSQLReader,
+)
 from <<PKG>>.<<M>>.domain.context import <<P>>Context
 
 
-class <<P>>Reader(DBReader):
+class <<P>>Reader(PostgreSQLReader):
     \"\"\"Reads the specific columns the <<S>> logic runs on — nothing more.
 
     It owns no table: one statement selects exactly the fields it needs and

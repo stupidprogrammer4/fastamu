@@ -1,11 +1,17 @@
 from sqlmodel import col, select
 
 from fastamu.common.schemas.results import PagedType
-from fastamu.infra.db.repository import DBIDRepository
+from fastamu.infra.db.repositories.backends.postgresql import (
+    PostgreSQLIdentifiedRepository,
+)
+from fastamu.infra.db.tools.read import fetch_page
 from fastamu.modules.ops.storage.domain.entities import MediaEntity
+from fastamu.modules.ops.storage.infra.tables import MediaTable
 
 
-class MediaRepository(DBIDRepository[MediaEntity]):
+class MediaRepository(PostgreSQLIdentifiedRepository[MediaEntity]):
+    table = MediaTable
+
     async def get_by_hash(self, hash: str) -> MediaEntity | None:
         """Get a media record by its content hash.
 
@@ -14,8 +20,8 @@ class MediaRepository(DBIDRepository[MediaEntity]):
         Returns:
             (MediaEntity | None): Found record or None.
         """
-        stmt = select(MediaEntity).where(col(MediaEntity.hash) == hash)
-        result = await self.session.execute(stmt)
+        stmt = select(self.table).where(col(self.table.hash) == hash)
+        result = await self.uow.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_path(self, path: str) -> MediaEntity | None:
@@ -26,12 +32,12 @@ class MediaRepository(DBIDRepository[MediaEntity]):
         Returns:
             (MediaEntity | None): Found record or None.
         """
-        stmt = select(MediaEntity).where(col(MediaEntity.path) == path)
-        result = await self.session.execute(stmt)
+        stmt = select(self.table).where(col(self.table.path) == path)
+        result = await self.uow.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_paged(
-        self, limit: int, offset: int
+        self, limit: int, offset: int = 0
     ) -> PagedType[MediaEntity]:
         """Get a page of media records, newest first, with the total count.
 
@@ -41,6 +47,6 @@ class MediaRepository(DBIDRepository[MediaEntity]):
         Returns:
             (PagedType[MediaEntity]): The page rows and the total count.
         """
-        stmt = select(MediaEntity).order_by(col(MediaEntity.id).desc())
-        paged = await self._paginate(stmt, offset, limit)
+        stmt = select(self.table).order_by(col(self.table.id).desc())
+        paged = await fetch_page(self.uow, stmt, offset=offset, limit=limit)
         return paged

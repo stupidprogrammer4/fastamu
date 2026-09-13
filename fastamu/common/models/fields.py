@@ -1,15 +1,17 @@
-import enum
-from typing import Any, Literal, TypedDict, Unpack
+"""Convenient field declarations with explicit model and SQL defaults."""
 
+import enum
+from collections.abc import Callable, Mapping
+from typing import Any, TypedDict, Unpack
+
+from pydantic_core import PydanticUndefined
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
-    Column,
     Computed,
     Date,
     DateTime,
-    DefaultClause,
     Float,
     ForeignKey,
     Identity,
@@ -18,200 +20,158 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Enum as SAEnum
 from sqlmodel import Field
 
 
-class ColumnKwargs(TypedDict, total=False):
-    """Keyword arguments forwarded to ``sqlalchemy.Column`` by the field
-    factories.
-
-    Every key is optional (``total=False``); unset keys fall back to
-    SQLAlchemy's defaults, except ``nullable`` which the factories force to
-    ``False`` (NOT NULL) unless you override it here — that's the project
-    convention."""
-
+class FieldOptions(TypedDict, total=False):
+    default: Any
+    default_factory: Callable[[], Any]
     nullable: bool
     index: bool
     unique: bool
     primary_key: bool
-    autoincrement: bool | Literal["auto", "ignore_fk"]
-    default: Any
-    insert_default: Any
-    onupdate: Any
-    # SQL, not a literal: "now()" is the call, and a literal string must
-    # carry its own quotes ("'pending'") or be a SQLAlchemy construct
-    server_default: Any
-    server_onupdate: Any
-    doc: str
-    key: str
-    info: dict[str, Any]
+    db_column: str
     comment: str
-    quote: bool
-    system: bool
+    alias: str
+    description: str
+    server_default: Any
+    onupdate: Any
+    server_onupdate: Any
+    sa_column_kwargs: Mapping[str, Any]
 
 
-# Keys SQLModel manages on the Field itself; the rest are forwarded to the
-# Column.
-_FIELD_MANAGED_KEYS = ("nullable", "index", "unique", "primary_key")
+def _field(
+    type_: Any,
+    *column_args: Any,
+    default: Any = PydanticUndefined,
+    default_factory: Callable[[], Any] | None = None,
+    nullable: bool = False,
+    index: bool = False,
+    unique: bool = False,
+    primary_key: bool = False,
+    db_column: str | None = None,
+    comment: str | None = None,
+    alias: str | None = None,
+    description: str | None = None,
+    server_default: Any = None,
+    onupdate: Any = None,
+    server_onupdate: Any = None,
+    sa_column_kwargs: Mapping[str, Any] | None = None,
+) -> Any:
+    """Forward declared options; strings remain SQLAlchemy string defaults.
 
-
-def _model_defaults(kwargs: ColumnKwargs) -> dict[str, Any]:
-    defaults: dict[str, Any] = {}
-    if "default" in kwargs:
-        default = kwargs["default"]
-        key = "default_factory" if callable(default) else "default"
-        defaults = {key: default}
-    elif kwargs.get("nullable") or "server_default" in kwargs:
-        defaults = {"default": None}
-    return defaults
-
-
-def _split_kwargs(
-    kwargs: ColumnKwargs,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    column_kwargs: dict[str, Any] = dict(kwargs)
-    field_kwargs: dict[str, Any] = {
-        key: column_kwargs.pop(key)
-        for key in _FIELD_MANAGED_KEYS
-        if key in column_kwargs
-    }
-    # a bare string reaches postgres quoted as a literal, so server_default
-    # ="now()" would default the column to the seven characters "now()"
-    # rather than the time. Wrapping it makes it the SQL it was written as.
-    server_default = column_kwargs.get("server_default")
-    if isinstance(server_default, str):
-        column_kwargs["server_default"] = text(server_default)
-    return field_kwargs, column_kwargs, _model_defaults(kwargs)
-
-
-def _field(type_: Any, **kwargs: Unpack[ColumnKwargs]) -> Any:
-    field_kwargs, column_kwargs, defaults = _split_kwargs(kwargs)
-    field_kwargs.setdefault("nullable", False)
+    default/default_factory belong to the model. SQLModel may also use them
+    for inserts, following its native behavior. SQL expressions are supplied
+    explicitly, e.g. server_default=text("CURRENT_TIMESTAMP"). Advanced
+    sa_column_kwargs override the corresponding SQL options below.
+    """
     return Field(
+        default=default,
+        default_factory=default_factory,
+        nullable=nullable,
+        index=index,
+        unique=unique,
+        primary_key=primary_key,
+        alias=alias,
+        description=description,
         sa_type=type_,
-        sa_column_kwargs=column_kwargs,
-        **field_kwargs,
-        **defaults,
+        sa_column_args=column_args,
+        sa_column_kwargs={
+            "name": db_column,
+            "comment": comment,
+            "server_default": server_default,
+            "onupdate": onupdate,
+            "server_onupdate": server_onupdate,
+            **(sa_column_kwargs or {}),
+        },
     )
 
 
-def IDField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    field_kwargs, column_kwargs, _ = _split_kwargs(kwargs)
-    field_kwargs.setdefault("primary_key", True)
-    column_kwargs.setdefault("autoincrement", True)
-    id_type: Any = BigInteger().with_variant(Integer(), "sqlite")
-    return Field(
+def IDField(
+    *, autoincrement: bool = True, db_column: str | None = None
+) -> Any:
+    return _field(
+        BigInteger().with_variant(Integer, "sqlite"),
+        *((Identity(),) if autoincrement else ()),
         default=None,
-        sa_type=id_type,
-        sa_column_args=(Identity(),)
-        if column_kwargs.get("autoincrement") is not False
-        else (),
-        sa_column_kwargs=column_kwargs,
-        **field_kwargs,
+        primary_key=True,
+        db_column=db_column,
+        sa_column_kwargs={"autoincrement": autoincrement},
     )
 
 
-def SmallIntField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(SmallInteger, **kwargs)
+def SmallIntField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(SmallInteger, **options)
 
 
-def IntField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(Integer, **kwargs)
+def IntField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(Integer, **options)
 
 
-def BigIntField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(BigInteger, **kwargs)
+def BigIntField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(BigInteger, **options)
 
 
-def BoolField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(Boolean, **kwargs)
+def BoolField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(Boolean, **options)
 
 
-def FloatField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(Float, **kwargs)
+def FloatField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(Float, **options)
 
 
 def NumericField(
     precision: int | None = None,
     scale: int | None = None,
-    **kwargs: Unpack[ColumnKwargs],
+    **options: Unpack[FieldOptions],
 ) -> Any:
-    return _field(Numeric(precision, scale), **kwargs)
+    return _field(Numeric(precision, scale), **options)
 
 
-def CharField(length: int, **kwargs: Unpack[ColumnKwargs]) -> Any:
-    default = kwargs.get("server_default")
-    if isinstance(default, str) and not (
-        default.startswith("'") and default.endswith("'")
-    ):
-        kwargs["server_default"] = DefaultClause(default)
-    return _field(String(length), **kwargs)
+def CharField(length: int, **options: Unpack[FieldOptions]) -> Any:
+    return _field(String(length), **options)
 
 
-def TextField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    default = kwargs.get("server_default")
-    if isinstance(default, str) and not (
-        default.startswith("'") and default.endswith("'")
-    ):
-        kwargs["server_default"] = DefaultClause(default)
-    return _field(Text, **kwargs)
+def TextField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(Text, **options)
 
 
-def DateField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    return _field(Date, **kwargs)
+def DateField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(Date, **options)
 
 
-class _TZDateTime(DateTime):
-    def __init__(self) -> None:
-        super().__init__(timezone=True)
+def TimestampField(**options: Unpack[FieldOptions]) -> Any:
+    return _field(DateTime(timezone=True), **options)
 
 
-def TimestampField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    field_kwargs, column_kwargs, defaults = _split_kwargs(kwargs)
-    field_kwargs.setdefault("nullable", False)
-    return Field(
-        sa_type=_TZDateTime,
-        sa_column_kwargs=column_kwargs,
-        **field_kwargs,
-        **defaults,
-    )
+def VersionField(**options: Unpack[FieldOptions]) -> Any:
+    """A version column; defaults and advancement are explicit options."""
+    return _field(BigInteger, **options)
 
 
-def VersionField(**kwargs: Unpack[ColumnKwargs]) -> Any:
-    """A counter the database raises on every update of the row.
-
-    Send it as a destination write's external version to fence a lost race.
-    Keep the name ``version_num``: the increment is SQL that names it.
-    """
-    kwargs.setdefault("server_default", "1")
-    kwargs.setdefault("onupdate", text("version_num + 1"))
-    return _field(BigInteger, **kwargs)
-
-
-def JSONField(**kwargs: Unpack[ColumnKwargs]) -> Any:
+def JSONField(
+    *,
+    none_as_null: bool = False,
+    **options: Unpack[FieldOptions],
+) -> Any:
     from fastamu.infra.db.dialects.oracle import OracleJSON
 
-    type_ = (
-        JSON()
-        .with_variant(JSONB(), "postgresql")
-        .with_variant(OracleJSON(), "oracle")
+    return _field(
+        JSON(none_as_null=none_as_null)
+        .with_variant(JSONB(none_as_null=none_as_null), "postgresql")
+        .with_variant(OracleJSON(none_as_null=none_as_null), "oracle"),
+        **options,
     )
-    return _field(type_, **kwargs)
 
 
 def EnumField(
-    enum_cls: type[enum.Enum], **kwargs: Unpack[ColumnKwargs]
+    enum_cls: type[enum.Enum],
+    **options: Unpack[FieldOptions],
 ) -> Any:
-    default = kwargs.get("server_default")
-    if isinstance(default, str) and not (
-        default.startswith("'") and default.endswith("'")
-    ):
-        kwargs["server_default"] = DefaultClause(default)
-    return _field(SAEnum(enum_cls), **kwargs)
+    return _field(SAEnum(enum_cls), **options)
 
 
 def ComputedField(
@@ -219,29 +179,15 @@ def ComputedField(
     type_: Any = Boolean,
     *,
     persisted: bool = True,
-    **kwargs: Unpack[ColumnKwargs],
+    **options: Unpack[FieldOptions],
 ) -> Any:
-    kwargs.setdefault("nullable", False)
-    return Field(
-        default=None,
-        sa_column=Column(
-            type_, Computed(expression, persisted=persisted), **kwargs
-        ),
-    )
+    return _field(type_, Computed(expression, persisted=persisted), **options)
 
 
 def ForeignKeyField(
     target: str,
     *,
     ondelete: str | None = None,
-    **kwargs: Unpack[ColumnKwargs],
+    **options: Unpack[FieldOptions],
 ) -> Any:
-    kwargs.setdefault("index", True)
-    kwargs.setdefault("nullable", False)
-    defaults = _model_defaults(kwargs)
-    return Field(
-        sa_column=Column(
-            BigInteger, ForeignKey(target, ondelete=ondelete), **kwargs
-        ),
-        **defaults,
-    )
+    return _field(BigInteger, ForeignKey(target, ondelete=ondelete), **options)

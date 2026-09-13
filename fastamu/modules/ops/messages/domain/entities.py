@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastamu.common.models.entities import BaseIDTimestampEntity
+from fastamu.common.models.entities import PersistenceEntity
 from fastamu.common.models.fields import (
     BoolField,
     CharField,
@@ -17,7 +17,7 @@ from fastamu.modules.ops.messages.domain.enums import (
 )
 
 
-class SMSProviderEntity(BaseIDTimestampEntity):
+class SMSProviderEntity(PersistenceEntity):
     """A provider you can send through, and the credentials to do it.
 
     One row per code, so rotating a key is an upsert rather than a second row,
@@ -26,11 +26,11 @@ class SMSProviderEntity(BaseIDTimestampEntity):
 
     title: str = CharField(55)
     code: ProviderCode = CharField(35, unique=True)
-    credentials: dict[str, str] = JSONField(default=dict)
+    credentials: dict[str, str] = JSONField(default_factory=dict)
     is_active: bool = BoolField(default=False)
 
 
-class SMSPatternEntity(BaseIDTimestampEntity):
+class SMSPatternEntity(PersistenceEntity):
     """The provider-side template one message key is sent through.
 
     Providers register approved templates and address them by name; this maps
@@ -41,7 +41,7 @@ class SMSPatternEntity(BaseIDTimestampEntity):
     pattern: str = CharField(100)
 
 
-class MessageEntity(BaseIDTimestampEntity):
+class MessageEntity(PersistenceEntity):
     """One message owed to one recipient, and what became of it.
 
     The row is written before anything is sent, so a message that never leaves
@@ -52,9 +52,11 @@ class MessageEntity(BaseIDTimestampEntity):
     channel: MessageChannel = CharField(35)
     kind: MessageKind = CharField(35)
     recipient: str = CharField(55)
-    body: str | None = TextField(nullable=True)
+    body: str | None = TextField(default=None, nullable=True)
     status: MessageStatus = CharField(35)
-    provider_message_id: str | None = CharField(100, nullable=True)
-    error: str | None = TextField(nullable=True)
+    provider_message_id: str | None = CharField(
+        100, default=None, nullable=True
+    )
+    error: str | None = TextField(default=None, nullable=True)
     tries: int = 0
-    sent_at: datetime | None = TimestampField(nullable=True)
+    sent_at: datetime | None = TimestampField(default=None, nullable=True)

@@ -1,18 +1,30 @@
 from typing import AsyncIterator
 
 from dishka import Provider, Scope, provide
+from sqlalchemy.ext.asyncio import AsyncSession
 from taskiq import ScheduleSource
 
 from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.config import Settings, get_settings
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import PostgreSQLUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
 from fastamu.infra.redis.client import RedisClient
 
 
 class CoreProvider(Provider):
+    @provide(scope=Scope.REQUEST)
+    async def uow(
+        self, connection: DBConnection[PostgreSQLUnitOfWork]
+    ) -> AsyncIterator[PostgreSQLUnitOfWork]:
+        async with connection.uow() as unit:
+            yield unit
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: PostgreSQLUnitOfWork) -> AsyncSession:
+        return uow.session
+
     @provide(scope=Scope.APP)
     def settings(self) -> Settings:
         return get_settings()
@@ -24,8 +36,9 @@ class CoreProvider(Provider):
     @provide(scope=Scope.APP)
     async def database(
         self, settings: Settings
-    ) -> AsyncIterator[DBConnection]:
+    ) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
         database = DBConnection(
+            uow_factory=PostgreSQLUnitOfWork,
             dsn=settings.db.dsn,
             pool_size=settings.db.pool_size,
             max_overflow=settings.db.max_overflow,
@@ -36,11 +49,6 @@ class CoreProvider(Provider):
             yield database
         finally:
             await database.dispose()
-
-    @provide(scope=Scope.REQUEST)
-    async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
-        async with pg.uow() as unit:
-            yield unit
 
     @provide(scope=Scope.APP)
     async def es(self, settings: Settings) -> AsyncIterator[ESClient]:

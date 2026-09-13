@@ -17,7 +17,7 @@ PROJECTIONS = """
 from collections.abc import Sequence
 from typing import ClassVar
 from sqlalchemy import text
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import PostgreSQLUnitOfWork
 from fastamu.messaging.projections.contracts.delete import (
     AbstractUnProjection, AbstractBatchUnProjection,
 )
@@ -25,7 +25,7 @@ from fastamu.messaging.projections.contracts.results import BulkItemResult
 
 class Product(AbstractUnProjection):
     queue_name: ClassVar[str] = "PRODUCT_QUEUE"
-    def __init__(self, unit: DBUnitOfWork) -> None:
+    def __init__(self, unit: PostgreSQLUnitOfWork) -> None:
         self.unit = unit
     async def _es_query(self, id: int) -> None:
         await self.unit.session.execute(
@@ -38,7 +38,7 @@ class Variant(Product):
 
 class Products(AbstractBatchUnProjection):
     queue_name: ClassVar[str] = "PRODUCT_QUEUE"
-    def __init__(self, unit: DBUnitOfWork) -> None:
+    def __init__(self, unit: PostgreSQLUnitOfWork) -> None:
         self.unit = unit
     async def _es_query(self, ids: Sequence[int]) -> list[BulkItemResult]:
         await self.unit.session.execute(

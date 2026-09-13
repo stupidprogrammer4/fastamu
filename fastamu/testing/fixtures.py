@@ -29,7 +29,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import MetaData, delete
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 from taskiq import ScheduledTask, ScheduleSource
 
@@ -37,7 +37,7 @@ from fastamu.common.security.passwords import PasswordHasher
 from fastamu.core.bootstrap import get_bootstrapper
 from fastamu.core.config import Settings
 from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.uow import DBUnitOfWork
+from fastamu.infra.db.uow import PostgreSQLUnitOfWork
 from fastamu.infra.es.client import ESClient
 from fastamu.infra.http.connection import HTTPConnection
 from fastamu.infra.redis.client import RedisClient
@@ -152,8 +152,11 @@ async def _reset_test_schema(dsn: str) -> None:
 
 
 @pytest.fixture
-async def pg(test_dsn: str) -> AsyncIterator[DBConnection]:
+async def pg(
+    test_dsn: str,
+) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
     connection = DBConnection(
+        uow_factory=PostgreSQLUnitOfWork,
         dsn=test_dsn,
         pool_size=1,
         max_overflow=0,
@@ -167,7 +170,9 @@ async def pg(test_dsn: str) -> AsyncIterator[DBConnection]:
 
 
 @pytest.fixture
-async def uow(pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
+async def uow(
+    pg: DBConnection[PostgreSQLUnitOfWork],
+) -> AsyncIterator[PostgreSQLUnitOfWork]:
     async with pg.uow() as unit:
         yield unit
 
@@ -191,7 +196,9 @@ async def es(integration_settings: Settings) -> AsyncIterator[ESClient]:
 
 
 @pytest.fixture
-async def clean_db(pg: DBConnection, es: ESClient) -> None:
+async def clean_db(
+    pg: DBConnection[PostgreSQLUnitOfWork], es: ESClient
+) -> None:
     """Empty every mapped table and read-model index (both discovered from the
     modules) between tests."""
     bootstrapper = get_bootstrapper()
@@ -266,6 +273,17 @@ def core_provider_of(test_settings: Settings) -> Provider:
     """
 
     class TestCoreProvider(Provider):
+        @provide(scope=Scope.REQUEST)
+        async def uow(
+            self, connection: DBConnection[PostgreSQLUnitOfWork]
+        ) -> AsyncIterator[PostgreSQLUnitOfWork]:
+            async with connection.uow() as unit:
+                yield unit
+
+        @provide(scope=Scope.REQUEST)
+        def session(self, uow: PostgreSQLUnitOfWork) -> AsyncSession:
+            return uow.session
+
         @provide(scope=Scope.APP)
         def settings(self) -> Settings:
             return test_settings
@@ -275,19 +293,21 @@ def core_provider_of(test_settings: Settings) -> Provider:
             return PasswordHasher(settings.crypto.password_salt)
 
         @provide(scope=Scope.APP)
-        def database(self, settings: Settings) -> DBConnection:
-            return DBConnection(
+        async def database(
+            self, settings: Settings
+        ) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
+            database = DBConnection(
+                uow_factory=PostgreSQLUnitOfWork,
                 dsn=settings.db.dsn,
                 pool_size=2,
                 max_overflow=1,
                 pool_timeout=settings.db.pool_timeout,
                 pool_recycle=settings.db.pool_recycle,
             )
-
-        @provide(scope=Scope.REQUEST)
-        async def uow(self, pg: DBConnection) -> AsyncIterator[DBUnitOfWork]:
-            async with pg.uow() as unit:
-                yield unit
+            try:
+                yield database
+            finally:
+                await database.dispose()
 
         @provide(scope=Scope.APP)
         def schedule_source(self) -> ScheduleSource:
