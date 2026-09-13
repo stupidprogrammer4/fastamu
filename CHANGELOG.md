@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+- Rename the distribution and import package to Papilio, with an application-owned
+  FastAPI factory and separate API, schema, security and database modules.
+- Remove task and projection runtime code from the web package. Infrastructure
+  dependencies are optional extras with explicit provider wiring.
+- Add CLI templates for CRUD, CQRS, context and plain modules, with optional
+  HTTP gateways and exporter extension points.
+- Add async file and CSV readers/writers, and use spawn workers with asynchronous
+  cleanup for Excel operations.
+- Add English learning guides, executable examples and backend API references.
+
+## Earlier Fastamu development notes
+
+The following unreleased notes describe the pre-split implementation. Task and
+projection features described here are not part of the Papilio web package.
+
 
 - Keep projection failures in Redis lists instead of a SQL table, one list per
   projection, and repair them by running their configured batch target rather

@@ -1,38 +1,24 @@
-# Fastamu
+# Papilio
 
-**A convention-driven, modular-monolith framework for Python backends.**
+**[Documentation](docs/index.md)** — step-by-step guides, runnable examples and API reference.
 
-FastAPI is not a framework. It is an excellent *router* with request validation
-attached — it has no opinion about how you wire dependencies, where your business
-logic lives, how you talk to a database, how you run background work, or what
-your responses look like. Every team that adopts it ends up rebuilding the same
-missing 80% by hand.
 
-Fastamu is that missing 80%, assembled once. It takes a set of best-in-class,
-independently-maintained tools — FastAPI, dishka, taskiq, SQLModel,
-Elasticsearch, Redis — and fuses them into a single coherent framework where
-**everything wires itself by convention**. Modules are auto-discovered. DI,
-routing, background tasks, migrations and tests all find your code without you
-registering it anywhere. There is no `app_registry.py`, no aggregator module, no
-`include_router` list to maintain.
+A modular web API framework built on FastAPI, Dishka and SQLAlchemy.
 
-Adding a feature is one command and one folder.
+Papilio provides module discovery, dependency injection, HTTP responses,
+validation, database repositories, transactions and application scaffolding.
+Task execution and messaging belong to the independent **Papilio Tasks** project.
 
-```bash
-fastamu module catalog.product --cqrs
-# ✓ created CQRS module 'catalog.products' at shop/modules/catalog/products
-```
-
-That's it. The router is live, the service is injectable, the table is in the next
-migration, and the ES index is created on boot through discovery.
-
----
+This is the local rename and extraction of Fastamu, not a published release.
+Install this checkout with `pip install -e ".[dev]"` and use `papilio` as the
+CLI command. Python imports use `papilio`.
 
 ## Table of contents
 
 - [The stack: what each tool does](#the-stack-what-each-tool-does)
 - [Quickstart](#quickstart)
 - [Project layout](#project-layout)
+- [Application construction](#application-construction)
 - [The core idea: a module](#the-core-idea-a-module)
 - [The discovery contract](#the-discovery-contract)
 - [Scaffolding a module](#scaffolding-a-module)
@@ -42,8 +28,6 @@ migration, and the ES index is created on boot through discovery.
 - [Responses and errors](#responses-and-errors)
 - [Authentication and scopes](#authentication-and-scopes)
 - [Rate limiting](#rate-limiting)
-- [Background tasks and scheduling](#background-tasks-and-scheduling)
-- [CQRS: the Elasticsearch read side](#cqrs-the-elasticsearch-read-side)
 - [Other infrastructure](#other-infrastructure)
 - [Migrations](#migrations)
 - [Testing](#testing)
@@ -53,41 +37,22 @@ migration, and the ES index is created on boot through discovery.
 
 ---
 
-The previous event/projection, outbox/inbox and custom retry implementation
-has been removed for redesign. The new projection runtime is available below;
-the removed event and outbox/inbox APIs remain unavailable. See
-[the design](MESSAGING_REDESIGN.md). SQL transactions, DB/ES
-repositories and Taskiq jobs/scheduling remain available. Projection retry is
-optional and uses Taskiq's native SmartRetry with a Redis scheduler.
-
-The shared `Register` in `tasks/projection/delivery` maps projection classes to native
-Taskiq tasks. `AbstractConvertor`, discovery, registration, publication decorators,
-the independent worker and optional retry are implemented. Optional SQL failure storage and periodic batch repair are also implemented. Repair will supply IDs to existing batch
-projections; it does not require a special projection class or decorator.
-Publication decorators run after successful function completion; transaction
-boundaries remain the caller's responsibility.
-
-`fastamu new shop --cqrs --scheduler` enables the ES read side and Taskiq/Redis
-jobs. With no flags, neither subsystem is enabled. Pending SMS records are not
-automatically dispatched.
-
 ## The stack: what each tool does
 
-Fastamu is deliberately not a from-scratch framework. Each concern is delegated
-to a mature library; Fastamu's value is the **integration layer** that makes them
+Papilio is deliberately not a from-scratch framework. Each concern is delegated
+to a mature library; Papilio's value is the **integration layer** that makes them
 behave as one thing.
 
-| Concern | Tool | What Fastamu adds on top |
+| Concern | Tool | What Papilio adds on top |
 |---|---|---|
 | HTTP, validation, OpenAPI | **FastAPI** | Auto-included routers, a uniform response envelope, typed error handlers, offline (CDN-free) Swagger UI |
-| Dependency injection | **dishka** | A `CoreProvider` with the whole infra layer pre-wired; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes shared identically by the web app *and* the task worker |
-| Scheduled jobs & cron | **taskiq** (Redis streams) | A broker that boots the same DI container as the web app, per-module task auto-registration, logging middleware |
+| Dependency injection | **dishka** | A small `CoreProvider` plus explicit optional infrastructure providers; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes for the web application |
 | Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Explicit repositories for each database and entity shape, native writes, paging/streaming helpers, and a request-scoped `UnitOfWork` |
 | Read side / search | **Elasticsearch DSL** (async) | `ESRepository` and index auto-creation on boot |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
 | Outbound HTTP | **httpx** | One pooled client for the process, plus a `BaseGateway` that owns base url, headers and per-API timeouts |
-| Logging | **Rich / orjson** | One switch between Rich console output and ECS-shaped JSON lines, a request id on every record, and uvicorn/gunicorn/taskiq adopted into the same handler |
+| Logging | **Rich / orjson** | One switch between Rich console output and ECS-shaped JSON lines, a request id on every record, and uvicorn/gunicorn adopted into the same handler |
 | Spreadsheets | **openpyxl / xlsxwriter** | Async reader/writer that offloads to a `ProcessPool` so a large workbook never blocks the event loop |
 | Validation vocabulary | **pydantic v2** | A shared library of semantic type aliases (`RialType`, `SlugType`, `MobileType`, …) |
 | Scaffolding | **typer** | A CLI that generates a complete, correctly-layered module |
@@ -95,41 +60,100 @@ behave as one thing.
 
 ---
 
-## Quickstart
+## Installation and optional infrastructure
 
-**Runtime requirements:** Python **3.13+**, a SQL database (PostgreSQL by default), **Redis**.
-Elasticsearch is only needed if you use the CQRS read side.
+Until publication, install from this checkout. The base package has no SQL,
+Elasticsearch, Redis or spreadsheet dependency. Select extras explicitly:
 
 ```bash
-# 1) Install the framework and start a project
+pip install -e ".[server]"
+pip install -e ".[postgresql,es,redis,rate-limit]"
+pip install -e ".[files,csv,excel,http]"
+pip install -e ".[test]"
+```
+
+| Extra | Capability |
+|---|---|
+| `server` | Uvicorn |
+| `db` | SQLModel, SQLAlchemy and Alembic, without a database driver |
+| `postgresql`, `mysql`, `mariadb`, `sqlite`, `mssql`, `oracle` | SQL tools plus the selected driver |
+| `es` | Elasticsearch client, documents and repository |
+| `redis` | Redis client |
+| `rate-limit` | HTTP rate limiting and Redis |
+| `http` | Outbound HTTP client and gateway |
+| `excel` | Spreadsheet reader/writer; no pandas or NumPy |
+| `files`, `csv` | Async file and CSV tools using AnyIO worker threads |
+| `persian` | Jalali/Persian utility functions |
+| `ops` | Reference ops modules and their infrastructure dependencies |
+| `test` | Pytest, async testing and HTTP test client |
+| `all` / `dev` | All optional runtime tools / runtime plus development tools |
+
+Installing an extra makes its imports available. Add its provider to
+`create_app(providers=...)` to manage its resources. CoreProvider provides only
+settings and password hashing. `db`, `redis`, `http` and `es` configuration may
+be absent; rate limiting is off by default. Module discovery defaults to an
+empty list, so reference modules are adopted explicitly.
+
+```bash
+papilio new minimal
+papilio new shop --infra postgresql --infra redis --infra rate-limit
+papilio new reporting --infra es --infra csv --infra files
+papilio new catalog --cqrs
+```
+
+`--infra` is repeatable. The generator writes the selected extras into project
+metadata and explicit provider wiring into `main.py`. `--cqrs` is a project
+preset selecting PostgreSQL and Elasticsearch. Database migrations are emitted
+only when PostgreSQL is selected. Other database drivers and repositories remain
+available as extras; the current CLI SQL templates target PostgreSQL.
+
+| Module command | Generated behavior |
+|---|---|
+| `papilio module product` | SQL CRUD service and HTTP endpoints |
+| `papilio module product --cqrs` | CRUD, SQL create command, ES search query and search endpoint |
+| `papilio module pricing --plain` | DTO, output, service, provider and endpoint; no SQL or ES imports |
+| `papilio module pricing --context` | A custom SQL reader and calculation skeleton to implement |
+| `--http`, `--excel` | Additional gateway/exporter extension files |
+
+CRUD models start with persistence fields; add your domain fields to the model
+and input DTOs. The plain service starts with an empty output for you to fill.
+Context reading/calculation is application-specific and intentionally unfinished.
+CQRS writes and search are separate tools: no automatic publication, projection,
+retry, outbox or SQL-to-ES synchronization is installed. Module generation prints
+the required extras; add them to your project's dependencies and wire providers.
+
+## Quickstart
+
+**Runtime requirement:** Python **3.13+**. The SQL example below explicitly
+selects PostgreSQL; other infrastructure is optional.
+
+```bash
+# 1) From this checkout, install the framework and start a project
 python3.13 -m venv .venv && source .venv/bin/activate
-pip install fastamu
-fastamu new shop --scheduler && cd shop
+pip install -e ".[dev]"
+papilio new shop --infra postgresql && cd shop
 
 # 2) Config — config.yml is gitignored; it holds your secrets
 #    fill in: db.dsn, db.test_dsn, redis.url,
-#             tasks.schedulers.url, jwt.secret_key, crypto.encryption_key
+#             jwt.secret_key, crypto.encryption_key
 pip install -e ".[dev]"
 
 # 3) Schema
 alembic upgrade head
 
-# 4) API — your modules, the framework's app
-uvicorn fastamu.web.app:app --reload
+# 4) API — the entry point generated in your project
+uvicorn shop.main:app --reload
 
-# 5) Worker + scheduler (separate processes)
-taskiq worker    fastamu.tasks.schedulers.broker:broker      # jobs
-taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler # cron
 ```
 
-`fastamu new` writes only what is yours — a package for your modules, the config
+`papilio new` writes only what is yours — a package for your modules, the config
 the framework reads, alembic wiring and a test suite. **The framework stays in
-site-packages**: there is no vendored copy to keep in step, and upgrading is
-`pip install -U fastamu`.
+the installed package**: there is no vendored copy to keep in step. Until the
+first release, update the local checkout and reinstall it in editable mode.
 
-Working *on* Fastamu itself instead? Clone it and `pip install -e ".[dev,scheduler]"` —
-its own `config.yml` points `app.modules` at `fastamu.modules`, so the `ops`
-reference modules are what boots.
+Working *on* Papilio itself instead? Clone it and `pip install -e ".[dev]"` —
+its own `config.yml` points `app.modules` at `papilio.modules`, so the `ops`
+reference modules are discovered when you call `create_app()`.
 
 Swagger UI is served at **`/docs`**, self-hosted from `/static/swagger` — no CDN,
 so it works on an air-gapped box.
@@ -156,58 +180,36 @@ shop/
 ```
 
 ```
-# the installed package — `import fastamu`
-fastamu/
-├── common/          # Shared models, schemas, errors and general helpers
-│   ├── models/      # what an entity is — base.py, fields.py (its columns)
-│   ├── schemas/     # what crosses the wire — dtos.py (in), outputs.py (out),
-│   │                # meta.py (paging, facets), results.py (PagedType, …)
-│   ├── errors/      # base.py, exceptions.py, outputs.py (the *ErrorOut shapes)
-│   ├── security/    # passwords.py, crypto.py, tokens.py, ids.py
-│   ├── utils/       # dates.py, strings.py, persian.py, currency.py
-│   ├── types/       # the shared vocabulary — aliases.py, enums.py, constants.py
-│   └── services.py  # BaseService, BaseIDService
-│
-├── messaging/       # Messaging contracts and optional capabilities
-│   └── projections/
-│       ├── contracts/ # What an application implements: single, batch, fanout,
-│       │              # patch, delete, policy, results
-│       └── repair/    # Optional recovery: the failure queue contract, the
-│                      # Redis list behind it, and what reruns a failure
-│
-├── core/            # The framework's heart
-│   ├── bootstrap.py # Auto-discovery: modules, routers, providers, models,
-│   │                # ES documents, tasks
-│   ├── config.py    # Settings loaded from config.yml (pydantic)
-│   ├── provider.py  # CoreProvider — Settings / PG / UoW / Redis / ES / scheduler
-│   ├── logger.py    # console or ECS-JSON logging, request-id ContextVar
-│   └── resources.py # Global message codes
-│
-├── infra/           # Adapters to the outside world
-│   ├── db/          # repository contracts/tools, typed connections and UoWs
-│   ├── es/          # client, repository, analyzers
-│   ├── redis/       # pooled async client
-│   ├── http/        # pooled httpx client + BaseGateway
-│   └── excel/       # ProcessPool-backed reader / writer
-│
-├── tasks/           # Background job execution
-│   ├── schedulers/  # Redis jobs, cron and middleware
-│   └── projection/  # broker.py and scheduler.py are entry points;
-│                    # delivery/ registers and publishes, repair/ reruns
-│
-├── web/             # The HTTP layer
-│   ├── app.py       # App construction: bootstrap → container → routers
-│   ├── dependencies.py # Auth (generic placeholder) + decode_path_id
-│   ├── response.py  # APIResponse envelope
-│   ├── error_handlers.py
-│   ├── docs.py      # Offline Swagger UI
-│   └── middlewares/ # request-id + access logging, app-wide rate limit
-│
-├── manager.py       # The CLI: `fastamu new`, `fastamu module`
-├── scaffold.py      # What `fastamu new` writes
-├── testing/         # The pytest plugin — fixtures for any project
+# the installed package — `import papilio`
+papilio/
+├── schemas/         # Validated inputs, outputs and application results
+├── errors/          # Typed exceptions and error schemas
+├── security/        # Tokens, hashing, encryption and public IDs
+├── types/           # Shared aliases, enums and numeric constants
+├── utils/           # Date, text and currency helpers
+├── services.py      # Base application service tools
+├── core/            # Settings, discovery, providers and logging
+├── infra/
+│   ├── db/          # Models, fields, repositories, connections and UoWs
+│   ├── es/          # Search client and repository
+│   ├── redis/       # Shared Redis client
+│   ├── http/        # Outbound HTTP connection and gateways
+│   ├── excel/       # Spreadsheet readers and writers
+│   ├── files/       # Async text and binary file tools
+│   └── csv/         # Async streaming CSV reader/writer
+├── api/
+│   ├── application.py  # App factory and resource lifetime
+│   ├── authentication.py # Bearer authentication and scope guards
+│   ├── requests/       # Query models and path parameters
+│   ├── responses/      # Envelope, metadata and exception handlers
+│   ├── rate_limit/     # Route dependencies, provider and middleware
+│   ├── middlewares/    # Request logging
+│   └── docs.py         # Offline Swagger UI
+├── cli/             # Project/module commands
+├── scaffolding/     # Renderers and packaged template files
+├── testing/         # Pytest fixtures
 └── modules/
-    └── ops/{jobs,messages,storage,system}/   # Reference modules — see below
+    └── ops/{messages,storage,system}/   # Reference modules — see below
 ```
 
 Adopt the reference modules by naming the package in `config.yml`:
@@ -216,18 +218,53 @@ Adopt the reference modules by naming the package in `config.yml`:
 app:
   modules:
     - "shop.modules"      # yours, always first
-    - "fastamu.modules"   # optional: adds ops/{jobs,messages,storage,system}
+    - "papilio.modules"   # optional: adds ops/{messages,storage,system}
 ```
 
-**Dependency direction is strictly inward.** `routers` / `tasks` / `app` / `infra`
+**Dependency direction is strictly inward.** `routers` / `app` / `infra`
 all depend on `domain`; `domain` knows nothing about HTTP, SQL or Elasticsearch.
 
 ---
 
+## Application construction
+
+The application belongs to your project. `papilio new shop` generates
+`shop/main.py`; run it with `uvicorn shop.main:app`. The framework has no global
+ASGI application.
+
+```python
+from papilio.api.application import create_app
+
+app = create_app(
+    title="Shop API",
+    root_path="/gateway",
+    docs_url="/reference",
+)
+```
+
+Pass `settings` to supply an explicit settings instance. `providers` and
+`routers` add to discovered modules. `middleware` replaces the default stack
+when supplied; `middleware=()` disables the defaults. Dishka's request-scope
+middleware is always installed. `exception_handlers` overrides individual
+framework handlers. Other keyword options go directly to FastAPI.
+
+Supply an async context manager as `lifespan` for application resources. It
+starts after framework startup and exits before the container closes, so its
+cleanup can still use dependencies. Its yielded state is preserved for requests.
+Use lifespan for startup/shutdown work rather than the legacy event arguments.
+
+Local Swagger UI defaults to `/docs`; `docs_url=None` disables it. Custom schema
+paths, Swagger options and `root_path` are respected. Disabling `openapi_url`
+also disables Swagger UI.
+
+Each factory call creates a separate container. Startup configures logging and
+initializes enabled search indexes; shutdown closes owned resources, including
+when startup fails. Importing the factory and CLI does not read `config.yml`.
+
 ## The core idea: a module
 
-A feature is a **module**: `fastamu/modules/<name>/`. Modules may be filed under a
-**group** — `fastamu/modules/<group>/<name>/` — but a group is nothing more than a
+A feature is a **module**: `papilio/modules/<name>/`. Modules may be filed under a
+**group** — `papilio/modules/<group>/<name>/` — but a group is nothing more than a
 namespace folder, and it is entirely optional. `modules/pricing/` and
 `modules/catalog/products/` are both perfectly ordinary modules; group things
 when grouping earns its keep, not because the layout demands it.
@@ -235,7 +272,7 @@ when grouping earns its keep, not because the layout demands it.
 ```
 modules/[<group>/]<name>/
 ├── domain/         # The inward core — no I/O, and no idea one exists
-│   ├── models.py       # your entities: fields only  (no table, no ORM)
+│   ├── entities.py     # SQLModel schemas, without table mapping
 │   ├── dtos.py         # BaseDTO                     (validated input)
 │   ├── enums.py
 │   └── documents.py    # AsyncDocument  (CQRS only)  (ES read model)
@@ -250,17 +287,13 @@ modules/[<group>/]<name>/
 │   ├── gateways.py     # (--http)  outbound HTTP clients
 │   └── exporters.py    # (--excel) file/spreadsheet exporters
 ├── routers/        # One file per concern (admin.py, public.py, …)
-├── tasks/
-│   ├── schedulers/  # Taskiq jobs
-│   ├── subscribers/ # FastStream subscriber routers
-│   └── publishers/  # FastStream publisher routers
 ├── interfaces.py   # I*Service Protocols — the module's public contract
 ├── providers.py    # The module's dishka Provider
 └── resources.py    # Module-scoped message codes (add by hand when you need them)
 ```
 
 Everything except `domain/` or `app/` is optional — a module with no table, no
-router and no tasks is perfectly legal (`ops/system` is exactly that).
+router is perfectly legal (`ops/system` is exactly that).
 
 ### Context modules: when the module owns logic, not rows
 
@@ -316,10 +349,10 @@ mud — and what makes any module extractable into its own service later.
 ## The discovery contract
 
 This is the single most important section. There is **no registration anywhere**;
-the bootstrapper ([fastamu/core/bootstrap.py](fastamu/core/bootstrap.py)) finds your code
-by walking the app's modules package and looking for exactly five paths.
+the bootstrapper ([papilio/core/bootstrap.py](papilio/core/bootstrap.py)) finds your code
+by walking the app's modules package and looking for four paths.
 
-A package under `fastamu/modules/` is recognised as a **module** if — and only if — it
+A package under `papilio/modules/` is recognised as a **module** if — and only if — it
 contains a `domain/` or an `app/` sub-package. Anything else is treated as a
 **group** and scanned one level deeper. That's the whole rule — and it is why a
 group is optional: `modules/pricing/` is found by the same rule that finds
@@ -331,24 +364,20 @@ group is optional: `modules/pricing/` is found by the same rule that finds
 | **Providers** | `<module>/providers.py` | Every `dishka.Provider` subclass, instantiated and merged into the container |
 | **Tables** | `<module>/infra/tables.py` | Imported so the `table=True` classes register on the shared metadata (this is what Alembic autogenerate sees). Only this file — a `domain/entities.py` maps to nothing |
 | **ES documents** | `<module>/domain/documents.py` | Every `AsyncDocument` subclass; its index is created on app startup if missing |
-| **Schedulers** | `<module>/tasks/schedulers/*.py` | Imported by `boot_schedulers()` to register Taskiq jobs |
 
 Consequences worth internalising:
 
-- **`routers/` and `tasks/` are packages whose `__init__.py` stays empty.** The
+- **`routers/` are packages whose `__init__.py` stays empty.** The
   bootstrapper imports each *file* inside them. Re-exporting from `__init__.py`
   is not just unnecessary, it is against the convention.
 - **`providers.py`, `domain/entities.py` and `infra/tables.py` are single files**, not packages.
-- **Every one of these is optional.** A module with no `tasks/` folder simply has
-  no tasks. A missing file is skipped silently; a file that *exists but fails to
+- **Every one of these is optional.** A module may provide only the layers it needs. A missing file is skipped silently; a file that *exists but fails to
   import* raises loudly (for routers), so typos don't silently unmount your API.
 - **The bootstrapper does not invent prefixes or tags.** Your router declares its
   own `prefix=` and `tags=`. The scaffolder writes the pluralised convention for
   you.
-- **The same bootstrapper runs in four places** — the web app, the taskiq broker,
-  Alembic's `env.py`, and the pytest fixtures — so all four see an identical view
-  of your modules. Add a module, and migrations, DI, the worker and the test
-  container all pick it up with zero edits.
+- The bootstrapper is shared by the web application, migrations and test
+  fixtures. Worker discovery belongs to Papilio Tasks.
 
 ---
 
@@ -360,26 +389,24 @@ folder, the router prefix, the tags and the table name, while class names stay
 singular.
 
 ```bash
-fastamu module product                   # CRUD, no group
-fastamu module catalog.product           # CRUD, filed under catalog/
-fastamu module catalog.product --cqrs    # + ES read model, commands/queries
-fastamu module pricing --context         # pure logic: context + reader, no models
-fastamu module catalog.product --tasks       # Taskiq jobs
-fastamu module catalog.product --scheduler   # only tasks/schedulers/
-fastamu module catalog.product --http    # + infra/gateways.py
-fastamu module catalog.product --excel   # + infra/exporters.py
+papilio module product                   # CRUD, no group
+papilio module catalog.product           # CRUD, filed under catalog/
+papilio module catalog.product --cqrs    # + ES read model, commands/queries
+papilio module pricing --context         # pure logic: context + reader, no models
+papilio module catalog.product --http    # + infra/gateways.py
+papilio module catalog.product --excel   # + infra/exporters.py
 ```
 
-Flags compose freely (`--cqrs --tasks --excel`); `--context` is the one exclusion
+Flags compose freely (`--cqrs --excel`); `--context` is the one exclusion
 — a module with no table cannot have a read side to project into, so it rejects
-`--cqrs`. The console script `fastamu` is also installed by `pip install -e .`,
-so `fastamu module catalog.product` works too.
+`--cqrs`. The console script `papilio` is also installed by `pip install -e .`,
+so `papilio module catalog.product` works too.
 
 What `catalog.product` produces:
 
 | | |
 |---|---|
-| Folder | `fastamu/modules/catalog/products/` |
+| Folder | `papilio/modules/catalog/products/` |
 | Classes | `ProductModel`, `ProductCreate`, `ProductUpdate`, `ProductOut`, `ProductRepository`, `ProductService`, `IProductService`, `ProductProvider` |
 | Table | `tbl_products` |
 | Router | `APIRouter(prefix="/products", tags=["products"])` |
@@ -388,7 +415,7 @@ What `pricing --context` produces:
 
 | | |
 |---|---|
-| Folder | `fastamu/modules/pricing/` — **not** pluralised; an engine is not a collection |
+| Folder | `papilio/modules/pricing/` — **not** pluralised; an engine is not a collection |
 | Classes | `PricingContext`, `PricingInput`, `PricingOut`, `PricingReader`, `PricingService`, `IPricingService`, `PricingProvider` |
 | Table | none — no `infra/tables.py`, no `domain/documents.py` |
 | Router | `APIRouter(prefix="/pricing", tags=["pricing"])` |
@@ -404,18 +431,18 @@ wiring is done, the logic is yours.
 Let's build `catalog.brand` as a plain CRUD module. Start with the scaffold:
 
 ```bash
-fastamu module catalog.brand
+papilio module catalog.brand
 ```
 
 ### 1. The model — `domain/entities.py`
 
 A model declares **fields and nothing else**. It is not the table: no `table=True`,
-no ORM base, no `__tablename__`. That is what keeps `domain/` honest — it names
+no table mapping or `__tablename__`. These SQLModel schemas describe
 what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
-from fastamu.common.models.entities import PersistenceEntity
-from fastamu.common.models.fields import BoolField, CharField
+from papilio.infra.db.models import PersistenceEntity
+from papilio.infra.db.fields import BoolField, CharField
 
 
 class BrandModel(PersistenceEntity):
@@ -426,7 +453,7 @@ class BrandModel(PersistenceEntity):
 
 `PersistenceEntity` contributes `id`, `created_at` and `updated_at`. Columns use
 the **field factories** from
-[fastamu/common/models/fields.py](fastamu/common/models/fields.py), which default to
+[papilio/infra/db/fields.py](papilio/infra/db/fields.py), which default to
 `NOT NULL`. Common options are direct named arguments:
 
 ```python
@@ -468,7 +495,7 @@ One line maps the model onto a real table. This file is the *only* place that
 knows a database exists, and the only one the bootstrapper imports for metadata:
 
 ```python
-from fastamu.infra.db.table import BaseTable
+from papilio.infra.db.table import BaseTable
 from shop.modules.catalog.brands.domain.entities import BrandModel
 
 
@@ -490,12 +517,12 @@ against the **model** (`PostgreSQLIdentifiedRepository[BrandModel]`) and bind
 ### 2. Validated input — `domain/dtos.py`
 
 DTOs are **plain pydantic**, never SQLModel: input validation must not depend on
-the ORM. Draw the field types from [fastamu/common/types/aliases.py](fastamu/common/types/aliases.py) so
+the ORM. Draw the field types from [papilio/types/aliases.py](papilio/types/aliases.py) so
 validation rules stay consistent across the codebase.
 
 ```python
-from fastamu.common.schemas.dtos import BaseDTO
-from fastamu.common.types.aliases import SlugType, StrType
+from papilio.schemas.inputs import BaseDTO
+from papilio.types.aliases import SlugType, StrType
 
 
 class BrandCreate(BaseDTO):
@@ -516,7 +543,7 @@ semantics** — a field the client never sent is never written. Pass
 ### 3. Wire output — `routers/schemas.py`
 
 The shape a client sees is an HTTP concern, so it sits with the routes that
-serialise it. Because a model is now plain pydantic, an output can subclass one
+serialise it. An unmapped SQLModel schema can also be reused as an output base
 instead of restating its fields:
 
 ```python
@@ -531,7 +558,7 @@ Add computed fields, or narrow to a subset by declaring only what you want — a
 schema that must differ from the model still starts from `BaseOutput`:
 
 ```python
-from fastamu.common.schemas.outputs import BaseOutput
+from papilio.schemas.outputs import BaseOutput
 
 
 class BrandSummaryOut(BaseOutput):
@@ -550,11 +577,11 @@ Inherit and you get the whole CRUD surface for free.
 ```python
 from sqlmodel import col, select
 
-from fastamu.common.schemas.results import PagedType
-from fastamu.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
-from fastamu.infra.db.tools.read import fetch_page
-from fastamu.modules.catalog.brands.domain.entities import BrandModel
-from fastamu.modules.catalog.brands.infra.tables import BrandTable
+from papilio.schemas.results import PagedType
+from papilio.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
+from papilio.infra.db.tools.read import fetch_page
+from papilio.modules.catalog.brands.domain.entities import BrandModel
+from papilio.modules.catalog.brands.infra.tables import BrandTable
 
 
 class BrandRepository(PostgreSQLIdentifiedRepository[BrandModel]):
@@ -582,13 +609,13 @@ Business rules live here, and only here. `BaseIDService` reads the model off the
 generic parameter and gives you guards that raise the framework's typed errors.
 
 ```python
-from fastamu.common.services import BaseIDService
-from fastamu.infra.db.tools.decorators import transactional
-from fastamu.common.errors.exceptions import ConflictException
-from fastamu.core import resources
-from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from fastamu.modules.catalog.brands.domain.entities import BrandModel
-from fastamu.modules.catalog.brands.infra.repository import BrandRepository
+from papilio.services import BaseIDService
+from papilio.infra.db.tools.decorators import transactional
+from papilio.errors.exceptions import ConflictException
+from papilio.core import resources
+from papilio.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
+from papilio.modules.catalog.brands.domain.entities import BrandModel
+from papilio.modules.catalog.brands.infra.repository import BrandRepository
 
 
 class BrandService(BaseIDService[BrandModel]):
@@ -636,8 +663,8 @@ Other modules may only ever see this.
 ```python
 from typing import Protocol
 
-from fastamu.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
-from fastamu.modules.catalog.brands.domain.entities import BrandModel
+from papilio.modules.catalog.brands.domain.dtos import BrandCreate, BrandUpdate
+from papilio.modules.catalog.brands.domain.entities import BrandModel
 
 
 class IBrandService(Protocol):
@@ -652,9 +679,9 @@ class IBrandService(Protocol):
 ```python
 from dishka import Provider, Scope, provide
 
-from fastamu.modules.catalog.brands.app.services import BrandService
-from fastamu.modules.catalog.brands.infra.repository import BrandRepository
-from fastamu.modules.catalog.brands.interfaces import IBrandService
+from papilio.modules.catalog.brands.app.services import BrandService
+from papilio.modules.catalog.brands.infra.repository import BrandRepository
+from papilio.modules.catalog.brands.interfaces import IBrandService
 
 
 class BrandProvider(Provider):
@@ -666,7 +693,7 @@ class BrandProvider(Provider):
 
 `provide(BrandService, provides=IBrandService)` binds the implementation to the
 `Protocol`. Callers depend on `IBrandService`; only this line knows the concrete
-class. `BrandRepository`'s `PostgreSQLUnitOfWork` argument is resolved by `CoreProvider`
+class. `BrandRepository`'s `PostgreSQLUnitOfWork` argument is resolved by `PostgreSQLProvider`
 — you never construct it.
 
 **This file is the entire registration.** No import into a central module, no list
@@ -678,18 +705,18 @@ to append to.
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends
 
-from fastamu.common.types.aliases import IdType
-from fastamu.modules.catalog.brands.domain.dtos import BrandCreate
-from fastamu.modules.catalog.brands.routers.schemas import BrandOut
-from fastamu.modules.catalog.brands.interfaces import IBrandService
-from fastamu.web.dependencies import Scope, require_access
-from fastamu.web.response import APIResponse
+from papilio.types.aliases import IdType
+from papilio.modules.catalog.brands.domain.dtos import BrandCreate
+from papilio.modules.catalog.brands.routers.schemas import BrandOut
+from papilio.modules.catalog.brands.interfaces import IBrandService
+from papilio.api.authentication import require_access
+from papilio.api.responses.envelope import APIResponse
 
 router = APIRouter(
     prefix="/brands",
     tags=["Brands"],
     route_class=DishkaRoute,
-    dependencies=[Depends(require_access(Scope.BRANDS))],
+    dependencies=[Depends(require_access("brands"))],
 )
 
 BrandResponse = APIResponse[BrandOut, None]
@@ -719,14 +746,16 @@ Two things make this work: **`route_class=DishkaRoute`** (required for
 
 ### 9. Migrate and run
 
+Create `main.py` in your application with `app = create_app()` as shown above.
+
 ```bash
 alembic revision --autogenerate -m "add brands"
 alembic upgrade head
-fastapi dev fastamu/web/app.py
+uvicorn main:app --reload
 ```
 
 `POST /brands` is live. At no point did you edit a file outside
-`fastamu/modules/catalog/brands/`.
+`papilio/modules/catalog/brands/`.
 
 ---
 
@@ -735,19 +764,20 @@ fastapi dev fastamu/web/app.py
 dishka is the spine. Two scopes matter:
 
 - **`Scope.APP`** — created once per process (connection pools, clients).
-- **`Scope.REQUEST`** — created per HTTP request *and* per task execution.
+- **`Scope.REQUEST`** — created per HTTP request.
 
-`CoreProvider` ([fastamu/core/provider.py](fastamu/core/provider.py)) makes the whole infra
-layer injectable out of the box:
+`CoreProvider` supplies settings and password hashing. Infrastructure providers
+are explicit: `PostgreSQLProvider(settings.db)`, `ESProvider(settings.es)`,
+`RedisProvider(settings.redis)` and `HTTPProvider(settings.http)` live in each
+infra package's `provider.py`. After registering them, these types are available:
 
 | Inject this | Scope | What you get |
 |---|---|---|
 | `Settings` | APP | The parsed `config.yml` |
-| `DBConnection[PostgreSQLUnitOfWork]` | APP | The default async engine + session factory |
+| `DBConnection[PostgreSQLUnitOfWork]` | APP | The explicitly selected PostgreSQL engine + session factory |
 | `PostgreSQLUnitOfWork` | **REQUEST** | An open PostgreSQL session; operations own commit/rollback |
 | `ESClient` | APP | Async Elasticsearch client |
 | `RedisClient` | APP | Pooled async Redis client |
-| `ScheduleSource` | APP | The taskiq Redis schedule source (for scheduling jobs at runtime) |
 
 **The transaction boundary is an application operation.** Dishka opens a
 backend-specific UoW when it is first resolved and closes it at scope exit. Scope exit
@@ -765,8 +795,8 @@ Concurrent operations need separate UoWs; a child task cannot
 borrow an inherited application transaction.
 
 ```python
-from fastamu.infra.db.tools.decorators import transactional
-from fastamu.infra.db.transaction import transaction
+from papilio.infra.db.tools.decorators import transactional
+from papilio.infra.db.transaction import transaction
 
 @transactional
 async def rename_product(repo, product_id, title):
@@ -823,8 +853,8 @@ class StorageProvider(Provider):
     media_service = provide(MediaService, provides=IMediaService)
 ```
 
-The same container is built by the web app **and** the taskiq broker, so a service
-behaves identically whether it was called from an HTTP route or a background job.
+The web application owns this container. Other processes own their own resource
+lifetimes and dependency wiring.
 
 ---
 
@@ -832,7 +862,7 @@ behaves identically whether it was called from an HTTP route or a background job
 
 ### Model bases
 
-In `fastamu.common.models.entities` — all pure, none of them a table:
+In `papilio.infra.db.models` — all pure, none of them a table:
 
 | Base | Adds |
 |---|---|
@@ -842,7 +872,7 @@ In `fastamu.common.models.entities` — all pure, none of them a table:
 | `TimestampEntity` | `created_at`, `updated_at` (DB-managed) |
 | `PersistenceEntity` | all of the above — the usual choice |
 
-`BaseTable`, in `fastamu.infra.db.table`, is what turns one into a
+`BaseTable`, in `papilio.infra.db.table`, is what turns one into a
 table, and it is the only base that carries a `__tablename__`.
 
 ### Explicit repositories
@@ -851,7 +881,7 @@ Choose both the database and the entity shape. Declare the table directly;
 there is no repository factory, table discovery or runtime generic inspection.
 
 ```python
-from fastamu.infra.db.repositories.backends.postgresql import (
+from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLPersistenceRepository,
 )
 from shop.modules.catalog.products.domain.entities import ProductEntity
@@ -865,7 +895,7 @@ class ProductRepository(PostgreSQLPersistenceRepository[ProductEntity]):
 Each database provides four entity repository shapes and a reader.
 Replace `PostgreSQL` with `MySQL`,
 `MariaDB`, `SQLite`, `MSSQL` or `Oracle` and import from its corresponding file
-under `fastamu.infra.db.repositories.backends`.
+under `papilio.infra.db.repositories.backends`.
 
 | Shape | Example | Methods |
 |---|---|---|
@@ -889,10 +919,10 @@ db/
 └── repositories/
 ```
 
-Import `transactional` from `fastamu.infra.db.tools.decorators`, reading helpers
-from `fastamu.infra.db.tools.read`. Database-specific helpers stay in
+Import `transactional` from `papilio.infra.db.tools.decorators`, reading helpers
+from `papilio.infra.db.tools.read`. Database-specific helpers stay in
 `dialects`: PostgreSQL fields, `reset_schema` and `truncate_tables` are in
-`fastamu.infra.db.dialects.postgresql`.
+`papilio.infra.db.dialects.postgresql`.
 
 Repositories are separated into declarations and executable tools:
 
@@ -928,7 +958,7 @@ Application providers use native Dishka registration:
 
 ```python
 from dishka import Provider, Scope, provide
-from fastamu.infra.db.repositories.contracts.postgresql import (
+from papilio.infra.db.repositories.contracts.postgresql import (
     PostgreSQLPersistenceRepositoryContract,
 )
 
@@ -940,7 +970,7 @@ class CatalogProvider(Provider):
     )
 ```
 
-`CoreProvider` configures the default connection explicitly:
+`PostgreSQLProvider` configures its connection explicitly:
 
 ```python
 connection = DBConnection(
@@ -957,7 +987,7 @@ connection = DBConnection(
 
 For another backend, pass its UoW class as the factory and register it in the
 application's ordinary Dishka provider. There are no per-database connection
-classes or framework database providers. The provider opens the unit directly:
+classes or automatic backend selection. A custom provider opens the unit directly:
 
 ```python
 @provide(scope=Scope.REQUEST)
@@ -1177,7 +1207,7 @@ or report type.
 ```python
 from sqlalchemy import func, select
 from sqlmodel import col
-from fastamu.infra.db.repositories.backends.postgresql import (
+from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLReader,
 )
 
@@ -1273,7 +1303,7 @@ get the codes `route_not_found` and `method_not_allowed` instead of a bare
 internals never leak.
 
 `message_code` is a stable, machine-readable string that clients switch on. Global
-codes live in [fastamu/core/resources.py](fastamu/core/resources.py); each module ships its
+codes live in [papilio/core/resources.py](papilio/core/resources.py); each module ships its
 own `resources.py` for module-specific codes.
 
 Every log line inside a request is stamped with a request id (taken from an inbound
@@ -1284,36 +1314,38 @@ so a 500 in your logs maps to the exact client call.
 
 ## Authentication and scopes
 
-[fastamu/web/dependencies.py](fastamu/web/dependencies.py) ships a **deliberately generic**
+[papilio/api/authentication.py](papilio/api/authentication.py) ships a **deliberately generic**
 auth layer so the framework has no identity module baked in. It validates a bearer
 JWT and checks a `scopes` claim:
 
 ```python
 router = APIRouter(
     prefix="/brands",
-    dependencies=[Depends(require_access(Scope.BRANDS))],   # guard the whole router
+    dependencies=[Depends(require_access("brands"))],   # guard the whole router
 )
 
-_guarded = [Depends(require_access(Scope.STORAGE))]          # …or guard per route,
+_guarded = [Depends(require_access("storage"))]          # …or guard per route,
 @router.post("", dependencies=_guarded)                      #   leaving others public
 ```
 
 The JWT contract is `sub` (subject) + `scopes` (a list of strings); a decoded token
 becomes a `Principal`, which a handler can also take as a value.
 
-When you build your own identity module, replace the body of `get_current_principal`
-with a call to your `IAuthService` and **keep the exported names** (`Scope`,
-`Principal`, `require_access`) — every router depends only on those. Add each new
-module's scope to the `Scope` enum; the scaffolder does not touch it.
+`require_access` accepts an application-defined scope string. The reference
+modules keep their `AccessScope` enum under `modules/ops/scopes.py`; applications
+can define their own vocabulary without changing framework authentication.
+An identity adapter can replace `get_current_principal` while preserving the
+`Principal` contract.
 
 ---
 
 ## Rate limiting
 
-`fastamu.web.ratelimit` connects `throttled-py` to HTTP. The library owns the
+`papilio.api.rate_limit.dependencies` connects `throttled-py` to HTTP. The library owns the
 sliding-window algorithm and atomic Redis operations; `RateLimitProvider` borrows
 the existing app Redis client and pool. Standalone FastAPI apps must register
-`RateLimitProvider()` alongside `CoreProvider()` in their Dishka container.
+`RateLimitProvider()`, `RedisProvider(settings.redis)` and `CoreProvider(settings)`
+in their Dishka container. Install the `rate-limit` extra.
 
 Two layers, both reading their budgets from `config.yml`, both counting in Redis so
 that N workers enforce **one** budget instead of N.
@@ -1327,7 +1359,7 @@ headers, so a client can pace itself instead of discovering the wall.
 asks for it by name, like any other dependency:
 
 ```python
-from fastamu.web.ratelimit import by_ip, rate_limit
+from papilio.api.rate_limit.dependencies import by_ip, rate_limit
 
 router = APIRouter(prefix="/auth", dependencies=[rate_limit("login")])   # whole router
 
@@ -1356,7 +1388,7 @@ a sequence of them and checks their Redis buckets concurrently. All checks finis
 before a refusal is returned; this is not an all-or-nothing multi-bucket transaction:
 
 ```python
-from fastamu.web.ratelimit import by_body_field, by_ip, rate_limit
+from papilio.api.rate_limit.dependencies import by_body_field, by_ip, rate_limit
 
 login_rate_limit = rate_limit(
     "login", (by_ip, by_body_field("username")), closed_when_down=True
@@ -1395,512 +1427,6 @@ are kept per Redis url in `_limiters` — clear it between tests that swap store
 
 ---
 
-## Background tasks and scheduling
-
-The broker ([fastamu/tasks/schedulers/broker.py](fastamu/tasks/schedulers/broker.py)) is a Redis-streams taskiq
-broker that **builds the same dishka container as the web app**. So a task gets its
-dependencies injected exactly like a route handler does.
-
-Define a task in `<module>/tasks/schedulers/<anything>.py` — the bootstrapper imports the file,
-which registers it:
-
-```python
-from dishka.integrations.taskiq import FromDishka, inject
-
-from fastamu.modules.catalog.brands.interfaces import IBrandService
-from fastamu.tasks.schedulers.broker import broker
-
-
-@broker.task(
-    task_name="deactivate_stale_brands",
-    queue_name="brands_queue",              # optional: give the task its own stream
-    schedule=[{"cron": "0 3 * * *"}],       # optional: run it nightly at 03:00
-)
-@inject(patch_module=True)
-async def deactivate_stale_brands(service: FromDishka[IBrandService]) -> int:
-    return await service.deactivate_stale()
-```
-
-Rules that matter:
-
-- **`@broker.task` outside, `@inject(patch_module=True)` inside.** The broker must
-  see the already-injected callable. `patch_module=True` is required.
-- Dependencies are `FromDishka[T]` annotations. **A task execution is a REQUEST
-  scope**, so it gets its own typed UoW. Writing application methods use
-  `@transactional`, with the same commit/rollback semantics as in HTTP handlers.
-- **Enqueue from anywhere** with `await deactivate_stale_brands.kiq(arg)` — including
-  from a route handler, since the web app imports the broker too.
-- No retry middleware is installed automatically during the messaging redesign.
-- `queue_name` gives the task its own Redis stream; the broker discovers every extra
-  queue at boot and subscribes to it.
-- Every log line inside a job is stamped with the task id, exactly as a request is
-  stamped with its request id.
-- **Results expire after 24 hours by default.** A result answers "how did that run just go" —
-  a question asked within minutes or not at all. Keeping them forever leaks Redis
-  memory, and since Redis runs `noeviction` by default, a full Redis refuses writes:
-  the next *enqueue* is what fails, so the queue stalls, not just the cache. Raise
-  `tasks.schedulers.result_ex_time` in configuration if you need to read
-  results back later.
-
-### Scheduling
-
-Two sources are wired into the scheduler, and you can use either:
-
-- **Statically**, with the `schedule=[{"cron": "..."}]` label above (read by
-  `LabelScheduleSource`). Accepts `cron`, `cron_offset`, `time` (one-shot), `args`,
-  `kwargs`.
-- **Dynamically at runtime**, by injecting `ScheduleSource` and calling
-  `add_schedule()` / `delete_schedule()`. Schedules live in Redis, so the API process
-  can register a job that the scheduler process then runs.
-
-The worker and the scheduler are separate processes:
-
-```bash
-taskiq worker    fastamu.tasks.schedulers.broker:broker      # jobs
-taskiq scheduler fastamu.tasks.schedulers.scheduler:scheduler # cron
-```
-
-## CQRS: the Elasticsearch read side
-
-The `--cqrs` scaffold supplies document, repository, command and query files.
-It requires `es` configuration and retains `ESRepository` and index discovery.
-Automatic projection delivery and the previous projection base classes have
-been removed for redesign; this flag does not start a projection worker.
-
-`AbstractProjection[TModel, TDocument]` runs source lookup, synchronous
-conversion and an awaited destination write. IDs are integers; model types
-extend Pydantic `BaseModel` and document types extend `AsyncDocument`.
-
-```python
-from elasticsearch.dsl import M, AsyncDocument
-
-from fastamu.common.models.entities import IdentifiedEntity
-from fastamu.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
-from fastamu.infra.db.tools.read import fetch_page
-from fastamu.infra.es.repository import ESRepository
-from fastamu.messaging.projections.contracts.base import AbstractProjection
-
-
-class Product(IdentifiedEntity):
-    title: str
-
-
-class ProductDocument(AsyncDocument):
-    title: M[str]
-
-    class Index:
-        name: str = "products"
-
-
-class ProductProjection(AbstractProjection[Product, ProductDocument]):
-    def __init__(
-        self,
-        products: PostgreSQLIdentifiedRepository[Product],
-        search: ESRepository[ProductDocument],
-    ) -> None:
-        self.products = products
-        self.search = search
-
-    async def _db_query(self, id: int) -> Product:
-        product = await self.products.get_by_id(id)
-        if product is None:
-            raise LookupError(f"Product {id} does not exist")
-        return product
-
-    def _convert(self, model: Product) -> ProductDocument:
-        document = ProductDocument(title=model.title)
-        document.meta.id = str(model.id)
-        return document
-
-    async def _es_query(self, document: ProductDocument) -> None:
-        await self.search.save(document)
-```
-
-Call `await projection.project(42)` on the injected or constructed instance.
-Lookup must return a model or raise; missing-source handling belongs to the
-application. A failed stage stops execution and propagates its error. The base
-class does not register tasks, load settings, retry or select a write policy.
-
-The execution shapes are explicit:
-
-| Module under `fastamu.messaging.projections.contracts` | Class | Entry point | Result |
-| --- | --- | --- | --- |
-| `base` | `AbstractProjection[TModel, TDocument]` | `project(id: int)` | `None` |
-| `base` | `AbstractBatchProjection[TModel, TDocument]` | `batch_project(ids: Sequence[int])` | `list[BulkItemResult]` |
-| `base` | `AbstractFanoutProjection[TModel, TDocument]` | `project(id: int)` | `list[BulkItemResult]` |
-| `patch` | `AbstractPatchProjection[TModel, TPatch]` | `project(id: int)` | `None` |
-| `patch` | `AbstractBatchPatchProjection[TModel, TPatch]` | `batch_project(ids: Sequence[int])` | `list[BulkItemResult]` |
-| `delete` | `AbstractUnProjection` | `unproject(id: int)` | `None` |
-| `delete` | `AbstractBatchUnProjection` | `batch_unproject(ids: Sequence[int])` | `list[BulkItemResult]` |
-
-Batch projections receive IDs from their caller. ID selection, failure-store
-queries and scheduling belong to the optional repair task, outside projections.
-The previous `SyncProjection`, `get_ids()` contract and `@sync` decorator have
-been removed. Send an existing batch task explicitly:
-
-```python
-await register.get(RebuildProducts).kiq(ids=[7, 3])
-```
-
-For reusable conversion, subclass
-`AbstractConvertor[TModel, TDocument]` from
-`fastamu.messaging.projections.contracts.convertor` and implement the synchronous
-`convert(model: TModel) -> TDocument` method. The projection can receive this
-converter through its constructor and call it from `_convert`. Source and
-destination types are generic; conversion does not require a broker or settings.
-
-Patch types extend Pydantic `BaseModel`. The single writer receives `(id, patch)`;
-the batch lookup returns `Mapping[int, TModel]` keyed by patch target ID and its
-writer receives `Mapping[int, TPatch]`. IDs remain associated with their patches
-even when a query returns a different order. Serialize supplied fields with
-`patch.model_dump(mode="json", exclude_unset=True)` in the writer. Do not use
-`exclude_none=True` when an explicit null is a requested change.
-[Pydantic serialization](https://docs.pydantic.dev/latest/concepts/serialization/).
-
-Document batches read a `Sequence[TModel]`, convert all models before writing,
-then call `_es_query(documents)` once. Fanout uses that same sequence of stages
-from one source ID. Deletion calls only `_es_query`, without a lookup or converter.
-Empty input batches do no I/O. Empty query results do no destination writes;
-the application must raise from lookup if a missing source is an error. The
-framework does not infer completeness from row counts, deduplicate IDs, or
-implicitly delete documents whose sources are absent.
-
-Bulk writers return one `BulkItemResult` for each destination operation: its
-string document `id`, integer HTTP `status`, and optional structured `error`.
-Results describe destination writes, not source lookup completeness. They are
-returned unchanged, including failures. `succeeded` requires a 2xx status and no
-error. Two further outcomes need no repeat and are reported as such: `superseded`
-(409) means a newer write already holds the document, and `absent` (404) means
-there was nothing to write or to remove. `settled` covers all three, and it — not
-`succeeded` — decides whether an item raises `ProjectionBatchError`, is recorded
-as a failure, or resolves a claimed repair record.
-
-That distinction is what makes ordering fences usable. Two updates to one ID are
-independent messages, so a slower worker can overwrite newer data. Write with
-`version_type=external` and a monotonic source column, and Elasticsearch rejects
-the older write with 409; because 409 is settled, the rejection is not recorded
-as a failure and is not repaired in a loop. An application that instead uses
-`if_seq_no`/`if_primary_term` and *wants* a retry must map that conflict to a
-retryable status of its own in its bulk writer. Single-document shapes return
-`None` and have no per-item channel, so they swallow a conflict or a missing
-document inside their own destination write.
-
-An exception before a complete result is available propagates without retry.
-[Elasticsearch bulk results](https://www.elastic.co/guide/en/elasticsearch/reference/8.19/docs-bulk.html).
-
-The existing `ESRepository.bulk_*` count-returning methods do not provide this
-per-item result contract. A bulk writer can use the native `async_streaming_bulk`
-helper with `raise_on_error=False` and `yield_ok=True`, mapping each returned
-operation's `_id`, `status` and `error` to `BulkItemResult`. It must preserve
-failures, rather than report an aggregate count as full success. No repository
-adapter or transport is installed automatically by these classes.
-
-Full-document writers choose create-only or replacement explicitly; patch
-writers choose update behavior, including conflicts and upserts. Batch and fanout
-results do not raise merely because an item failed. A future task integration
-must decide how to handle them before reporting task success. Automatic
-registration with native Taskiq tasks is implemented in the projection package.
-
-### Projection discovery and task registration
-
-Declare `queue_name: ClassVar[str]` on each concrete projection. The bootstrapper
-discovers classes in `<module>/app/projections.py` or the immediate Python files
-of `<module>/app/projections/`, including definitions in its `__init__.py`.
-Abstract classes, imported classes and repeated aliases are skipped; nested
-subpackages are not scanned. Import errors inside projection modules propagate.
-
-`fastamu.tasks.projection.delivery.register.Register` owns the class-to-task dictionary
-and task construction. Its public methods are `register(projection, broker)`
-and `get(projection)`. Task construction and Dishka wrappers are protected
-methods of the same class; there is one shared `register` instance:
-
-```python
-from fastamu.tasks.projection.delivery.register import register
-
-# During startup, with the runtime's native broker and Dishka setup:
-for projection_class in bootstrapper.boot_projections():
-    register.register(projection_class, broker)
-
-# Once the producer broker has started:
-await register.get(ProductProjection).kiq(id=42)
-```
-
-The task name is the class's `module:qualname`; `queue_name` is a routing label.
-Renaming a class changes its task name. Multiple tasks can share a queue, but
-the runtime must also configure those queues on the broker. Each worker attempt
-resolves its projection through the current Dishka scope; application providers
-must supply the concrete projection and its dependencies. Producer registration
-does not instantiate projections. A repeated binding is idempotent; conflicting
-class/task bindings or task names raise instead of silently replacing tasks.
-
-The task adapter raises `ProjectionBatchError` if any returned bulk item failed;
-its `results` attribute preserves all item outcomes. Direct projection calls
-continue to return their results. Retry requires an explicit class policy;
-failure storage is enabled separately through the repair configuration.
-
-### Running and publishing projections
-
-Install `fastamu[projection]` and enable the optional backend in `config.yml`:
-
-```yaml
-tasks:
-  projection:
-    url: amqp://guest:guest@localhost:5672/
-    exchange: fastamu.projection
-    prefetch: 10
-```
-
-Each concrete class declares a nonempty `queue_name: ClassVar[str]`. The broker
-discovers the classes, declares their durable queues on a direct exchange and
-registers their tasks. The native broker's dead-letter queue is named
-`<exchange>.dead_letter`; it is not a retry/reconciliation store implemented by
-Fastamu. Queue names should belong to this application's projection runtime.
-
-Run the independent worker with the native CLI:
-
-```bash
-taskiq worker fastamu.tasks.projection.broker:broker --workers 1 --max-async-tasks 10
-```
-
-Prefetch limits unacknowledged deliveries; `--max-async-tasks` controls worker
-concurrency. The worker creates its own Dishka container and DB/ES resources.
-It closes the container on shutdown, including disposal of its DB pool.
-Producer startup registers tasks without creating the worker's container.
-The web application's `task_lifespan()` starts the configured producer broker;
-scripts can use that same context manager explicitly.
-
-Publication decorators live with the Taskiq adapter:
-
-```python
-from fastamu.infra.db.tools.decorators import transactional
-from fastamu.tasks.projection.delivery.decorators import project
-
-class ProductCommands:
-    @project(ProductProjection, lambda result: result.id)
-    @transactional
-    async def update(self, command: UpdateProduct) -> Product:
-        return await self.products.update(command)
-```
-
-`project`, `patch`, `unproject` and `fanout` accept a mapper returning one integer
-ID. They share the same publication behavior; the registered projection class
-determines the operation. `batch_project`, `batch_patch` and `batch_unproject`
-accept a mapper returning `Sequence[int]` and send one task containing the list.
-ID validation uses Pydantic and rejects booleans and numeric strings. Each decorator preserves
-the wrapped function's return value and publishes only after it returns.
-
-Decorators do not inspect transactions or retry errors. In the example,
-`transactional` commits before returning when it owns the transaction; nested
-transaction placement remains the application's responsibility. A mapper or
-publication error can therefore occur after commit. Native `kiq` reports a
-transport failure as `SendTaskError` with the original exception as its cause;
-the decorator does not roll back committed work or rerun the command.
-
-### Optional failure storage and periodic repair
-
-Enable `tasks.projection.repair` to record terminal execution failures and
-periodically publish batches for repair. This is independent of retry: without
-a RetryPolicy the first execution error is terminal; with a policy it is stored
-after native SmartRetry exhausts its attempts. Only source projections explicitly
-listed in `targets` participate.
-
-```yaml
-tasks:
-  projection:
-    url: amqp://guest:guest@localhost:5672/
-    exchange: shop.projection
-    prefetch: 10
-    repair:
-      interval: 30
-      batch_size: 1000
-      concurrency: 4
-      max_attempts: 5
-      max_pending: 100000
-      prefix: fastamu.projection.failures
-      targets:
-        "shop.products.app.projections:ProductPrice": "shop.products.app.projections:RebuildPrices"
-        "shop.products.app.projections:ProductStock": "shop.products.app.projections:RebuildStocks"
-```
-
-Keys and values are the exact registered task names (`module:qualname`). They
-are looked up in the existing Register, never dynamically imported. Startup
-rejects unknown names and targets that are not batch projections. Targets can
-be full-document, patch or delete batches. A batch can map to itself if its
-operation is appropriate for repair.
-
-There is nothing to migrate. Failures live in Redis lists on the client the
-application already configures, one list per projection: `<prefix>:<task name>`,
-plus `<prefix>:<task name>:dead`. Disabling repair creates no queue, no repair
-task and no keys.
-
-Redis rather than the application database, for one reason: a failure must be
-recordable when the database write path is what is broken. Storing the safety
-net in the system that just failed loses it exactly when it is needed. The cost
-is accepted deliberately — these keys are a work queue, not a ledger, and the
-source of truth stays in SQL — so a Redis flush loses pending repairs the same
-way a crash before publication does.
-
-Use the same independent projection worker and scheduler:
-
-```bash
-taskiq worker fastamu.tasks.projection.broker:broker --workers 1 --max-async-tasks 10
-taskiq scheduler fastamu.tasks.projection.scheduler:scheduler --update-interval 1
-```
-
-The scheduler uses native `LabelScheduleSource` for the periodic repair task;
-Redis is needed only if delayed retry is also configured. It publishes a tick
-to `<exchange>.repair`. A projection worker reads and groups the records and
-publishes each group to the selected batch's queue. The scheduler itself does
-not open a database connection or execute projections. There is no SyncProjection
-or SchedulerPolicy on projection classes.
-
-`targets.resolve()` checks the source-to-target mapping at import, before any
-worker starts. `Repair.run()` then takes up to `batch_size` records from each
-projection's list, **runs** that projection's batch target itself, and hands back
-whatever the result did not settle. Repair executes rather than publishes: no
-message, no reservation token, no lease, no correlation label. Publication is
-not repair, so nothing is settled on a promise; the work is finished by the same
-call that took it.
-
-Projections repair concurrently up to `concurrency` (default 4) because they
-share nothing, and the bound is what stops one tick from opening a destination
-write and a container scope per projection at once. A projection whose run
-raises has its whole batch handed back; a queue that is unreachable is logged and
-skipped without abandoning the projections whose records are already taken. The
-return value counts records that left the queue settled.
-
-Taking pops. Two overlapping ticks therefore cannot receive the same record, and
-nothing has to be reserved — but a process that dies between taking and handing
-back loses that batch, which is the price of having no lease. A record handed
-back goes to the tail with one attempt spent; `max_attempts` (default 5, and
-unrelated to a `RetryPolicy`'s per-execution attempts) bounds how long it can
-cycle. Spending them all moves it to `<prefix>:<task name>:dead` with a warning
-naming the inputs, where `LRANGE` finds it and it can be drained deliberately —
-rather than retried forever or dropped silently. A new failure for the same ID is
-a new record with its own budget. `max_pending` caps a list, dropping the oldest
-with a warning, so a failure storm cannot exhaust Redis memory.
-
-Repair targets must return one `BulkItemResult` per input ID, with `id=str(input_id)`.
-Missing results remain pending; contradictory results for one ID count as failure.
-For normal source batch failures, successful IDs are filtered only if the result
-ID set matches the input ID set; otherwise all input IDs are retained conservatively.
-Single/fanout failures record their input ID, not their destination document IDs.
-The application must adapt result IDs when its destination IDs differ.
-
-Repair is not a document lock and promises nothing about exactly-once execution:
-a normal write and a repair can still overlap, so batch repair must rebuild
-current state or otherwise tolerate replay.
-
-Records are taken oldest first and recovery is not restricted to a recent-time
-window, so an old unresolved record stays in line. `batch_size` is a ceiling:
-a list holding less returns less, and two ticks split what is there.
-
-Failure recording errors propagate before default `when_saved` ACK. They can
-leave deliveries unacknowledged until the channel is released; there is no custom
-receiver/requeue loop. Recording, broker ACK and projection writes are separate
-operations. This feature does not see messages that never reached the worker and
-is not an outbox or an atomic SQL/Elasticsearch transaction.
-
-For custom storage, implement the `FailureStore` protocol in
-`messaging/projections/repair/records.py` — `record`, `take`, `requeue` — and
-compose `ProjectionFailureMiddleware` and `Repair` with it in your own worker
-bootstrap. Three operations and no reservation protocol is the point: the same
-contract is satisfiable by a SQL table or a file, not only by a Redis list. The
-built-in configuration selects `RedisFailureQueue`. When composing middlewares
-manually, install failure middleware **before** SmartRetry and Dishka: Taskiq
-runs error hooks in reverse order, allowing scope cleanup and retry scheduling to
-happen before terminal-failure recording.
-
-### Optional projection retry
-
-Declare a policy on the concrete class (including patch, delete, batch, fanout
-operations). Without a policy the registered task has `retry_on_error=False`.
-
-```python
-from typing import ClassVar
-from fastamu.messaging.projections.contracts.policies import RetryPolicy
-
-class ProductProjection(AbstractProjection[Product, ProductDocument]):
-    queue_name: ClassVar[str] = "products"
-    retry_policy: ClassVar[RetryPolicy | None] = RetryPolicy(
-        max_attempts=3, delay=5,
-    )
-    # Implement the usual source, conversion and destination hooks.
-```
-
-`max_attempts` includes the initial execution; `1` means no repeat. `delay` is
-the fixed minimum wait in seconds before a retry, not a delay on the initial
-publication. Scheduler polling and worker load add latency. Policy settings
-are validated by Pydantic; unsupported fields are rejected. Direct instance
-calls do not retry. An inherited policy can be disabled with `retry_policy=None`.
-
-Configure the optional Redis schedule source alongside the RabbitMQ settings:
-
-```yaml
-tasks:
-  projection:
-    url: amqp://guest:guest@localhost:5672/
-    exchange: fastamu.projection
-    prefetch: 10
-    retry:
-      url: redis://localhost:6379/1
-      prefix: shop.projection.retry
-      max_connection_pool_size: 25
-      buffer_size: 100
-      socket_timeout: 5
-```
-
-Use Redis 6.2+ (the source uses `GETDEL`), persistence appropriate to the
-application, and a prefix unique to this application/environment. Prefixes
-cannot contain `:` because of the native source's time-key parser. Worker and
-scheduler must use the same settings and projection definitions. A policy
-without the Redis configuration fails at startup instead of silently disabling
-retry. Without retry configuration no Redis retry source is created.
-
-Run **one** scheduler for this prefix, separately from the projection worker:
-
-```bash
-taskiq scheduler fastamu.tasks.projection.scheduler:scheduler --update-interval 1
-```
-
-This uses native `TaskiqScheduler` and `ListRedisScheduleSource`; it does not use
-the jobs worker or construct a projection DI container. The worker installs
-native `SmartRetryMiddleware`. Register maps attempts to `max_retries` (Taskiq
-0.12.1 counts total attempts), enables `retry_on_error`, and records
-`projection_retry_delay`. `RetryLabelsMiddleware` exposes that delay to SmartRetry
-during execution and removes the transport `delay` before sending to RabbitMQ.
-This prevents both delayed initial publication and a second transport delay.
-Native retry preserves task ID, arguments and destination queue; Dishka closes
-the failed scope before scheduling and opens another for the next attempt.
-
-Retry repeats the whole task with the original IDs: a partial batch failure
-can repeat successful items. Choose a policy only when
-repetition is appropriate. Jitter, backoff and exception filters are not exposed
-as per-class options because this native middleware configures them globally.
-
-This is bounded execution retry, not durable failure storage or exactly-once
-delivery. After exhaustion, Taskiq logs/returns the error. A failure record is
-written only if the optional repair mapping covers that source projection. With the default `when_saved` acknowledgement mode, failure
-to store a retry propagates and leaves the original Rabbit delivery unacknowledged;
-redelivery requires the delivery/channel to be released, not just Redis recovery.
-The native Redis source uses separate writes for schedule data and its time
-index. The scheduler also has no leader election: multiple scheduler processes
-can publish duplicates. In Taskiq 0.12.1 a failed scheduled publication is marked
-as attempted in scheduler memory; restart the scheduler to retry a schedule
-still present in Redis. These are limits of this step, not guarantees hidden by
-custom retry code. Optional failure storage and periodic repair do not remove those native limits.
-
-`ListRedisScheduleSource` reads current/overdue schedules in batches but, with
-overdue recovery enabled, scans Redis keys on every refresh in version 1.2.1.
-`buffer_size` controls reads, not concurrency. Use a Redis database with a small
-keyspace and tune `--update-interval` against recovery latency and load. The
-source's missing pool cleanup in that version is handled at broker shutdown.
-
-References: [native SmartRetry](https://taskiq-python.github.io/available-components/middlewares.html)
-and [Redis schedule sources](https://github.com/taskiq-python/taskiq-redis#schedule-sources).
-
----
-
 ## Other infrastructure
 
 **Redis** — inject `RedisClient` and use `.client` for the full async Redis API
@@ -1911,7 +1437,7 @@ parsing or generating a workbook is blocking CPU work that must never touch the 
 loop. Rows are typed: declare an `ExcelRow` and columns map by field order.
 
 ```python
-from fastamu.infra.excel.row import ExcelRow, Row
+from papilio.infra.excel.row import ExcelRow, Row
 
 
 class BrandRow(ExcelRow):
@@ -1931,7 +1457,7 @@ creating a workbook from scratch. Scaffold with `--excel` to get an
 while you develop, `json` emits one ECS-shaped line per record (`log.level`,
 `service.name`, `error.stack_trace`, …) that an ES/Kibana pipeline ingests with no
 mapping of its own. Either way the handler is installed on the **root** logger and
-uvicorn, gunicorn and taskiq are made to propagate into it, so a server request line
+uvicorn and gunicorn are made to propagate into it, so a server request line
 and a service line look alike and carry the same request id. Anything you attach with
 `extra=` rides along as its own field:
 
@@ -1968,10 +1494,10 @@ nothing above `infra/` ends up parsing a third party's JSON shape.
 
 ### Security helpers
 
-[fastamu/common/security/tokens.py](fastamu/common/security/tokens.py) and
-[fastamu/common/security/crypto.py](fastamu/common/security/crypto.py) are
+[papilio/security/tokens.py](papilio/security/tokens.py) and
+[papilio/security/crypto.py](papilio/security/crypto.py) are
 **config-agnostic on purpose**: the caller passes the secret, the algorithm and the
-expiry (wire them from `JWTConfig` / `CryptoConfig`). That keeps `common` free of a
+expiry (wire them from `JWTConfig` / `CryptoConfig`). That keeps the security helpers free of a
 `core.config` import and leaves both files unit-testable without a `config.yml`.
 
 **`security.tokens`** — `create_access_token` / `create_refresh_token` / `decode_token`.
@@ -2001,7 +1527,7 @@ confuse and must not be, so they sit in two files rather than one:
 A malformed stored hash is a non-match, never an exception — a legacy row cannot take
 a login endpoint down.
 
-**`IDEncryption`** ([fastamu/common/security/ids.py](fastamu/common/security/ids.py))
+**`IDEncryption`** ([papilio/security/ids.py](papilio/security/ids.py))
 — exposes a serial primary key as a public id that doesn't announce your row count
 (`/orders/42` says how many orders exist; `/orders/43` is a valid guess). It is a
 modular multiplication, so it is reversible, stateless and needs no extra column:
@@ -2085,10 +1611,14 @@ pytest -m integration       # against the real test database
 pytest -m api               # drives the live ASGI app
 ```
 
-The fixtures arrive **with the package**: `fastamu.testing.fixtures` is registered
-as a pytest plugin, so a generated project has them with no conftest to copy and
-nothing to keep in step. Fastamu's own `tests/conftest.py` is empty for that reason
-— its suite runs on the same plugin yours does.
+The automatically loaded `papilio.testing.plugin` only marks test folders and
+imports no optional infrastructure. Generated projects own an `anonymous`
+HTTP-client fixture using a fresh app and its lifespan; install `papilio[test]`
+for it. SQL uses `db.test_dsn` and rate limiting is disabled in that fixture.
+The PostgreSQL/reference harness is opt-in: install its dependencies
+(`papilio[test,ops,rate-limit]`) and declare
+`pytest_plugins = ["papilio.testing.fixtures"]` in your test conftest. The table
+below describes that optional harness, not a base installation.
 
 | Fixture | Gives you |
 |---|---|
@@ -2097,7 +1627,7 @@ nothing to keep in step. Fastamu's own `tests/conftest.py` is empty for that rea
 | `uow` | An open `PostgreSQLUnitOfWork`; use `uow.transaction()` for writes that must commit |
 | `clean_db` | Empties every discovered table **and read-model index** between tests |
 | `es` | An `ESClient` on the configured hosts |
-| `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and a hermetic schedule source that never touches Redis |
+| `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and explicit test resource configuration |
 | `anonymous` (in `tests/api`) | An `AsyncClient` over the live app — bootstrapped routers, the framework's error handlers, the same container — with no credentials |
 
 `test_settings_of()` and `core_provider_of()` are plain functions, not fixtures, so
@@ -2119,7 +1649,7 @@ next test's search.
 
 ## Configuration reference
 
-`config.yml` (written by `fastamu new`, and gitignored — it holds your secrets).
+`config.yml` (written by `papilio new`, and gitignored — it holds your secrets).
 The scaffold writes only the optional sections selected at project creation.
 
 | Section | Keys |
@@ -2127,7 +1657,6 @@ The scaffold writes only the optional sections selected at project creation.
 | `app` | `modules` — packages the bootstrapper scans; `features` — enabled optional backends; `settings` — optional dotted path to an application `Settings` subclass |
 | `fastapi` | `title`, `description`, `version` |
 | `db` | `dsn`, `test_dsn`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_recycle` |
-| `tasks.schedulers` | `broker`, `url`, `max_connection_pool_size`, `result_ex_time` — optional Taskiq jobs and cron |
 | `redis` | `url`, `max_connections`, `socket_timeout`, `socket_connect_timeout`, `health_check_interval` |
 | `rate_limit` | `enabled`, `trusted_proxies`, `general` (`limit`, `window_seconds`), `rules` (name → rule) |
 | `es` | `hosts`, `username`, `password`, `api_key`, `verify_certs`, `ca_certs` |
@@ -2151,8 +1680,7 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
   re-provided as its own injectable type, `PagedType` + `PagerMeta`, and a
   module-scoped `resources.py`.
 - **`ops/messages`** — pending SMS records, provider gateways, delivery results
-  and encrypted public IDs. Automatic background dispatch is unavailable while
-  events are being rewritten; the sender service remains callable explicitly.
+  and encrypted public IDs. Background dispatch belongs to Papilio Tasks; the sender service remains callable explicitly.
 
   ```
   PUT   /messages/providers          register a provider + credentials (upsert by code)
@@ -2168,7 +1696,6 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
   SMS.ir) need `sms-providers-sdk`, which is imported at call time and installed
   separately:
   `pip install "git+https://github.com/stupidprogrammer4/sms-providers-sdk.git@master"`.
-- **`ops/jobs`** — inspecting in-flight taskiq jobs.
 - **`ops/system`** — health/info endpoints; the smallest possible module.
 
 ---
@@ -2178,9 +1705,9 @@ demonstrate the conventions. Read them, then delete or keep them as you see fit.
 These are the conventions the framework and the codebase assume. Breaking them
 usually means something silently stops being discovered.
 
-1. **Absolute imports from `fastamu...` and your own app package** — always.
+1. **Absolute imports from `papilio...` and your own app package** — always.
 2. **Every `__init__.py` is empty.** Import from the specific file, never from a
-   package root. The bootstrapper relies on this for `routers/` and `tasks/`.
+   package root. The bootstrapper relies on this for `routers/`.
 3. **Modules talk through `I*Service` Protocols, never by importing each other.**
 4. **A repository holds one statement per method.** All branching, all rules, all
    guards belong in the service.
@@ -2196,7 +1723,7 @@ usually means something silently stops being discovered.
 9. **Mark writing application methods `@transactional`.** Its outermost call owns
    commit/rollback; request scope owns only the session lifetime.
 10. **New feature = new module.** If you find yourself editing framework code under
-   `fastamu/core` or `fastamu/web` to add a feature, stop and reconsider.
+   `papilio/core` or `papilio/api` to add a feature, stop and reconsider.
 11. **Type parameters are declared inline** — `class Repo[T: BaseModel]`, not a
     module-level `TypeVar` plus `Generic[T]`. The bound belongs at the class that
     enforces it.
@@ -2230,7 +1757,7 @@ The core connection supplies sessions and never chooses a repository.
 
 Portable field helpers remain available. `JSONField` uses JSONB on PostgreSQL,
 native JSON where supported, and serialized text on Oracle. PostgreSQL-only
-`JSONBField` and `ArrayField` are in `fastamu.infra.db.dialects.postgresql`.
+`JSONBField` and `ArrayField` are in `papilio.infra.db.dialects.postgresql`.
 
 Repository tests exercise SQLite and the ORM flush/refresh path on SQLite.
 Native SQL compilation tests cover the database families. Set
@@ -2245,3 +1772,55 @@ bulk updates still have measured limitations: Oracle timed out at 1,000 rows,
 and SQL Server rejected statements exceeding its parameter budget. Successful
 smaller batches do not establish a universal safe batch size; column count
 also affects the number of parameters.
+
+## Async files and CSV
+
+The tools live in separate infrastructure packages. Text/binary reads and writes
+use worker threads; CSV parsing and serialization also run there. No model-field
+discovery, schema inference, header policy or automatic retries are involved.
+
+```python
+from papilio.infra.files.reader import FileReader
+from papilio.infra.files.writer import FileWriter
+
+reader, writer = FileReader(), FileWriter()
+await writer.write_text("notes.txt", "Papilio\n", mode="x")
+text = await reader.read_text("notes.txt")
+async with reader.open_bytes("archive.bin") as stream:
+    while chunk := await stream.read(64 * 1024):
+        await consume(chunk)
+```
+
+`read_text`/`read_bytes` load the complete file. Use the open contexts to read or
+write incrementally. Write modes are explicit: `w` replaces, `a` appends, `x`
+requires a new file; binary modes are `wb`, `ab`, `xb`. Whole-file writes return
+the number of characters or bytes written. Parent directories are caller-owned.
+
+```python
+from papilio.infra.csv.reader import CSVReader
+from papilio.infra.csv.writer import CSVWriter
+
+async with CSVWriter().open("report.csv", delimiter=";") as writer:
+    await writer.write_row(["name", "description"])
+    count = await writer.write_rows([
+        ["Papilio", "first line\nsecond line"],
+        ["Butterfly", 'quoted "text"'],
+    ])
+
+async with CSVReader().rows("report.csv", delimiter=";", batch_size=1000) as rows:
+    async for row in rows:
+        await consume(row)
+```
+
+CSV uses the standard parser with `newline=""`, so quoted multiline records,
+quotes and CRLF work. The reader yields lists of strings and keeps one batch
+in memory; the first row is ordinary data unless you choose to treat it as a
+header. `write_row` returns characters written; `write_rows` returns record count
+and consumes a synchronous iterable on the worker thread. Keep calls on one
+open writer sequential. To write an asynchronous source, iterate it yourself and
+await each row or batch. Context exit closes resources even on failure or early
+exit; file and parse errors propagate.
+
+Excel jobs use spawn-based process workers with serializable job arguments.
+Call `await reader.close()` and `await writer.close()` on shutdown. Excel column
+names and titles are prepared at model definition time, not discovered per row.
