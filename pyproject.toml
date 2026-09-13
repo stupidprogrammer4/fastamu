@@ -70,6 +70,9 @@ test = ["pytest==9.0.1", "pytest-asyncio==1.3.0", "httpx>=0.28.1,<0.29.0"]
 all = ["papilio[server,postgresql,mssql,oracle,mysql,sqlite,es,redis,rate-limit,http,excel,files,csv,persian,ops]"]
 dev = ["papilio[all,test]", "ruff", "pyright==1.1.390"]
 
+[project.scripts]
+papilio = "papilio.cli.app:app"
+
 # Only lightweight folder markers load automatically.
 [project.entry-points.pytest11]
 papilio = "papilio.testing.plugin"
@@ -80,7 +83,7 @@ packages = ["papilio"]
 [tool.hatch.build.targets.sdist]
 # the docs and the suite belong in the source distribution; the reference
 # modules are already inside the package
-include = ["papilio", "tests", "README.md", "MIGRATION.md", "LICENSE", "pytest.ini"]
+include = ["papilio", "tests", "README.md", "LICENSE", "pytest.ini"]
 
 # pytest configuration lives in pytest.ini (single source of truth — pytest.ini
 # takes precedence over pyproject, so do not re-add [tool.pytest.ini_options]).

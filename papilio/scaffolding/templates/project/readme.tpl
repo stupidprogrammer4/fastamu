@@ -1,0 +1,47 @@
+# <<NAME>>
+
+Built on Papilio. Modules are
+discovered, not registered — add one and its router, service, table
+are live.
+
+## Running
+
+```bash
+python3.13 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+cp config.yml.sample config.yml     # configure the selected services and secrets
+<<MIGRATE>>
+
+uvicorn <<PKG>>.main:app --reload
+```
+
+Swagger UI is at `/docs`.
+
+Writing application methods use `@transactional` from
+`papilio.infra.db.tools.decorators`. Request scope only manages session
+lifetime; it does not commit automatically.
+
+## Adding a feature
+
+```bash
+papilio module catalog.product<<MODULE_FLAGS>>
+```
+
+Modules live under `<<PKG>>/modules/`; `app.modules` selects discovery roots.
+CRUD is the default; `--cqrs` adds SQL commands and ES queries; `--plain`
+creates a module without a database; `--context` creates a custom SQL reader
+and calculation skeleton.
+
+Required extras are recorded in `pyproject.toml`. After adding infrastructure,
+select its extra there and register its provider in `<<PKG>>/main.py`. SQL
+changes require `alembic revision --autogenerate` followed by `alembic upgrade head`.
+CQRS does not automatically synchronize SQL writes to Elasticsearch.
+
+## Tests
+
+```bash
+pytest -m unit           # fast, no services
+pytest -m integration    # against db.test_dsn
+pytest -m api            # drives the live app
+```
