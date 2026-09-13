@@ -1,0 +1,595 @@
+{
+  "backend": "oracle",
+  "python": "3.13.7",
+  "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+  "versions": {
+    "SQLAlchemy": "2.0.49",
+    "sqlmodel": "0.0.38",
+    "pydantic": "2.12.5"
+  },
+  "rows": 100000,
+  "warmups": 2,
+  "repeats": 9,
+  "batch_sizes": [
+    10,
+    100,
+    500,
+    1000
+  ],
+  "methodology": {
+    "serial": "Operation latency includes statement construction, SQL compilation, execute, fetch and ORM conversion. Pool checkout and rollback excluded; each sample starts with the same committed data and is rolled back.",
+    "concurrent": "Latency includes UoW open, pool checkout, bulk_update and commit. Distinct keys per worker; no intentional row-lock contention. Ten commits per worker; schema/data preparation excluded.",
+    "pagination": "Exact count plus up to 50 ORM models; window path adds COUNT when page is empty. No concurrent data changes; first/middle/last/beyond-end offsets. Warm local caches, not a production SLA.",
+    "order": "Seeded randomized order within each serial repetition; all backends measured sequentially."
+  },
+  "updates": [
+    {
+      "batch": 10,
+      "results": {
+        "grid": {
+          "samples_ms": [
+            4.678,
+            4.5118,
+            4.6288,
+            5.6348,
+            5.9474,
+            6.1886,
+            5.3394,
+            6.2776,
+            8.1571
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            1.4136,
+            1.4932,
+            1.2103,
+            1.6963,
+            1.8928,
+            1.7962,
+            1.608,
+            1.6342,
+            1.6779
+          ],
+          "median_ms": 5.635,
+          "min_ms": 4.512,
+          "max_ms": 8.157,
+          "p95_ms": 8.157,
+          "median_driver_ms": 1.634
+        },
+        "case": {
+          "samples_ms": [
+            4.2164,
+            3.9044,
+            4.4619,
+            5.7045,
+            3.6892,
+            4.0124,
+            4.9185,
+            4.6748,
+            7.037
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            0.9642,
+            0.9056,
+            0.9997,
+            1.4029,
+            0.9869,
+            1.0227,
+            1.2617,
+            1.107,
+            1.3754
+          ],
+          "median_ms": 4.462,
+          "min_ms": 3.689,
+          "max_ms": 7.037,
+          "p95_ms": 7.037,
+          "median_driver_ms": 1.023
+        }
+      },
+      "construction": {
+        "grid": {
+          "build_compile_ms": 8.337,
+          "sql_bytes": 1267,
+          "bound_parameters": 36
+        },
+        "case": {
+          "build_compile_ms": 3.89,
+          "sql_bytes": 1498,
+          "bound_parameters": 46
+        }
+      }
+    },
+    {
+      "batch": 100,
+      "results": {
+        "grid": {
+          "samples_ms": [
+            17.0314,
+            16.9596,
+            16.7398,
+            17.2809,
+            20.0599,
+            19.7004,
+            19.1219,
+            17.1059,
+            16.5466
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            2.8277,
+            2.9035,
+            3.1663,
+            3.1634,
+            4.8351,
+            3.3434,
+            3.273,
+            3.1948,
+            3.2558
+          ],
+          "median_ms": 17.106,
+          "min_ms": 16.547,
+          "max_ms": 20.06,
+          "p95_ms": 20.06,
+          "median_driver_ms": 3.195
+        },
+        "case": {
+          "samples_ms": [
+            17.0003,
+            14.1731,
+            14.2925,
+            18.5434,
+            16.1302,
+            20.173,
+            21.8101,
+            20.8476,
+            17.8974
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            2.2724,
+            1.9442,
+            2.0251,
+            2.0982,
+            2.5841,
+            2.8901,
+            2.3895,
+            2.0118,
+            3.6605
+          ],
+          "median_ms": 17.897,
+          "min_ms": 14.173,
+          "max_ms": 21.81,
+          "p95_ms": 21.81,
+          "median_driver_ms": 2.272
+        }
+      },
+      "construction": {
+        "grid": {
+          "build_compile_ms": 29.076,
+          "sql_bytes": 9298,
+          "bound_parameters": 306
+        },
+        "case": {
+          "build_compile_ms": 21.492,
+          "sql_bytes": 11781,
+          "bound_parameters": 406
+        }
+      }
+    },
+    {
+      "batch": 500,
+      "results": {
+        "grid": {
+          "samples_ms": [
+            113.8556,
+            102.5567,
+            92.8515,
+            88.5392,
+            90.2111,
+            89.9806,
+            132.2519,
+            110.2872,
+            111.4237
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            42.4426,
+            25.6726,
+            27.0327,
+            24.8674,
+            25.772,
+            24.4891,
+            51.311,
+            28.7346,
+            33.7217
+          ],
+          "median_ms": 102.557,
+          "min_ms": 88.539,
+          "max_ms": 132.252,
+          "p95_ms": 132.252,
+          "median_driver_ms": 27.033
+        },
+        "case": {
+          "samples_ms": [
+            69.2959,
+            63.7244,
+            73.6735,
+            73.3574,
+            203.4272,
+            71.6378,
+            76.4727,
+            91.5142,
+            80.6502
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            6.7613,
+            6.6521,
+            13.3033,
+            8.4332,
+            10.234,
+            10.5647,
+            9.2664,
+            13.8228,
+            9.5542
+          ],
+          "median_ms": 73.674,
+          "min_ms": 63.724,
+          "max_ms": 203.427,
+          "p95_ms": 203.427,
+          "median_driver_ms": 9.554
+        }
+      },
+      "construction": {
+        "grid": {
+          "build_compile_ms": 79.648,
+          "sql_bytes": 45799,
+          "bound_parameters": 1506
+        },
+        "case": {
+          "build_compile_ms": 65.954,
+          "sql_bytes": 58184,
+          "bound_parameters": 2006
+        }
+      }
+    },
+    {
+      "batch": 1000,
+      "results": {
+        "grid": {
+          "samples_ms": [
+            21967.273,
+            21562.5894,
+            21206.2343,
+            164.284,
+            21254.5548,
+            184.8692,
+            173.6056,
+            216.8364,
+            212.1087
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            21835.0539,
+            21433.4288,
+            21069.5905,
+            37.5817,
+            20951.3132,
+            43.3313,
+            48.6604,
+            58.0298,
+            62.5849
+          ],
+          "median_ms": 216.836,
+          "min_ms": 164.284,
+          "max_ms": 21967.273,
+          "p95_ms": 21967.273,
+          "median_driver_ms": 62.585
+        },
+        "case": {
+          "samples_ms": [
+            167.3263,
+            616.2326,
+            804.95,
+            614.2241,
+            157.0723,
+            608.4311,
+            384.0044,
+            170.7081,
+            165.2052
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            40.7663,
+            485.0001,
+            498.5161,
+            491.0377,
+            34.0656,
+            497.318,
+            54.8719,
+            36.6953,
+            20.5862
+          ],
+          "median_ms": 384.004,
+          "min_ms": 157.072,
+          "max_ms": 804.95,
+          "p95_ms": 804.95,
+          "median_driver_ms": 54.872
+        }
+      },
+      "construction": {
+        "grid": {
+          "build_compile_ms": 349.608,
+          "sql_bytes": 92299,
+          "bound_parameters": 3006
+        },
+        "case": {
+          "build_compile_ms": 144.448,
+          "sql_bytes": 118184,
+          "bound_parameters": 4006
+        }
+      }
+    }
+  ],
+  "inserts": [],
+  "pages": [
+    {
+      "filtered": false,
+      "offset": 0,
+      "total": 100000,
+      "results": {
+        "two_queries": {
+          "samples_ms": [
+            5.405,
+            5.7728,
+            5.4763,
+            6.355,
+            6.6214,
+            6.4065,
+            7.4741,
+            7.7916,
+            8.1912
+          ],
+          "sql_counts": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "driver_ms": [
+            4.0021,
+            4.1822,
+            3.8213,
+            4.4678,
+            4.4972,
+            4.5907,
+            4.414,
+            4.5874,
+            5.4285
+          ],
+          "median_ms": 6.407,
+          "min_ms": 5.405,
+          "max_ms": 8.191,
+          "p95_ms": 8.191,
+          "median_driver_ms": 4.468
+        },
+        "count_over": {
+          "samples_ms": [
+            60.769,
+            63.5605,
+            62.3293,
+            66.9449,
+            65.6854,
+            58.7982,
+            60.4125,
+            61.5225,
+            56.8861
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            59.776,
+            62.3556,
+            60.8362,
+            65.6022,
+            64.1569,
+            57.1248,
+            58.5187,
+            59.387,
+            55.4555
+          ],
+          "median_ms": 61.523,
+          "min_ms": 56.886,
+          "max_ms": 66.945,
+          "p95_ms": 66.945,
+          "median_driver_ms": 59.776
+        }
+      }
+    },
+    {
+      "filtered": false,
+      "offset": 50000,
+      "total": 100000,
+      "results": {
+        "two_queries": {
+          "samples_ms": [
+            22.3746,
+            27.9887,
+            30.9202,
+            32.1373,
+            30.8692,
+            32.8544,
+            36.6859,
+            31.3832,
+            31.8844
+          ],
+          "sql_counts": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "driver_ms": [
+            20.7622,
+            26.3935,
+            29.073,
+            30.2022,
+            29.104,
+            31.0503,
+            33.4883,
+            29.0645,
+            30.0287
+          ],
+          "median_ms": 31.383,
+          "min_ms": 22.375,
+          "max_ms": 36.686,
+          "p95_ms": 36.686,
+          "median_driver_ms": 29.104
+        },
+        "count_over": {
+          "samples_ms": [
+            67.7287,
+            72.1368,
+            79.5017,
+            83.8118,
+            80.3206,
+            82.5571,
+            86.3038,
+            87.7457,
+            81.9719
+          ],
+          "sql_counts": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "driver_ms": [
+            66.7437,
+            70.4495,
+            76.9612,
+            81.7833,
+            78.9497,
+            81.4078,
+            84.3667,
+            86.216,
+            80.577
+          ],
+          "median_ms": 81.972,
+          "min_ms": 67.729,
+          "max_ms": 87.746,
+          "p95_ms": 87.746,
+          "median_driver_ms": 80.577
+        }
+      }
+    }
+  ],
+  "concurrency": [],
+  "server_version": "(21, 3, 0, 0, 0)",
+  "pilot_note": "1000-row grid completed all nine measured samples; four samples took about 21-22 seconds and others 164-217 ms. During the slow phase the server showed latch: shared pool. Server was stopped externally after updates, interrupting pagination; no backend timeout was recorded. Final isolated run required."
+}

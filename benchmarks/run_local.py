@@ -102,7 +102,7 @@ def main(args):
     for backend in args.backends:
         name = None
         with tempfile.TemporaryDirectory(
-            prefix=".fastamu-bench-", dir=Path.cwd()
+            prefix=".papilio-bench-", dir=Path.cwd()
         ) as temporary:
             scratch = Path(temporary)
             env = dict(os.environ, PYTHONPATH=str(Path.cwd()))
@@ -112,7 +112,7 @@ def main(args):
                 config = SERVERS.get(backend)
                 if config:
                     name = (
-                        f"fastamu-benchmark-{backend}-{uuid.uuid4().hex[:8]}"
+                        f"papilio-benchmark-{backend}-{uuid.uuid4().hex[:8]}"
                     )
                     command = [
                         "docker",
@@ -122,7 +122,7 @@ def main(args):
                         "--name",
                         name,
                         "--label",
-                        "fastamu.review=benchmark",
+                        "papilio.review=benchmark",
                         "-p",
                         f"127.0.0.1::{config['port']}",
                     ]

@@ -1,7 +1,7 @@
 """Repeatable repository microbenchmark; use a dedicated disposable database.
 
 Run from the repository root with PYTHONPATH=. and FASTAMU_BENCH_<BACKEND> set.
-Only fastamu_bench_records is created/dropped. No framework code is patched.
+Only papilio_bench_records is created/dropped. No framework code is patched.
 """
 
 import argparse
@@ -18,30 +18,30 @@ from pathlib import Path
 
 from sqlalchemy import case, event, func, insert, literal, select, text, update
 
-from fastamu.common.models.entities import IdentifiedEntity
-from fastamu.common.models.fields import CharField, IntField
-from fastamu.infra.db.connection import DBConnection
-from fastamu.infra.db.repositories.backends.mariadb import (
+from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.fields import CharField, IntField
+from papilio.infra.db.connection import DBConnection
+from papilio.infra.db.repositories.backends.mariadb import (
     MariaDBIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.mssql import (
+from papilio.infra.db.repositories.backends.mssql import (
     MSSQLIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.mysql import (
+from papilio.infra.db.repositories.backends.mysql import (
     MySQLIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.oracle import (
+from papilio.infra.db.repositories.backends.oracle import (
     OracleIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.postgresql import (
+from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLIdentifiedRepository,
 )
-from fastamu.infra.db.repositories.backends.sqlite import (
+from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
 )
-from fastamu.infra.db.table import BaseTable
-from fastamu.infra.db.tools.read import fetch_page
-from fastamu.infra.db.uow import (
+from papilio.infra.db.table import BaseTable
+from papilio.infra.db.tools.read import fetch_page
+from papilio.infra.db.uow import (
     MariaDBUnitOfWork,
     MSSQLUnitOfWork,
     MySQLUnitOfWork,
@@ -59,7 +59,7 @@ class RecordEntity(IdentifiedEntity):
 
 
 class Record(RecordEntity, BaseTable, table=True):
-    __tablename__ = "fastamu_bench_records"
+    __tablename__ = "papilio_bench_records"
 
 
 BACKENDS = {
@@ -299,16 +299,16 @@ async def main(args):
                 )
             await unit.commit()
             statistics_sql = {
-                "postgresql": "ANALYZE fastamu_bench_records",
-                "sqlite": "ANALYZE fastamu_bench_records",
-                "mysql": "ANALYZE TABLE fastamu_bench_records",
-                "mariadb": "ANALYZE TABLE fastamu_bench_records",
+                "postgresql": "ANALYZE papilio_bench_records",
+                "sqlite": "ANALYZE papilio_bench_records",
+                "mysql": "ANALYZE TABLE papilio_bench_records",
+                "mariadb": "ANALYZE TABLE papilio_bench_records",
                 "oracle": (
                     "BEGIN DBMS_STATS.GATHER_TABLE_STATS("
                     "USER, 'FASTAMU_BENCH_RECORDS'); END;"
                 ),
                 "mssql": (
-                    "UPDATE STATISTICS fastamu_bench_records WITH FULLSCAN"
+                    "UPDATE STATISTICS papilio_bench_records WITH FULLSCAN"
                 ),
             }
             await unit.execute(text(statistics_sql[backend]))

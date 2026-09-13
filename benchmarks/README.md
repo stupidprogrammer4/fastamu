@@ -25,7 +25,7 @@ PYTHONPATH=. .venv/bin/python benchmarks/db_repository.py \
   --backend postgresql --output benchmarks/results/new-run/postgresql.json
 ```
 
-The direct script creates and drops `fastamu_bench_records`; it fails if that
+The direct script creates and drops `papilio_bench_records`; it fails if that
 table already exists. Use the default 100,000 rows for the recorded workload.
 It expects at least 1,000 rows for the fixed concurrency and pagination cases;
 custom bulk sizes must fit the first 8,000 selected IDs. `--concurrency-only`
