@@ -24,4 +24,4 @@ class <<P>>Service(BaseIDService[<<P>>Model]):
 
     @transactional
     async def remove(self, id: int) -> int:
-        return await self.repo.remove_by_id(id)
+        return int(await self.repo.remove_by_id(id) is not None)

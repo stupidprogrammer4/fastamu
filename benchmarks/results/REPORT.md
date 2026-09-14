@@ -57,6 +57,8 @@ CPU: AMD Ryzen 7 3750H، هشت CPU منطقی، حدود ۱۵ GiB RAM؛ Python 
 
 ## MySQL: درج گروهی با دو قرارداد خروجی
 
+این نتایج مربوط به نسخهٔ پیش از حذف `MySQL.bulk_create` هستند؛ نام ستون‌های تاریخی حفظ شده است. کد benchmark اکنون همان مسیر قدیمی را با نام `orm_refresh` فقط برای مقایسه بازسازی می‌کند.
+
 `bulk_insert` تعداد درج را می‌دهد؛ `bulk_create` مدل‌های کامل با مقادیر تولیدشده را برمی‌گرداند. هر دو همان ردیف‌ها را ذخیره کردند، اما هزینهٔ خروجی یکسانی ندارند. شمارش SQL شامل verification و کنترل transaction نیست.
 
 | تعداد | bulk_insert، ms | bulk_create، ms | SQL insert / create |

@@ -4,12 +4,15 @@ Generated from this checkout. Code blocks show signatures; `...` replaces implem
 
 Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
 
+Shared implementations: [repository base](repository-base.md). Abstract obligations: [backend contracts](contracts.md).
+
 ## `papilio.infra.db.repositories.backends.postgresql`
 
 ### `PGReader`
 
 ```python
-class PGReader(PGReaderContract):
+class PGReader(Reader[PGUnitOfWork], PGReaderContract):
+
     def __init__(self, uow: PGUnitOfWork) -> None:
         ...
 ```
@@ -17,8 +20,8 @@ class PGReader(PGReaderContract):
 ### `PGRepository`
 
 ```python
-class PGRepository[T: BaseEntity](PGRepositoryContract[T]):
-    table: type[T]
+class PGRepository[T: BaseEntity](Repository[T, PGUnitOfWork], PGRepositoryContract[T]):
+
     def __init__(self, uow: PGUnitOfWork):
         ...
 
@@ -70,14 +73,15 @@ class PGRepository[T: BaseEntity](PGRepositoryContract[T]):
     async def update(self, where: ColumnElement[bool], changes: Mapping[str, Any]) -> Sequence[T]:
         ...
 
-    async def remove(self, where: ColumnElement[bool]) -> int:
+    async def remove(self, where: ColumnElement[bool]) -> Sequence[T]:
         ...
 ```
 
 ### `PGIdentifiedRepository`
 
 ```python
-class PGIdentifiedRepository[T: IdentifiedEntity](PGRepository[T], PGIdentifiedRepositoryContract[T]):
+class PGIdentifiedRepository[T: IdentifiedEntity](PGRepository[T], IdentifiedRepository[T, PGUnitOfWork], PGIdentifiedRepositoryContract[T]):
+
     async def get_by_id(self, id: int) -> T | None:
         ...
 
@@ -96,61 +100,23 @@ class PGIdentifiedRepository[T: IdentifiedEntity](PGRepository[T], PGIdentifiedR
     async def update_row_by_id(self, id: int, data: T) -> T | None:
         ...
 
-    async def remove_by_id(self, id: int) -> int:
+    async def remove_by_id(self, id: int) -> T | None:
         ...
 
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
         ...
 ```
 
 ### `PGTimestampRepository`
 
 ```python
-class PGTimestampRepository[T: TimestampEntity](PGRepository[T], PGTimestampRepositoryContract[T]):
-    def _time_query(self):
-        ...
-
-    def _stream_time(self, condition, batch_size: int) -> AsyncIterator[T]:
-        ...
-
-    async def _page_time(self, condition, limit: int, offset: int) -> PagedType[T]:
-        ...
-
-    def get_stream_range(self, start: datetime, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_range(self, start: datetime, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_gt(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_gt(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_ge(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_ge(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_lt(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_lt(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_le(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_le(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
+class PGTimestampRepository[T: TimestampEntity](PGRepository[T], TimestampRepository[T, PGUnitOfWork], PGTimestampRepositoryContract[T]):
+    ...
 ```
 
 ### `PGPersistenceRepository`
 
 ```python
-class PGPersistenceRepository[T: PersistenceEntity](PGIdentifiedRepository[T], PGTimestampRepository[T], PGPersistenceRepositoryContract[T]):
-    def _time_query(self):
-        ...
+class PGPersistenceRepository[T: PersistenceEntity](PGIdentifiedRepository[T], PGTimestampRepository[T], PersistenceRepository[T, PGUnitOfWork], PGPersistenceRepositoryContract[T]):
+    ...
 ```

@@ -30,12 +30,6 @@ class RepositoryContract[T: BaseEntity](ABC):
     table: type[T]
 
     @abstractmethod
-    async def create(self, data: T) -> T: ...
-
-    @abstractmethod
-    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]: ...
-
-    @abstractmethod
     async def get_all(self) -> Sequence[T]: ...
 
     @abstractmethod
@@ -51,12 +45,6 @@ class IdentifiedRepositoryContract[T: IdentifiedEntity](RepositoryContract[T]):
 
     @abstractmethod
     async def get_paged(self, limit: int, offset: int = 0) -> PagedType[T]: ...
-
-    @abstractmethod
-    async def remove_by_id(self, id: int) -> int: ...
-
-    @abstractmethod
-    async def remove_by_ids(self, ids: Sequence[int]) -> int: ...
 
 
 class TimestampRepositoryContract[T: TimestampEntity](RepositoryContract[T]):

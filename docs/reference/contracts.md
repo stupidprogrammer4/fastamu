@@ -11,6 +11,7 @@ Single-underscore methods are protected extension tools. For inherited methods, 
 ```python
 class ReaderContract[U: UnitOfWork](ABC):
     uow: U
+
     @abstractmethod
     def __init__(self, uow: U) -> None:
         ...
@@ -21,13 +22,6 @@ class ReaderContract[U: UnitOfWork](ABC):
 ```python
 class RepositoryContract[T: BaseEntity](ABC):
     table: type[T]
-    @abstractmethod
-    async def create(self, data: T) -> T:
-        ...
-
-    @abstractmethod
-    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
-        ...
 
     @abstractmethod
     async def get_all(self) -> Sequence[T]:
@@ -42,6 +36,7 @@ class RepositoryContract[T: BaseEntity](ABC):
 
 ```python
 class IdentifiedRepositoryContract[T: IdentifiedEntity](RepositoryContract[T]):
+
     @abstractmethod
     async def get_by_id(self, id: int) -> T | None:
         ...
@@ -53,20 +48,13 @@ class IdentifiedRepositoryContract[T: IdentifiedEntity](RepositoryContract[T]):
     @abstractmethod
     async def get_paged(self, limit: int, offset: int=0) -> PagedType[T]:
         ...
-
-    @abstractmethod
-    async def remove_by_id(self, id: int) -> int:
-        ...
-
-    @abstractmethod
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
-        ...
 ```
 
 ### `TimestampRepositoryContract`
 
 ```python
 class TimestampRepositoryContract[T: TimestampEntity](RepositoryContract[T]):
+
     @abstractmethod
     def get_stream_range(self, start: datetime, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
         ...
@@ -121,6 +109,7 @@ class PersistenceRepositoryContract[T: PersistenceEntity](IdentifiedRepositoryCo
 
 ```python
 class MariaDBReaderContract(ReaderContract[MariaDBUnitOfWork]):
+
     @abstractmethod
     def __init__(self, uow: MariaDBUnitOfWork) -> None:
         ...
@@ -130,6 +119,15 @@ class MariaDBReaderContract(ReaderContract[MariaDBUnitOfWork]):
 
 ```python
 class MariaDBRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+
+    @abstractmethod
+    async def create(self, data: T) -> T:
+        ...
+
+    @abstractmethod
+    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     def __init__(self, uow: MariaDBUnitOfWork) -> None:
         ...
@@ -159,6 +157,15 @@ class MariaDBRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 
 ```python
 class MariaDBIdentifiedRepositoryContract[T: IdentifiedEntity](MariaDBRepositoryContract[T], IdentifiedRepositoryContract[T]):
+
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> T | None:
+        ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> int:
         ...
@@ -200,6 +207,7 @@ class MariaDBPersistenceRepositoryContract[T: PersistenceEntity](MariaDBIdentifi
 
 ```python
 class MSSQLReaderContract(ReaderContract[MSSQLUnitOfWork]):
+
     @abstractmethod
     def __init__(self, uow: MSSQLUnitOfWork) -> None:
         ...
@@ -209,6 +217,15 @@ class MSSQLReaderContract(ReaderContract[MSSQLUnitOfWork]):
 
 ```python
 class MSSQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+
+    @abstractmethod
+    async def create(self, data: T) -> T:
+        ...
+
+    @abstractmethod
+    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     def __init__(self, uow: MSSQLUnitOfWork) -> None:
         ...
@@ -222,6 +239,15 @@ class MSSQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 
 ```python
 class MSSQLIdentifiedRepositoryContract[T: IdentifiedEntity](MSSQLRepositoryContract[T], IdentifiedRepositoryContract[T]):
+
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> T | None:
+        ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> T | None:
         ...
@@ -263,6 +289,7 @@ class MSSQLPersistenceRepositoryContract[T: PersistenceEntity](MSSQLIdentifiedRe
 
 ```python
 class MySQLReaderContract(ReaderContract[MySQLUnitOfWork]):
+
     @abstractmethod
     def __init__(self, uow: MySQLUnitOfWork) -> None:
         ...
@@ -272,6 +299,11 @@ class MySQLReaderContract(ReaderContract[MySQLUnitOfWork]):
 
 ```python
 class MySQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+
+    @abstractmethod
+    async def create(self, data: T) -> T:
+        ...
+
     @abstractmethod
     def __init__(self, uow: MySQLUnitOfWork) -> None:
         ...
@@ -309,6 +341,15 @@ class MySQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 
 ```python
 class MySQLIdentifiedRepositoryContract[T: IdentifiedEntity](MySQLRepositoryContract[T], IdentifiedRepositoryContract[T]):
+
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> int:
+        ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> int:
+        ...
+
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> int:
         ...
@@ -350,6 +391,7 @@ class MySQLPersistenceRepositoryContract[T: PersistenceEntity](MySQLIdentifiedRe
 
 ```python
 class OracleReaderContract(ReaderContract[OracleUnitOfWork]):
+
     @abstractmethod
     def __init__(self, uow: OracleUnitOfWork) -> None:
         ...
@@ -359,6 +401,15 @@ class OracleReaderContract(ReaderContract[OracleUnitOfWork]):
 
 ```python
 class OracleRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+
+    @abstractmethod
+    async def create(self, data: T) -> T:
+        ...
+
+    @abstractmethod
+    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     def __init__(self, uow: OracleUnitOfWork) -> None:
         ...
@@ -372,6 +423,15 @@ class OracleRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 
 ```python
 class OracleIdentifiedRepositoryContract[T: IdentifiedEntity](OracleRepositoryContract[T], IdentifiedRepositoryContract[T]):
+
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> T | None:
+        ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> T | None:
         ...
@@ -413,6 +473,7 @@ class OraclePersistenceRepositoryContract[T: PersistenceEntity](OracleIdentified
 
 ```python
 class PGReaderContract(ReaderContract[PGUnitOfWork]):
+
     @abstractmethod
     def __init__(self, uow: PGUnitOfWork) -> None:
         ...
@@ -422,6 +483,15 @@ class PGReaderContract(ReaderContract[PGUnitOfWork]):
 
 ```python
 class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+
+    @abstractmethod
+    async def create(self, data: T) -> T:
+        ...
+
+    @abstractmethod
+    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     def __init__(self, uow: PGUnitOfWork) -> None:
         ...
@@ -483,7 +553,7 @@ class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
         ...
 
     @abstractmethod
-    async def remove(self, where: ColumnElement[bool]) -> int:
+    async def remove(self, where: ColumnElement[bool]) -> Sequence[T]:
         ...
 ```
 
@@ -491,6 +561,15 @@ class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 
 ```python
 class PGIdentifiedRepositoryContract[T: IdentifiedEntity](PGRepositoryContract[T], IdentifiedRepositoryContract[T]):
+
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> T | None:
+        ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> T | None:
         ...
@@ -524,6 +603,7 @@ class PGPersistenceRepositoryContract[T: PersistenceEntity](PGIdentifiedReposito
 
 ```python
 class SQLiteReaderContract(ReaderContract[SQLiteUnitOfWork]):
+
     @abstractmethod
     def __init__(self, uow: SQLiteUnitOfWork) -> None:
         ...
@@ -533,6 +613,15 @@ class SQLiteReaderContract(ReaderContract[SQLiteUnitOfWork]):
 
 ```python
 class SQLiteRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+
+    @abstractmethod
+    async def create(self, data: T) -> T:
+        ...
+
+    @abstractmethod
+    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     def __init__(self, uow: SQLiteUnitOfWork) -> None:
         ...
@@ -562,6 +651,15 @@ class SQLiteRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 
 ```python
 class SQLiteIdentifiedRepositoryContract[T: IdentifiedEntity](SQLiteRepositoryContract[T], IdentifiedRepositoryContract[T]):
+
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> T | None:
+        ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
+        ...
+
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> T | None:
         ...

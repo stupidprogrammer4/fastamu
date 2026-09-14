@@ -4,12 +4,15 @@ Generated from this checkout. Code blocks show signatures; `...` replaces implem
 
 Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
 
+Shared implementations: [repository base](repository-base.md). Abstract obligations: [backend contracts](contracts.md).
+
 ## `papilio.infra.db.repositories.backends.sqlite`
 
 ### `SQLiteReader`
 
 ```python
-class SQLiteReader(SQLiteReaderContract):
+class SQLiteReader(Reader[SQLiteUnitOfWork], SQLiteReaderContract):
+
     def __init__(self, uow: SQLiteUnitOfWork) -> None:
         ...
 ```
@@ -17,8 +20,8 @@ class SQLiteReader(SQLiteReaderContract):
 ### `SQLiteRepository`
 
 ```python
-class SQLiteRepository[T: BaseEntity](SQLiteRepositoryContract[T]):
-    table: type[T]
+class SQLiteRepository[T: BaseEntity](Repository[T, SQLiteUnitOfWork], SQLiteRepositoryContract[T]):
+
     def __init__(self, uow: SQLiteUnitOfWork):
         ...
 
@@ -42,25 +45,17 @@ class SQLiteRepository[T: BaseEntity](SQLiteRepositoryContract[T]):
 
     async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
         ...
-
-    async def get_all(self) -> Sequence[T]:
-        ...
-
-    def get_all_stream(self, batch_size: int=100) -> AsyncIterator[T]:
-        ...
 ```
 
 ### `SQLiteIdentifiedRepository`
 
 ```python
-class SQLiteIdentifiedRepository[T: IdentifiedEntity](SQLiteRepository[T], SQLiteIdentifiedRepositoryContract[T]):
-    async def get_by_id(self, id: int) -> T | None:
+class SQLiteIdentifiedRepository[T: IdentifiedEntity](SQLiteRepository[T], IdentifiedRepository[T, SQLiteUnitOfWork], SQLiteIdentifiedRepositoryContract[T]):
+
+    async def remove_by_id(self, id: int) -> T | None:
         ...
 
-    async def get_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
-        ...
-
-    async def get_paged(self, limit: int, offset: int=0) -> PagedType[T]:
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
         ...
 
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> T | None:
@@ -77,62 +72,18 @@ class SQLiteIdentifiedRepository[T: IdentifiedEntity](SQLiteRepository[T], SQLit
 
     async def bulk_update(self, data: Sequence[T], *, update_columns: Mapping[str, ColumnClause[Any]]) -> Sequence[T]:
         ...
-
-    async def remove_by_id(self, id: int) -> int:
-        ...
-
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
-        ...
 ```
 
 ### `SQLiteTimestampRepository`
 
 ```python
-class SQLiteTimestampRepository[T: TimestampEntity](SQLiteRepository[T], SQLiteTimestampRepositoryContract[T]):
-    def _time_query(self):
-        ...
-
-    def _stream_time(self, condition, batch_size: int) -> AsyncIterator[T]:
-        ...
-
-    async def _page_time(self, condition, limit: int, offset: int) -> PagedType[T]:
-        ...
-
-    def get_stream_range(self, start: datetime, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_range(self, start: datetime, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_gt(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_gt(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_ge(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_ge(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_lt(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_lt(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_le(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_le(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
+class SQLiteTimestampRepository[T: TimestampEntity](SQLiteRepository[T], TimestampRepository[T, SQLiteUnitOfWork], SQLiteTimestampRepositoryContract[T]):
+    ...
 ```
 
 ### `SQLitePersistenceRepository`
 
 ```python
-class SQLitePersistenceRepository[T: PersistenceEntity](SQLiteIdentifiedRepository[T], SQLiteTimestampRepository[T], SQLitePersistenceRepositoryContract[T]):
-    def _time_query(self):
-        ...
+class SQLitePersistenceRepository[T: PersistenceEntity](SQLiteIdentifiedRepository[T], SQLiteTimestampRepository[T], PersistenceRepository[T, SQLiteUnitOfWork], SQLitePersistenceRepositoryContract[T]):
+    ...
 ```

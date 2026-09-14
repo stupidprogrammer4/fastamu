@@ -26,12 +26,6 @@ from sqlmodel import Field
 
 from papilio.infra.db.connection import DBConnection
 from papilio.infra.db.dialects.oracle import OracleJSON
-from papilio.infra.db.schema.entity import (
-    BaseEntity,
-    PersistenceEntity,
-    TimestampEntity,
-    VersionEntity,
-)
 from papilio.infra.db.repositories.backends import (
     mariadb as maria_repos,
 )
@@ -42,6 +36,12 @@ from papilio.infra.db.repositories.backends import (
     postgresql as pg_repos,
 )
 from papilio.infra.db.repositories.backends import sqlite as lite_repos
+from papilio.infra.db.schema.entity import (
+    BaseEntity,
+    PersistenceEntity,
+    TimestampEntity,
+    VersionEntity,
+)
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.transaction import transaction
 from papilio.infra.db.uow import (
@@ -131,7 +131,7 @@ class DatedRepository(lite_repos.SQLiteTimestampRepository[DatedEntity]):
 
 
 FAMILIES = [
-    (pg_repos, "PostgreSQL", True),
+    (pg_repos, "PG", True),
     (my_repos, "MySQL", True),
     (maria_repos, "MariaDB", True),
     (lite_repos, "SQLite", True),
@@ -266,19 +266,38 @@ async def test_defaults_patch_bulk_and_rollback(runtime):
         first = await repo.create(ProbeEntity(code="a", quantity=1))
         assert first.id is not None and first.created_at is not None
         assert first.note == "fallback"
-        extra = await repo.bulk_create(
-            [
-                ProbeEntity(code="b", quantity=2, note=None),
-                ProbeEntity(code="c", quantity=3),
-            ]
-        )
-        assert len(extra) == 2
-        by_code = {row.code: row for row in await repo.get_all()}
+        data = [
+            ProbeEntity(code="b", quantity=2, note=None),
+            ProbeEntity(code="c", quantity=3),
+        ]
         if runtime.backend in ("mysql", "mysql-orm"):
-            # Native ORM inserts omit None for a scalar with a server default.
-            assert by_code["b"].note == "fallback"
+            columns = RepositoryProbeTable.__table__.c
+            # Separate input shapes explicitly: NULL versus omitted default.
+            assert (
+                await repo.bulk_insert(
+                    data[:1],
+                    insert_columns={
+                        "code": columns.code,
+                        "quantity": columns.quantity,
+                        "note": columns.note,
+                    },
+                )
+                == 1
+            )
+            assert (
+                await repo.bulk_insert(
+                    data[1:],
+                    insert_columns={
+                        "code": columns.code,
+                        "quantity": columns.quantity,
+                    },
+                )
+                == 1
+            )
         else:
-            assert by_code["b"].note is None
+            assert len(await repo.bulk_create(data)) == 2
+        by_code = {row.code: row for row in await repo.get_all()}
+        assert by_code["b"].note is None
         assert by_code["c"].note == "fallback"
         changed = await repo.update_by_id(first.id, {"note": None})
         if runtime.backend in ("mysql", "mysql-orm", "mariadb"):
@@ -312,9 +331,11 @@ async def test_defaults_patch_bulk_and_rollback(runtime):
         page = await repo.get_paged(1, 1)
         assert len(page.items) == 1 and page.total_items == 3
         assert len([row async for row in repo.get_all_stream(1)]) == 3
-        assert (
-            await repo.remove_by_ids([by_code["b"].id, by_code["c"].id]) == 2
-        )
+        removed = await repo.remove_by_ids([by_code["b"].id, by_code["c"].id])
+        if runtime.backend in ("mysql", "mysql-orm"):
+            assert removed == 2
+        else:
+            assert {row.code for row in removed} == {"b", "c"}
         assert await repo.get_by_id(by_code["b"].id) is None
     with pytest.raises(RuntimeError, match="rollback"):
         async with db.uow() as unit, transaction():
@@ -401,7 +422,11 @@ async def test_updates_and_deletes_issue_only_the_write_statement(runtime):
             await unit.refresh(record)
         assert (await repo.get_by_id(id)).quantity == 7
         statements.clear()
-        assert await repo.remove_by_id(id) == 1
+        removed = await repo.remove_by_id(id)
+        if runtime.backend in ("mysql", "mysql-orm"):
+            assert removed == 1
+        else:
+            assert removed.id == id and removed.quantity == 7
         assert len(statements) == 1
         assert statements[0][2]
         statements.clear()
@@ -409,7 +434,11 @@ async def test_updates_and_deletes_issue_only_the_write_statement(runtime):
         assert missing == 0 if counts else missing is None
         assert len(statements) == 1
         assert statements[0][1]
-        assert await repo.remove_by_id(id) == 0
+        missing = await repo.remove_by_id(id)
+        if runtime.backend in ("mysql", "mysql-orm"):
+            assert missing == 0
+        else:
+            assert missing is None
 
 
 async def test_base_and_timestamp_shapes_do_not_require_id(tmp_path):
@@ -488,6 +517,102 @@ async def test_native_insert_and_bulk_update_sql(repo_type, dialect, syntax):
         stmt = session.execute.call_args.args[0]
         assert "UPDATE" in str(stmt.compile(dialect=dialect))
         assert syntax in str(stmt.compile(dialect=dialect))
+
+
+@pytest.mark.parametrize(
+    "repo_type,dialect,syntax",
+    [
+        (PGProbe, postgresql.dialect(), "RETURNING"),
+        (SQLiteProbe, sqlite.dialect(), "RETURNING"),
+        (MariaDBProbe, mysql.dialect(), "RETURNING"),
+        (OracleProbe, oracle.dialect(), "RETURNING"),
+        (MSSQLProbe, mssql.dialect(), "OUTPUT"),
+        (MySQLProbe, mysql.dialect(), None),
+    ],
+)
+async def test_delete_uses_native_results_without_readback(
+    repo_type, dialect, syntax
+):
+    row = ProbeEntity(id=1, code="deleted", quantity=5)
+    result = SimpleNamespace(
+        rowcount=1,
+        scalar_one_or_none=lambda: row,
+        scalars=lambda: SimpleNamespace(all=lambda: [row]),
+    )
+    # Only execute is available: there can be no ORM refresh or commit.
+    unit = SimpleNamespace(execute=AsyncMock(return_value=result))
+    repo = repo_type(unit)
+    single = await repo.remove_by_id(1)
+    unit.execute.assert_awaited_once()
+    assert single == 1 if syntax is None else single is row
+    unit.execute.reset_mock()
+    batch = await repo.remove_by_ids([1, 2])
+    unit.execute.assert_awaited_once()
+    assert batch == 1 if syntax is None else batch == [row]
+    stmt = unit.execute.call_args.args[0]
+    sql = str(stmt.compile(dialect=dialect))
+    assert "DELETE" in sql
+    if syntax is None:
+        assert not list(stmt.exported_columns)
+        assert "RETURNING" not in sql and "OUTPUT" not in sql
+    else:
+        assert syntax in sql
+        assert "code" in stmt.exported_columns
+
+
+async def test_delete_returns_stored_values_and_caller_can_roll_back(runtime):
+    counts = runtime.backend in ("mysql", "mysql-orm")
+    async with runtime.db.uow() as unit:
+        repo = runtime.repo_type(unit)
+        first = await repo.create(ProbeEntity(code="first", quantity=1))
+        second = await repo.create(ProbeEntity(code="second", quantity=2))
+        first_id, second_id = first.id, second.id
+        await unit.commit()
+        first.quantity = 999  # Pending ORM state must not replace DB output.
+        statements = []
+
+        def capture(conn, cursor, statement, params, context, many):
+            statements.append(statement)
+
+        engine = runtime.db.engine.sync_engine
+        event.listen(engine, "before_cursor_execute", capture)
+        try:
+            removed = await repo.remove_by_id(first_id)
+            assert len(statements) == 1
+            if counts:
+                assert removed == 1
+            else:
+                assert (removed.id, removed.code, removed.quantity) == (
+                    first_id,
+                    "first",
+                    1,
+                )
+            statements.clear()
+            removed = await repo.remove_by_ids(
+                [second_id, second_id, second_id + 100]
+            )
+            assert len(statements) == 1
+            if counts:
+                assert removed == 1
+            else:
+                assert [(row.id, row.quantity) for row in removed] == [
+                    (second_id, 2)
+                ]
+            missing = await repo.remove_by_id(first_id)
+            assert missing == 0 if counts else missing is None
+            empty = await repo.remove_by_ids([])
+            assert empty == 0 if counts else empty == []
+            assert all(
+                sql.lstrip().upper().startswith("DELETE") for sql in statements
+            )
+        finally:
+            event.remove(engine, "before_cursor_execute", capture)
+        assert await repo.get_all() == []
+        await unit.rollback()
+        assert {row.code: row.quantity for row in await repo.get_all()} == {
+            "first": 1,
+            "second": 2,
+        }
 
 
 @pytest.mark.parametrize(
@@ -636,9 +761,22 @@ async def test_grid_update_preserves_nulls_and_does_not_touch_unmatched_rows(
 ):
     async with runtime.db.uow() as unit, transaction():
         repo = runtime.repo_type(unit)
-        created = await repo.bulk_create(
-            [ProbeEntity(code=code, quantity=1) for code in ("a", "b", "c")]
-        )
+        data = [ProbeEntity(code=code, quantity=1) for code in ("a", "b", "c")]
+        if runtime.backend in ("mysql", "mysql-orm"):
+            columns = RepositoryProbeTable.__table__.c
+            assert (
+                await repo.bulk_insert(
+                    data,
+                    insert_columns={
+                        "code": columns.code,
+                        "quantity": columns.quantity,
+                    },
+                )
+                == 3
+            )
+            created = await repo.get_all()
+        else:
+            created = await repo.bulk_create(data)
         by_code = {row.code: row for row in created}
         first, second, untouched = (by_code[code] for code in ("a", "b", "c"))
         columns = RepositoryProbeTable.__table__.c
@@ -684,9 +822,22 @@ async def test_large_json_create_and_returning_preserve_complete_values(
     async with runtime.db.uow() as unit, transaction():
         repo = runtime.repo_type(unit)
         single = await repo.create(ProbeEntity(code="one", attributes=payload))
-        batch = await repo.bulk_create(
-            [ProbeEntity(code="two", attributes=payload)]
-        )
+        data = [ProbeEntity(code="two", attributes=payload)]
+        if runtime.backend in ("mysql", "mysql-orm"):
+            columns = RepositoryProbeTable.__table__.c
+            assert (
+                await repo.bulk_insert(
+                    data,
+                    insert_columns={
+                        "code": columns.code,
+                        "attributes": columns.attributes,
+                    },
+                )
+                == 1
+            )
+            batch = [row for row in await repo.get_all() if row.code == "two"]
+        else:
+            batch = await repo.bulk_create(data)
         assert single.attributes == payload
         assert batch[0].attributes == payload
         updated = await repo.update_by_id(single.id, {"attributes": null()})
@@ -857,12 +1008,23 @@ async def test_upsert_batch_preserves_explicit_nullable_values(runtime):
         options["conflict_columns"] = [columns.code]
     async with runtime.db.uow() as unit, transaction():
         repo = runtime.repo_type(unit)
-        await repo.bulk_create(
-            [
-                ProbeEntity(code="a", note="old a"),
-                ProbeEntity(code="b", note="old b"),
-            ]
-        )
+        data = [
+            ProbeEntity(code="a", note="old a"),
+            ProbeEntity(code="b", note="old b"),
+        ]
+        if runtime.backend == "mysql":
+            assert (
+                await repo.bulk_insert(
+                    data,
+                    insert_columns={
+                        "code": columns.code,
+                        "note": columns.note,
+                    },
+                )
+                == 2
+            )
+        else:
+            await repo.bulk_create(data)
         await repo.bulk_upsert(
             [
                 ProbeEntity(code="a", quantity=1, note=None),

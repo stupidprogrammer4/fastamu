@@ -11,17 +11,19 @@ from dishka.exceptions import GraphMissingFactoryError, NoFactoryError
 from sqlmodel import Field
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.schema.entity import BaseEntity
+from papilio.infra.db.repositories import base
 from papilio.infra.db.repositories.backends.postgresql import (
     PGRepository,
 )
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteRepository,
 )
+from papilio.infra.db.repositories.contracts import base as common
 from papilio.infra.db.repositories.contracts.base import RepositoryContract
 from papilio.infra.db.repositories.contracts.sqlite import (
     SQLiteRepositoryContract,
 )
+from papilio.infra.db.schema.entity import BaseEntity
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.transaction import transaction
 from papilio.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
@@ -76,6 +78,10 @@ def test_each_implementation_fulfills_its_own_contract(backend, prefix, shape):
     assert not inspect.isabstract(implementation)
     assert issubclass(implementation, contract)
     assert issubclass(contract, RepositoryContract)
+    assert issubclass(implementation, getattr(base, shape + "Repository"))
+    assert hasattr(contract, "bulk_create") is (backend != "mysql")
+    assert hasattr(implementation, "bulk_create") is (backend != "mysql")
+    assert hasattr(contract, "bulk_insert") is (backend == "mysql")
     signature = inspect.signature(implementation.__init__)
     assert signature.parameters["uow"].annotation is getattr(
         units, prefix + "UnitOfWork"
@@ -84,6 +90,48 @@ def test_each_implementation_fulfills_its_own_contract(backend, prefix, shape):
     if backend in ("oracle", "mssql"):
         assert not hasattr(contract, "upsert")
         assert not hasattr(contract, "bulk_upsert")
+        assert not hasattr(contract, "_upsert_stmt")
+        assert not hasattr(contract, "_bulk_upsert_stmt")
+
+
+@pytest.mark.parametrize(
+    "shape", ["", "Identified", "Timestamp", "Persistence"]
+)
+def test_common_base_has_no_native_write_obligations(shape):
+    implementation = getattr(base, shape + "Repository")
+    contract = getattr(common, shape + "RepositoryContract")
+    assert not inspect.isabstract(implementation)
+    for name in (
+        "create",
+        "bulk_create",
+        "bulk_insert",
+        "update",
+        "bulk_update",
+        "remove",
+        "remove_by_id",
+        "remove_by_ids",
+        "upsert",
+        "bulk_upsert",
+        "_upsert_stmt",
+        "_bulk_upsert_stmt",
+        "_bulk_insert_stmt",
+        "_bulk_update_stmt",
+        "_values_grid",
+    ):
+        assert not hasattr(contract, name)
+        assert not hasattr(implementation, name)
+
+
+async def test_shared_base_reads_without_implementing_writes(databases):
+    class ReadRepository(base.Repository[BindingEntity, SQLiteUnitOfWork]):
+        table = BindingTable
+
+    async with databases[0].uow() as unit, transaction(unit):
+        await BindingRepository(unit).create(BindingEntity(key=4))
+        reader = ReadRepository(unit)
+        assert reader.uow is unit
+        assert [row.key for row in await reader.get_all()] == [4]
+        assert [row.key async for row in reader.get_all_stream(1)] == [4]
 
 
 def test_incomplete_contract_cannot_be_instantiated():

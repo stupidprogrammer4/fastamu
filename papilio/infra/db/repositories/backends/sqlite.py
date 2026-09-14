@@ -1,23 +1,22 @@
 """Explicit sqlite repository; declare table on your subclass."""
 
-from collections.abc import AsyncIterator, Mapping, Sequence
-from datetime import datetime
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from sqlalchemy import column, delete, insert, literal, select, update, values
+from sqlalchemy import column, delete, insert, literal, update, values
 from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.dialects.sqlite import insert as dialect_insert
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.sql.selectable import CTE
 from sqlmodel import col
 
-from papilio.infra.db.schema.entity import (
-    BaseEntity,
-    IdentifiedEntity,
-    PersistenceEntity,
-    TimestampEntity,
+from papilio.infra.db.repositories.base import (
+    IdentifiedRepository,
+    PersistenceRepository,
+    Reader,
+    Repository,
+    TimestampRepository,
 )
 from papilio.infra.db.repositories.contracts.sqlite import (
     SQLiteIdentifiedRepositoryContract,
@@ -26,26 +25,27 @@ from papilio.infra.db.repositories.contracts.sqlite import (
     SQLiteRepositoryContract,
     SQLiteTimestampRepositoryContract,
 )
-from papilio.infra.db.tools.read import (
-    fetch_page,
-    stream,
+from papilio.infra.db.schema.entity import (
+    BaseEntity,
+    IdentifiedEntity,
+    PersistenceEntity,
+    TimestampEntity,
 )
 from papilio.infra.db.uow import SQLiteUnitOfWork
-from papilio.schemas.results import PagedType
 
 
-class SQLiteReader(SQLiteReaderContract):
+class SQLiteReader(Reader[SQLiteUnitOfWork], SQLiteReaderContract):
     """Table-independent base for SQLite joins, aggregates and reports."""
 
     def __init__(self, uow: SQLiteUnitOfWork) -> None:
-        self.uow = uow
+        super().__init__(uow)
 
 
-class SQLiteRepository[T: BaseEntity](SQLiteRepositoryContract[T]):
-    table: type[T]
-
+class SQLiteRepository[T: BaseEntity](
+    Repository[T, SQLiteUnitOfWork], SQLiteRepositoryContract[T]
+):
     def __init__(self, uow: SQLiteUnitOfWork):
-        self.uow = uow
+        super().__init__(uow)
 
     def _upsert_stmt(
         self,
@@ -170,32 +170,31 @@ class SQLiteRepository[T: BaseEntity](SQLiteRepositoryContract[T]):
         result = await self.uow.execute(stmt, [item.to_row() for item in data])
         return result.scalars().all()
 
-    async def get_all(self) -> Sequence[T]:
-        stmt = select(self.table)
-        result = await self.uow.execute(stmt)
-        return result.scalars().all()
-
-    def get_all_stream(self, batch_size: int = 100) -> AsyncIterator[T]:
-        stmt = select(self.table)
-        return stream(self.uow, stmt, batch_size=batch_size)
-
 
 class SQLiteIdentifiedRepository[T: IdentifiedEntity](
-    SQLiteRepository[T], SQLiteIdentifiedRepositoryContract[T]
+    SQLiteRepository[T],
+    IdentifiedRepository[T, SQLiteUnitOfWork],
+    SQLiteIdentifiedRepositoryContract[T],
 ):
-    async def get_by_id(self, id: int) -> T | None:
-        stmt = select(self.table).where(col(self.table.id) == id)
+    async def remove_by_id(self, id: int) -> T | None:
+        stmt = (
+            delete(self.table)
+            .where(col(self.table.id) == id)
+            .returning(self.table)
+            .execution_options(synchronize_session="fetch")
+        )
         result = await self.uow.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
-        stmt = select(self.table).where(col(self.table.id).in_(ids))
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
+        stmt = (
+            delete(self.table)
+            .where(col(self.table.id).in_(ids))
+            .returning(self.table)
+            .execution_options(synchronize_session="fetch")
+        )
         result = await self.uow.execute(stmt)
         return result.scalars().all()
-
-    async def get_paged(self, limit: int, offset: int = 0) -> PagedType[T]:
-        stmt = select(self.table).order_by(col(self.table.id))
-        return await fetch_page(self.uow, stmt, limit=limit, offset=offset)
 
     async def update_by_id(
         self, id: int, changes: Mapping[str, Any]
@@ -264,108 +263,19 @@ class SQLiteIdentifiedRepository[T: IdentifiedEntity](
         result = await self.uow.execute(stmt)
         return result.scalars().all()
 
-    async def remove_by_id(self, id: int) -> int:
-        stmt = (
-            delete(self.table)
-            .where(col(self.table.id) == id)
-            .execution_options(synchronize_session=False)
-        )
-        result = await self.uow.execute(stmt)
-        return cast(CursorResult[Any], result).rowcount
-
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
-        stmt = (
-            delete(self.table)
-            .where(col(self.table.id).in_(ids))
-            .execution_options(synchronize_session=False)
-        )
-        result = await self.uow.execute(stmt)
-        return cast(CursorResult[Any], result).rowcount
-
 
 class SQLiteTimestampRepository[T: TimestampEntity](
-    SQLiteRepository[T], SQLiteTimestampRepositoryContract[T]
+    SQLiteRepository[T],
+    TimestampRepository[T, SQLiteUnitOfWork],
+    SQLiteTimestampRepositoryContract[T],
 ):
-    def _time_query(self):
-        return select(self.table).order_by(col(self.table.created_at))
-
-    def _stream_time(self, condition, batch_size: int) -> AsyncIterator[T]:
-        stmt = self._time_query().where(condition)
-        return stream(self.uow, stmt, batch_size=batch_size)
-
-    async def _page_time(
-        self, condition, limit: int, offset: int
-    ) -> PagedType[T]:
-        stmt = self._time_query().where(condition)
-        return await fetch_page(self.uow, stmt, limit=limit, offset=offset)
-
-    def get_stream_range(
-        self, start: datetime, end: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at).between(start, end)
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_range(
-        self, start: datetime, end: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at).between(start, end)
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_gt(
-        self, start: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) > start
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_gt(
-        self, start: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) > start
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_ge(
-        self, start: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) >= start
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_ge(
-        self, start: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) >= start
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_lt(
-        self, end: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) < end
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_lt(
-        self, end: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) < end
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_le(
-        self, end: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) <= end
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_le(
-        self, end: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) <= end
-        return await self._page_time(condition, limit, offset)
+    pass
 
 
 class SQLitePersistenceRepository[T: PersistenceEntity](
     SQLiteIdentifiedRepository[T],
     SQLiteTimestampRepository[T],
+    PersistenceRepository[T, SQLiteUnitOfWork],
     SQLitePersistenceRepositoryContract[T],
 ):
-    def _time_query(self):
-        return select(self.table).order_by(
-            col(self.table.created_at), col(self.table.id)
-        )
+    pass

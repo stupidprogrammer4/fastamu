@@ -4,12 +4,15 @@ Generated from this checkout. Code blocks show signatures; `...` replaces implem
 
 Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
 
+Shared implementations: [repository base](repository-base.md). Abstract obligations: [backend contracts](contracts.md).
+
 ## `papilio.infra.db.repositories.backends.mariadb`
 
 ### `MariaDBReader`
 
 ```python
-class MariaDBReader(MariaDBReaderContract):
+class MariaDBReader(Reader[MariaDBUnitOfWork], MariaDBReaderContract):
+
     def __init__(self, uow: MariaDBUnitOfWork) -> None:
         ...
 ```
@@ -17,8 +20,8 @@ class MariaDBReader(MariaDBReaderContract):
 ### `MariaDBRepository`
 
 ```python
-class MariaDBRepository[T: BaseEntity](MariaDBRepositoryContract[T]):
-    table: type[T]
+class MariaDBRepository[T: BaseEntity](Repository[T, MariaDBUnitOfWork], MariaDBRepositoryContract[T]):
+
     def __init__(self, uow: MariaDBUnitOfWork):
         ...
 
@@ -42,25 +45,17 @@ class MariaDBRepository[T: BaseEntity](MariaDBRepositoryContract[T]):
 
     async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
         ...
-
-    async def get_all(self) -> Sequence[T]:
-        ...
-
-    def get_all_stream(self, batch_size: int=100) -> AsyncIterator[T]:
-        ...
 ```
 
 ### `MariaDBIdentifiedRepository`
 
 ```python
-class MariaDBIdentifiedRepository[T: IdentifiedEntity](MariaDBRepository[T], MariaDBIdentifiedRepositoryContract[T]):
-    async def get_by_id(self, id: int) -> T | None:
+class MariaDBIdentifiedRepository[T: IdentifiedEntity](MariaDBRepository[T], IdentifiedRepository[T, MariaDBUnitOfWork], MariaDBIdentifiedRepositoryContract[T]):
+
+    async def remove_by_id(self, id: int) -> T | None:
         ...
 
-    async def get_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
-        ...
-
-    async def get_paged(self, limit: int, offset: int=0) -> PagedType[T]:
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
         ...
 
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> int:
@@ -77,62 +72,18 @@ class MariaDBIdentifiedRepository[T: IdentifiedEntity](MariaDBRepository[T], Mar
 
     async def bulk_update(self, data: Sequence[T], *, update_columns: Mapping[str, ColumnClause[Any]]) -> int:
         ...
-
-    async def remove_by_id(self, id: int) -> int:
-        ...
-
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
-        ...
 ```
 
 ### `MariaDBTimestampRepository`
 
 ```python
-class MariaDBTimestampRepository[T: TimestampEntity](MariaDBRepository[T], MariaDBTimestampRepositoryContract[T]):
-    def _time_query(self):
-        ...
-
-    def _stream_time(self, condition, batch_size: int) -> AsyncIterator[T]:
-        ...
-
-    async def _page_time(self, condition, limit: int, offset: int) -> PagedType[T]:
-        ...
-
-    def get_stream_range(self, start: datetime, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_range(self, start: datetime, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_gt(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_gt(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_ge(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_ge(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_lt(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_lt(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_le(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_le(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
+class MariaDBTimestampRepository[T: TimestampEntity](MariaDBRepository[T], TimestampRepository[T, MariaDBUnitOfWork], MariaDBTimestampRepositoryContract[T]):
+    ...
 ```
 
 ### `MariaDBPersistenceRepository`
 
 ```python
-class MariaDBPersistenceRepository[T: PersistenceEntity](MariaDBIdentifiedRepository[T], MariaDBTimestampRepository[T], MariaDBPersistenceRepositoryContract[T]):
-    def _time_query(self):
-        ...
+class MariaDBPersistenceRepository[T: PersistenceEntity](MariaDBIdentifiedRepository[T], MariaDBTimestampRepository[T], PersistenceRepository[T, MariaDBUnitOfWork], MariaDBPersistenceRepositoryContract[T]):
+    ...
 ```

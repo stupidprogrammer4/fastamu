@@ -8,8 +8,6 @@ from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.schema.fields import CharField, IntField, JSONField
-from papilio.infra.db.schema.entity import IdentifiedEntity
 from papilio.infra.db.repositories.backends.mariadb import (
     MariaDBIdentifiedRepository,
 )
@@ -22,6 +20,8 @@ from papilio.infra.db.repositories.backends.postgresql import (
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
 )
+from papilio.infra.db.schema.entity import IdentifiedEntity
+from papilio.infra.db.schema.fields import CharField, IntField, JSONField
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.uow import (
     MariaDBUnitOfWork,
@@ -95,15 +95,27 @@ async def test_create_preserves_json_null_and_sql_null(field_store):
     await repo.create(
         FieldMappingEntity(code="one", payload=None, sql_payload=None)
     )
-    await repo.bulk_create(
-        [
-            FieldMappingEntity(code="two", payload=None, sql_payload=None),
-            FieldMappingEntity(
-                code="three", payload={"ok": True}, sql_payload=None
-            ),
-        ]
-    )
+    data = [
+        FieldMappingEntity(code="two", payload=None, sql_payload=None),
+        FieldMappingEntity(
+            code="three", payload={"ok": True}, sql_payload=None
+        ),
+    ]
     columns = FieldMappingTable.__table__.c
+    if field_store.backend in ("mysql", "mysql-orm"):
+        assert (
+            await repo.bulk_insert(
+                data,
+                insert_columns={
+                    "code": columns.external_code,
+                    "payload": columns.stored_payload,
+                    "sql_payload": columns.sql_payload,
+                },
+            )
+            == 2
+        )
+    else:
+        await repo.bulk_create(data)
     stmt = select(
         columns.external_code,
         columns.stored_payload.is_(None),

@@ -9,18 +9,18 @@ from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.sql.selectable import Subquery
 
-from papilio.infra.db.schema.entity import (
-    BaseEntity,
-    IdentifiedEntity,
-    PersistenceEntity,
-    TimestampEntity,
-)
 from papilio.infra.db.repositories.contracts.base import (
     IdentifiedRepositoryContract,
     PersistenceRepositoryContract,
     ReaderContract,
     RepositoryContract,
     TimestampRepositoryContract,
+)
+from papilio.infra.db.schema.entity import (
+    BaseEntity,
+    IdentifiedEntity,
+    PersistenceEntity,
+    TimestampEntity,
 )
 from papilio.infra.db.uow import MySQLUnitOfWork
 
@@ -31,6 +31,9 @@ class MySQLReaderContract(ReaderContract[MySQLUnitOfWork]):
 
 
 class MySQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+    @abstractmethod
+    async def create(self, data: T) -> T: ...
+
     @abstractmethod
     def __init__(self, uow: MySQLUnitOfWork) -> None: ...
 
@@ -101,6 +104,12 @@ class MySQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
 class MySQLIdentifiedRepositoryContract[T: IdentifiedEntity](
     MySQLRepositoryContract[T], IdentifiedRepositoryContract[T]
 ):
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> int: ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> int: ...
+
     @abstractmethod
     async def update_by_id(
         self, id: int, changes: Mapping[str, Any]

@@ -37,8 +37,10 @@ Use the same configuration when retaining previous measurements.
 - Native repository bulk update against a reconstructed CASE reference with
   equivalent changed fields and return values: 10, 100, 500 and 1,000 rows,
   changing two integer columns. Each strategy uses one write statement.
-- MySQL `bulk_insert` returning a count versus `bulk_create` returning populated
-  ORM models. These have different output contracts; timings show the cost of
+- MySQL `bulk_insert` returning a count versus a local `orm_refresh` baseline
+  returning populated ORM models. The baseline reproduces the removed MySQL
+  `bulk_create`; stored historical results still use that old label.
+  These have different output contracts; timings show the cost of
   obtaining the richer result, not interchangeable implementations.
 - Pagination returning an exact count and up to 50 ORM models: separate COUNT
   and page queries versus `COUNT(*) OVER()`, with a separate count for empty

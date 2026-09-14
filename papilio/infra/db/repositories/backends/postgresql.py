@@ -5,8 +5,7 @@ Declare ``table`` on the application repository; callers own transactions.
 """
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy import (
     Values,
@@ -20,17 +19,17 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy.dialects.postgresql import Insert, insert
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.sql import ColumnElement
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.elements import ColumnClause
 from sqlmodel import col
 
-from papilio.infra.db.schema.entity import (
-    BaseEntity,
-    IdentifiedEntity,
-    PersistenceEntity,
-    TimestampEntity,
+from papilio.infra.db.repositories.base import (
+    IdentifiedRepository,
+    PersistenceRepository,
+    Reader,
+    Repository,
+    TimestampRepository,
 )
 from papilio.infra.db.repositories.contracts.postgresql import (
     PGIdentifiedRepositoryContract,
@@ -38,6 +37,12 @@ from papilio.infra.db.repositories.contracts.postgresql import (
     PGReaderContract,
     PGRepositoryContract,
     PGTimestampRepositoryContract,
+)
+from papilio.infra.db.schema.entity import (
+    BaseEntity,
+    IdentifiedEntity,
+    PersistenceEntity,
+    TimestampEntity,
 )
 from papilio.infra.db.tools.read import (
     fetch_page,
@@ -47,18 +52,18 @@ from papilio.infra.db.uow import PGUnitOfWork
 from papilio.schemas.results import PagedType
 
 
-class PGReader(PGReaderContract):
+class PGReader(Reader[PGUnitOfWork], PGReaderContract):
     """Table-independent base for PostgreSQL joins, aggregates and reports."""
 
     def __init__(self, uow: PGUnitOfWork) -> None:
-        self.uow = uow
+        super().__init__(uow)
 
 
-class PGRepository[T: BaseEntity](PGRepositoryContract[T]):
-    table: type[T]
-
+class PGRepository[T: BaseEntity](
+    Repository[T, PGUnitOfWork], PGRepositoryContract[T]
+):
     def __init__(self, uow: PGUnitOfWork):
-        self.uow = uow
+        super().__init__(uow)
 
     def _upsert_stmt(
         self,
@@ -277,18 +282,21 @@ class PGRepository[T: BaseEntity](PGRepositoryContract[T]):
         result = await self.uow.execute(stmt)
         return result.scalars().all()
 
-    async def remove(self, where: ColumnElement[bool]) -> int:
+    async def remove(self, where: ColumnElement[bool]) -> Sequence[T]:
         stmt = (
             delete(self.table)
             .where(where)
-            .execution_options(synchronize_session=False)
+            .returning(self.table)
+            .execution_options(synchronize_session="fetch")
         )
         result = await self.uow.execute(stmt)
-        return cast(CursorResult[Any], result).rowcount
+        return result.scalars().all()
 
 
 class PGIdentifiedRepository[T: IdentifiedEntity](
-    PGRepository[T], PGIdentifiedRepositoryContract[T]
+    PGRepository[T],
+    IdentifiedRepository[T, PGUnitOfWork],
+    PGIdentifiedRepositoryContract[T],
 ):
     async def get_by_id(self, id: int) -> T | None:
         return await self.get_one(col(self.table.id) == id)
@@ -325,96 +333,26 @@ class PGIdentifiedRepository[T: IdentifiedEntity](
     async def update_row_by_id(self, id: int, data: T) -> T | None:
         return await self.update_by_id(id, data.to_changes())
 
-    async def remove_by_id(self, id: int) -> int:
-        return await self.remove(col(self.table.id) == id)
+    async def remove_by_id(self, id: int) -> T | None:
+        rows = await self.remove(col(self.table.id) == id)
+        return rows[0] if rows else None
 
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
         return await self.remove(col(self.table.id).in_(ids))
 
 
 class PGTimestampRepository[T: TimestampEntity](
-    PGRepository[T], PGTimestampRepositoryContract[T]
+    PGRepository[T],
+    TimestampRepository[T, PGUnitOfWork],
+    PGTimestampRepositoryContract[T],
 ):
-    def _time_query(self):
-        return select(self.table).order_by(col(self.table.created_at))
-
-    def _stream_time(self, condition, batch_size: int) -> AsyncIterator[T]:
-        stmt = self._time_query().where(condition)
-        return stream(self.uow, stmt, batch_size=batch_size)
-
-    async def _page_time(
-        self, condition, limit: int, offset: int
-    ) -> PagedType[T]:
-        stmt = self._time_query().where(condition)
-        return await fetch_page(self.uow, stmt, limit=limit, offset=offset)
-
-    def get_stream_range(
-        self, start: datetime, end: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at).between(start, end)
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_range(
-        self, start: datetime, end: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at).between(start, end)
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_gt(
-        self, start: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) > start
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_gt(
-        self, start: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) > start
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_ge(
-        self, start: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) >= start
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_ge(
-        self, start: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) >= start
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_lt(
-        self, end: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) < end
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_lt(
-        self, end: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) < end
-        return await self._page_time(condition, limit, offset)
-
-    def get_stream_le(
-        self, end: datetime, batch_size: int = 100
-    ) -> AsyncIterator[T]:
-        condition = col(self.table.created_at) <= end
-        return self._stream_time(condition, batch_size)
-
-    async def get_paged_le(
-        self, end: datetime, limit: int, offset: int = 0
-    ) -> PagedType[T]:
-        condition = col(self.table.created_at) <= end
-        return await self._page_time(condition, limit, offset)
+    pass
 
 
 class PGPersistenceRepository[T: PersistenceEntity](
     PGIdentifiedRepository[T],
     PGTimestampRepository[T],
+    PersistenceRepository[T, PGUnitOfWork],
     PGPersistenceRepositoryContract[T],
 ):
-    def _time_query(self):
-        return select(self.table).order_by(
-            col(self.table.created_at), col(self.table.id)
-        )
+    pass

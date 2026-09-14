@@ -11,12 +11,12 @@ from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel import Field
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.schema.entity import BaseEntity
 from papilio.infra.db.repositories.backends.postgresql import (
     PGReader,
     PGRepository,
 )
 from papilio.infra.db.repositories.backends.sqlite import SQLiteRepository
+from papilio.infra.db.schema.entity import BaseEntity
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.transaction import transaction
 from papilio.infra.db.uow import PGUnitOfWork, SQLiteUnitOfWork
@@ -207,7 +207,10 @@ async def test_ready_operations_work_without_id(postgres_tools):
             row.amount
             for row in await repo.update(columns.tenant == 2, {"amount": 8})
         ] == [8]
-        assert await repo.remove(columns.tenant == 2) == 1
+        removed = await repo.remove(columns.tenant == 2)
+        assert [(row.tenant, row.code, row.amount) for row in removed] == [
+            (2, "b", 8)
+        ]
 
 
 async def test_reads_keep_pending_orm_changes_and_caller_can_refresh(
@@ -236,9 +239,7 @@ async def test_reads_keep_pending_orm_changes_and_caller_can_refresh(
         assert all(
             stmt.lstrip().upper().startswith("SELECT") for stmt in statements
         )
-        stmt = select(PGToolTable).execution_options(
-            populate_existing=True
-        )
+        stmt = select(PGToolTable).execution_options(populate_existing=True)
         result = await query.uow.execute(stmt)
         refreshed = result.scalar_one()
         assert refreshed is row and row.amount == 1

@@ -9,18 +9,18 @@ from sqlalchemy.dialects.postgresql import Insert
 from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.elements import ColumnClause
 
-from papilio.infra.db.schema.entity import (
-    BaseEntity,
-    IdentifiedEntity,
-    PersistenceEntity,
-    TimestampEntity,
-)
 from papilio.infra.db.repositories.contracts.base import (
     IdentifiedRepositoryContract,
     PersistenceRepositoryContract,
     ReaderContract,
     RepositoryContract,
     TimestampRepositoryContract,
+)
+from papilio.infra.db.schema.entity import (
+    BaseEntity,
+    IdentifiedEntity,
+    PersistenceEntity,
+    TimestampEntity,
 )
 from papilio.infra.db.uow import PGUnitOfWork
 from papilio.schemas.results import PagedType
@@ -32,6 +32,12 @@ class PGReaderContract(ReaderContract[PGUnitOfWork]):
 
 
 class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+    @abstractmethod
+    async def create(self, data: T) -> T: ...
+
+    @abstractmethod
+    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]: ...
+
     @abstractmethod
     def __init__(self, uow: PGUnitOfWork) -> None: ...
 
@@ -140,12 +146,18 @@ class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
     ) -> Sequence[T]: ...
 
     @abstractmethod
-    async def remove(self, where: ColumnElement[bool]) -> int: ...
+    async def remove(self, where: ColumnElement[bool]) -> Sequence[T]: ...
 
 
 class PGIdentifiedRepositoryContract[T: IdentifiedEntity](
     PGRepositoryContract[T], IdentifiedRepositoryContract[T]
 ):
+    @abstractmethod
+    async def remove_by_id(self, id: int) -> T | None: ...
+
+    @abstractmethod
+    async def remove_by_ids(self, ids: Sequence[int]) -> Sequence[T]: ...
+
     @abstractmethod
     async def update_by_id(
         self, id: int, changes: Mapping[str, Any]

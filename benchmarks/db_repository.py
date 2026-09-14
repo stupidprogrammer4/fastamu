@@ -18,8 +18,6 @@ from pathlib import Path
 
 from sqlalchemy import case, event, func, insert, literal, select, text, update
 
-from papilio.infra.db.schema.entity import IdentifiedEntity
-from papilio.infra.db.schema.fields import CharField, IntField
 from papilio.infra.db.connection import DBConnection
 from papilio.infra.db.repositories.backends.mariadb import (
     MariaDBIdentifiedRepository,
@@ -39,6 +37,8 @@ from papilio.infra.db.repositories.backends.postgresql import (
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
 )
+from papilio.infra.db.schema.entity import IdentifiedEntity
+from papilio.infra.db.schema.fields import CharField, IntField
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.tools.read import fetch_page
 from papilio.infra.db.uow import (
@@ -409,6 +409,15 @@ async def main(args):
                     ).scalar_one()
                     assert count == size
 
+                async def orm_refresh(repo):
+                    # Historical baseline, not a repository API or fallback.
+                    records = [Record(**item.to_row()) for item in data]
+                    repo.uow.session.add_all(records)
+                    await repo.uow.flush()
+                    for record in records:
+                        await repo.uow.refresh(record)
+                    return records
+
                 pair = await measure_pair(
                     {
                         "bulk_insert": lambda repo: repo.bulk_insert(
@@ -420,7 +429,7 @@ async def main(args):
                                 "category": C.category,
                             },
                         ),
-                        "bulk_create": lambda repo: repo.bulk_create(data),
+                        "orm_refresh": orm_refresh,
                     },
                     verify_insert,
                 )

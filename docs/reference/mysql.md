@@ -4,12 +4,15 @@ Generated from this checkout. Code blocks show signatures; `...` replaces implem
 
 Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
 
+Shared implementations: [repository base](repository-base.md). Abstract obligations: [backend contracts](contracts.md).
+
 ## `papilio.infra.db.repositories.backends.mysql`
 
 ### `MySQLReader`
 
 ```python
-class MySQLReader(MySQLReaderContract):
+class MySQLReader(Reader[MySQLUnitOfWork], MySQLReaderContract):
+
     def __init__(self, uow: MySQLUnitOfWork) -> None:
         ...
 ```
@@ -17,8 +20,8 @@ class MySQLReader(MySQLReaderContract):
 ### `MySQLRepository`
 
 ```python
-class MySQLRepository[T: BaseEntity](MySQLRepositoryContract[T]):
-    table: type[T]
+class MySQLRepository[T: BaseEntity](Repository[T, MySQLUnitOfWork], MySQLRepositoryContract[T]):
+
     def __init__(self, uow: MySQLUnitOfWork):
         ...
 
@@ -45,28 +48,17 @@ class MySQLRepository[T: BaseEntity](MySQLRepositoryContract[T]):
 
     async def bulk_insert(self, data: Sequence[T], *, insert_columns: Mapping[str, ColumnClause[Any]]) -> int:
         ...
-
-    async def bulk_create(self, data: Sequence[T]) -> Sequence[T]:
-        ...
-
-    async def get_all(self) -> Sequence[T]:
-        ...
-
-    def get_all_stream(self, batch_size: int=100) -> AsyncIterator[T]:
-        ...
 ```
 
 ### `MySQLIdentifiedRepository`
 
 ```python
-class MySQLIdentifiedRepository[T: IdentifiedEntity](MySQLRepository[T], MySQLIdentifiedRepositoryContract[T]):
-    async def get_by_id(self, id: int) -> T | None:
+class MySQLIdentifiedRepository[T: IdentifiedEntity](MySQLRepository[T], IdentifiedRepository[T, MySQLUnitOfWork], MySQLIdentifiedRepositoryContract[T]):
+
+    async def remove_by_id(self, id: int) -> int:
         ...
 
-    async def get_by_ids(self, ids: Sequence[int]) -> Sequence[T]:
-        ...
-
-    async def get_paged(self, limit: int, offset: int=0) -> PagedType[T]:
+    async def remove_by_ids(self, ids: Sequence[int]) -> int:
         ...
 
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> int:
@@ -83,62 +75,18 @@ class MySQLIdentifiedRepository[T: IdentifiedEntity](MySQLRepository[T], MySQLId
 
     async def bulk_update(self, data: Sequence[T], *, update_columns: Mapping[str, ColumnClause[Any]]) -> int:
         ...
-
-    async def remove_by_id(self, id: int) -> int:
-        ...
-
-    async def remove_by_ids(self, ids: Sequence[int]) -> int:
-        ...
 ```
 
 ### `MySQLTimestampRepository`
 
 ```python
-class MySQLTimestampRepository[T: TimestampEntity](MySQLRepository[T], MySQLTimestampRepositoryContract[T]):
-    def _time_query(self):
-        ...
-
-    def _stream_time(self, condition, batch_size: int) -> AsyncIterator[T]:
-        ...
-
-    async def _page_time(self, condition, limit: int, offset: int) -> PagedType[T]:
-        ...
-
-    def get_stream_range(self, start: datetime, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_range(self, start: datetime, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_gt(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_gt(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_ge(self, start: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_ge(self, start: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_lt(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_lt(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
-
-    def get_stream_le(self, end: datetime, batch_size: int=100) -> AsyncIterator[T]:
-        ...
-
-    async def get_paged_le(self, end: datetime, limit: int, offset: int=0) -> PagedType[T]:
-        ...
+class MySQLTimestampRepository[T: TimestampEntity](MySQLRepository[T], TimestampRepository[T, MySQLUnitOfWork], MySQLTimestampRepositoryContract[T]):
+    ...
 ```
 
 ### `MySQLPersistenceRepository`
 
 ```python
-class MySQLPersistenceRepository[T: PersistenceEntity](MySQLIdentifiedRepository[T], MySQLTimestampRepository[T], MySQLPersistenceRepositoryContract[T]):
-    def _time_query(self):
-        ...
+class MySQLPersistenceRepository[T: PersistenceEntity](MySQLIdentifiedRepository[T], MySQLTimestampRepository[T], PersistenceRepository[T, MySQLUnitOfWork], MySQLPersistenceRepositoryContract[T]):
+    ...
 ```

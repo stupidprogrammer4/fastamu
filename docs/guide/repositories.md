@@ -18,64 +18,56 @@ class ProductRepository(PGIdentifiedRepository[ProductModel]):
 
 This repository requires `PGUnitOfWork`. There is no per-request repository routing based on the DSN. For SQLite, select both a SQLite repository and SQLite UoW; the [complete example](../examples/index.md) demonstrates this.
 
-The `contracts` package defines abstract obligations; `backends` contains usable implementations and protected SQL builders. Select the base, identified, timestamp or persistence shape according to the fields your entity actually owns. A reader has only an execution context and does not require an entity type or `table`.
+The `contracts` package defines abstract obligations; `backends` contains native implementations and protected SQL builders. The executable classes in [`repositories/base.py`](../reference/repository-base.md) implement common reads, paging and timestamp filters. Backend classes inherit these implementations and satisfy their own write contracts. Common contracts require no insert, update, delete or protected native write builder. Select the base, identified, timestamp or persistence shape according to the fields your entity actually owns. A reader has only an execution context and does not require an entity type or `table`.
 
 ### Connect another backend to Dishka
 
-The bundled SQL provider is `PGProvider`. For another backend, write an ordinary typed provider; no provider factory or runtime backend validator is required. For example, a SQLite application can use:
+Ready providers for all six backends live in `papilio.providers.db`:
+`PGProvider`, `MySQLProvider`, `MariaDBProvider`, `SQLiteProvider`, `OracleProvider`
+and `MSSQLProvider`. Select the matching provider and repository explicitly.
 
 ```python
-from collections.abc import AsyncIterator
-from dishka import Provider, Scope, provide
-from papilio.core.config import DatabaseConfig
-from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.uow import SQLiteUnitOfWork
+from papilio.api.application import create_app
+from papilio.providers.db import SQLiteProvider
 
-
-class SQLiteProvider(Provider):
-    def __init__(self, config: DatabaseConfig):
-        super().__init__()
-        self.config = config
-
-    @provide(scope=Scope.APP)
-    async def connection(self) -> AsyncIterator[DBConnection[SQLiteUnitOfWork]]:
-        connection = DBConnection(
-            dsn=self.config.dsn,
-            pool_size=self.config.pool_size,
-            max_overflow=self.config.max_overflow,
-            pool_timeout=self.config.pool_timeout,
-            pool_recycle=self.config.pool_recycle,
-            uow_factory=SQLiteUnitOfWork,
-        )
-        try:
-            yield connection
-        finally:
-            await connection.dispose()
-
-    @provide(scope=Scope.REQUEST)
-    async def uow(
-        self, connection: DBConnection[SQLiteUnitOfWork]
-    ) -> AsyncIterator[SQLiteUnitOfWork]:
-        async with connection.uow() as unit:
-            yield unit
+app = create_app(settings, providers=[SQLiteProvider(settings.db)])
 ```
 
-Pass `SQLiteProvider(settings.db)` to `create_app` after configuring a SQLite DSN and installing `sqlite`. Register your SQLite repository and service in the module provider. For another database, use its corresponding UoW, repository classes, driver and DSN together.
+Configure a SQLite DSN and install `papilio[sqlite]` for this example. Register
+your repository/service in the module provider. Run `papilio providers` to see
+installation availability, or `papilio providers sqlite` for the import and
+wiring suggestion. See [ready providers](providers.md) for custom providers,
+multiple databases and optional infrastructure startup.
 
 ## Understand backend return values
 
-| Backend | Create one | Update by ID | Public upsert |
-| --- | --- | --- | --- |
-| PostgreSQL | Model through RETURNING | Model or `None` | Model / sequence of models |
-| SQLite | Model through RETURNING | Model or `None` | Model / sequence of models |
-| MariaDB | Model through RETURNING | Affected-row count | Model / sequence of models |
-| MySQL | Model through flush and refresh | Affected-row count | Affected-row count |
-| SQL Server | Model from statement output | Model or `None` | Not exposed |
-| Oracle | Model from statement output | Model or `None` | Not exposed |
+| Backend | Create one | Update by ID | Delete by ID | Public upsert |
+| --- | --- | --- | --- | --- |
+| PostgreSQL | Model through RETURNING | Model or `None` | Model or `None` | Model / sequence of models |
+| SQLite | Model through RETURNING | Model or `None` | Model or `None` | Model / sequence of models |
+| MariaDB | Model through RETURNING | Affected-row count | Model or `None` | Model / sequence of models |
+| MySQL | Model through flush and refresh | Affected-row count | Affected-row count | Affected-row count |
+| SQL Server | Model from statement output | Model or `None` | Model or `None` | Not exposed |
+| Oracle | Model from statement output | Model or `None` | Model or `None` | Not exposed |
 
 This describes the **current implementation**, not compatibility with every historical server version. RETURNING and bulk SQL forms depend on the server and driver. Run integration tests against your deployment versions.
 
-`rowcount` is a driver report. Especially for MySQL upsert, it is not necessarily the input count or unique entity count. Do not use it to reconstruct IDs. MySQL `bulk_create` refreshes every returned model; use its separate `bulk_insert` tool when only an affected-row count is needed.
+`rowcount` is a driver report. Especially for MySQL upsert, it is not necessarily the input count or unique entity count. Do not use it to reconstruct IDs. MySQL's batch API is `bulk_insert(data, *, insert_columns) -> int`; it executes a native INSERT without refreshing models. MySQL `bulk_create` has been removed. Migrate its callers to explicit insertion columns and a count result, adding an application read only when saved models are needed. The other five backends retain model-returning `bulk_create` in their own contracts.
+
+`remove_by_ids(ids)` returns the deleted models on the five returning backends;
+MySQL returns a count. PostgreSQL `remove(where)` also returns a sequence of
+deleted models. These replace the old shared count contract. All deletes use
+one native write statement without SELECT or implicit commit. An empty/missing
+batch produces `[]` or MySQL's `0`; returned rows have no input-order guarantee.
+Returning deletes use SQLAlchemy session synchronization from the returned
+keys, so pending cached values cannot replace deleted-row values.
+Returned model values describe deleted rows; they do not imply that those rows
+remain stored. The generated HTTP service keeps its `0`/`1` delete response by
+converting PostgreSQL's optional returned model explicitly.
+
+MariaDB supports [INSERT/DELETE RETURNING](https://docs.sqlalchemy.org/en/20/dialects/mysql.html#insert-delete-returning),
+while its SQLAlchemy UPDATE path returns a count. Evaluate support per operation,
+not per database name alone.
 
 ## Read and paginate
 
