@@ -2,7 +2,7 @@ import pytest
 
 from papilio.errors.exceptions import ValidationException
 from papilio.infra.db.schema.entity import IdentifiedEntity
-from papilio.tools.checks import IDChecks
+from papilio.tools.checks import Checks, IDChecks
 
 
 class ThingModel(IdentifiedEntity):
@@ -50,5 +50,40 @@ def test_non_id_batch_results_preserve_the_same_contract() -> None:
     )
 
     assert [row.id for row in result.items] == [3, 1]
+    assert result.item_ids == {3, 1}
     assert result.errors[0].input == "missing"
     assert result.errors[0].loc[-1] == 1
+
+
+class CodeChecks(Checks[str]):
+    entity = "Code"
+
+
+def test_generic_batch_accepts_objects_without_ids() -> None:
+    result = CodeChecks()._func_check_batch_data(
+        ["three", "missing", "one", "three", "missing"],
+        ["one", "unused", "three"],
+        key=lambda code: code,
+        identifier="code",
+        loc=["codes"],
+    )
+
+    assert result.items == ["three", "one"]
+    assert result.item_ids == set()
+    assert [(error.input, error.loc) for error in result.errors] == [
+        ("missing", ["codes", 1]),
+    ]
+
+
+@pytest.mark.parametrize("values", [[], ["missing", "absent", "missing"]])
+def test_generic_batch_rejects_no_matches(values: list[str]) -> None:
+    with pytest.raises(ValidationException) as caught:
+        CodeChecks()._func_check_batch_data(
+            values, ["unused"], key=lambda code: code, identifier="code"
+        )
+
+    errors = caught.value.childs or []
+    assert [(error.input, error.loc) for error in errors] == [
+        (value, ["code_codes", values.index(value)])
+        for value in dict.fromkeys(values)
+    ]

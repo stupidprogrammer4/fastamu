@@ -71,6 +71,48 @@ class Checks[TModel]:
                 )
         return errors
 
+    def _func_check_batch_data(
+        self,
+        input_values: Sequence[Any],
+        found_objs: Sequence[TModel],
+        key: Callable[[TModel], Any],
+        identifier: str,
+        loc: list[str] | None = None,
+    ) -> BatchResultType[TModel, ValidationException]:
+        """Match rows by `key`, preserving first-requested order.
+
+        Missing values produce errors at their first input position. Raise
+        ValidationException if no rows match. No row ID is required or
+        collected; item_ids stays empty.
+        """
+        found_values = {key(o): o for o in found_objs}
+
+        items, errors = [], []
+        base_loc = loc or [f"{self.entity.lower()}_{identifier}s"]
+        positions = {}
+        for index, value in enumerate(input_values):
+            positions.setdefault(value, index)
+        for value in dict.fromkeys(input_values):
+            if value in found_values:
+                items.append(found_values[value])
+            else:
+                errors.append(
+                    ValidationException(
+                        message=(
+                            f"Cannot find {self.entity} with "
+                            f"{identifier} {value}"
+                        ),
+                        message_code=resources.NOT_FOUND_ERROR,
+                        loc=base_loc + [positions[value]],
+                        input=value,
+                    )
+                )
+
+        if not items:
+            raise ValidationException.get_invalid_input(errors)
+
+        return BatchResultType(items=items, errors=errors)
+
 
 class IDChecks[TIDModel: HasID](Checks[TIDModel]):
     def _check_for_id_existence(self, id: int, obj: TIDModel | None):
@@ -132,50 +174,12 @@ class IDChecks[TIDModel: HasID](Checks[TIDModel]):
         identifier: str,
         loc: list[str] | None = None,
     ) -> BatchResultType[TIDModel, ValidationException]:
-        """`_check_batch_data`, for a batch keyed on something other than the
-        id — a slug, a code, an external reference.
-
-        `key` reads that field off a found row so the two sides can be matched;
-        `identifier` names it in the error message and in the default `loc`.
-        The ids on the result are still the row ids, because that is what the
-        caller writes with.
-
-        Args:
-            input_values (Sequence[Any]): The values that were asked for.
-            found_objs (Sequence[TIDModel]): The rows that came back.
-            key (Callable[[TIDModel], Any]): Reads the matched field off a row.
-            identifier (str): The field's name, for the message and the `loc`.
-            loc (list[str] | None): Where the values sat in the request body.
-        Returns:
-            (BatchResultType): The found rows, their ids, and the misses.
-        Raises:
-            ValidationException: Nothing was found.
-        """
-        found_values = {key(o): o for o in found_objs}
-
-        items, errors, ids = [], [], []
-        base_loc = loc or [f"{self.entity.lower()}_{identifier}s"]
-        positions = {}
-        for index, value in enumerate(input_values):
-            positions.setdefault(value, index)
-        for value in dict.fromkeys(input_values):
-            if value in found_values:
-                items.append(found_values[value])
-                ids.append(found_values[value].id)
-            else:
-                errors.append(
-                    ValidationException(
-                        message=(
-                            f"Cannot find {self.entity} with "
-                            f"{identifier} {value}"
-                        ),
-                        message_code=resources.NOT_FOUND_ERROR,
-                        loc=base_loc + [positions[value]],
-                        input=value,
-                    )
-                )
-
-        if not items:
-            raise ValidationException.get_invalid_input(errors)
-
-        return BatchResultType(items=items, errors=errors, item_ids=set(ids))
+        """Match rows through Checks and include their row IDs."""
+        result = super()._func_check_batch_data(
+            input_values, found_objs, key, identifier, loc
+        )
+        return BatchResultType(
+            items=result.items,
+            errors=result.errors,
+            item_ids={row.id for row in result.items},
+        )
