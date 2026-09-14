@@ -14,7 +14,9 @@ class ExcelReader:
     Reads run in a separate process via a ``ProcessPoolExecutor`` (a queue
     fronting worker process(es)) and are ``await``-ed. ``read_rows`` maps each
     sheet row onto a typed `ExcelRow` by field order, so pydantic validates and
-    coerces the cell types. ``close()`` on app shutdown.
+    coerces the cell types in the worker. Row classes must be importable at
+    module scope, and their values must be pickleable. ``close()`` on app
+    shutdown.
     """
 
     def __init__(self, max_workers: int = 1) -> None:
@@ -23,30 +25,31 @@ class ExcelReader:
         )
 
     @staticmethod
-    def _read_rows_job(
+    def _read_rows_job[TRow: ExcelRow](
         path: str,
         sheet: str | None,
         start_row: int,
-        n_cols: int,
+        row_model: type[TRow],
         max_rows: int | None,
-    ) -> list[list[Any]]:
+    ) -> list[TRow]:
         wb = load_workbook(path, read_only=True, data_only=True)
         try:
             ws = wb[sheet] if sheet else wb.active
             if ws is None:
                 raise ValueError("workbook has no active worksheet")
 
-            out: list[list[Any]] = []
+            names = row_model.column_names
+            out: list[TRow] = []
             for i, row in enumerate(
                 ws.iter_rows(
-                    min_row=start_row, max_col=n_cols, values_only=True
+                    min_row=start_row, max_col=len(names), values_only=True
                 )
             ):
                 if max_rows is not None and i >= max_rows:
                     break
                 if all(v is None for v in row):  # stop at the first blank row
                     break
-                out.append(list(row))
+                out.append(row_model(**dict(zip(names, row))))
             return out
         finally:
             wb.close()
@@ -73,19 +76,18 @@ class ExcelReader:
     ) -> list[TRow]:
         """Read rows from ``start_row`` (1-based) into ``row_model`` instances,
         mapping columns to fields by order. Stops at the first blank row or
-        after ``limit`` rows."""
-        names = row_model.column_names
+        after ``limit`` rows. ``row_model`` must be importable by the worker;
+        returned models must be pickleable."""
         loop = asyncio.get_running_loop()
-        raw = await loop.run_in_executor(
+        return await loop.run_in_executor(
             self._pool,
             self._read_rows_job,
             path,
             sheet,
             start_row,
-            len(names),
+            row_model,
             limit,
         )
-        return [row_model(**dict(zip(names, values))) for values in raw]
 
     async def read_cell(
         self, path: str, cell: str, *, sheet: str | None = None

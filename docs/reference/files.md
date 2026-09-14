@@ -53,7 +53,7 @@ class ExcelReader:
         ...
 
     @staticmethod
-    def _read_rows_job(path: str, sheet: str | None, start_row: int, n_cols: int, max_rows: int | None) -> list[list[Any]]:
+    def _read_rows_job[TRow: ExcelRow](path: str, sheet: str | None, start_row: int, row_model: type[TRow], max_rows: int | None) -> list[TRow]:
         ...
 
     @staticmethod
@@ -102,7 +102,7 @@ class ExcelWriter:
         ...
 
     @staticmethod
-    def _write_rows_job(template: str, output: str, sheet: str | None, start_row: int, titles: list[str] | None, rows: list[list[Any]]) -> str:
+    def _write_rows_job(template: str, output: str, sheet: str | None, start_row: int, with_titles: bool, rows: Sequence[ExcelRow]) -> str:
         ...
 
     @staticmethod

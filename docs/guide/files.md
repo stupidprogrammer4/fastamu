@@ -104,6 +104,13 @@ The writer fills an existing `.xlsx` template. With titles enabled, data starts 
 
 Use app-scoped providers for long-lived Excel tools, and close their process pools on shutdown. Standalone scripts must guard startup with `if __name__ == "__main__"` because workers use spawn. The [runnable Excel example](../examples/index.md) includes template creation and that guard.
 
+Row validation and model construction run in the reader worker, which returns
+the final models. The writer extracts titles and cell values in its worker.
+Define row classes at module scope so workers can import them; local classes
+inside functions are not supported. Row values and instances must be pickleable
+for transfer between processes. Large transfers still carry serialization and
+memory costs.
+
 ## Connect tools to an API
 
 These classes do not require a framework-specific provider. Register stateless file/CSV tools directly with Dishka. Use a generator provider with cleanup for Excel, as shown in [dependency injection](application.md).

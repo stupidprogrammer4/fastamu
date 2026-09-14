@@ -15,7 +15,9 @@ class ExcelWriter:
     Workbook I/O is blocking (CPU + disk), so each job runs in a separate
     process via a ``ProcessPoolExecutor`` — a queue fronting worker process(es)
     whose result we ``await``. Writing always means filling a given ``.xlsx``
-    template and saving the result to ``output``. ``close()`` on app shutdown.
+    template and saving the result to ``output``. Row classes must be
+    importable at module scope, and rows must be pickleable. ``close()`` on
+    app shutdown.
     """
 
     def __init__(self, max_workers: int = 1) -> None:
@@ -29,8 +31,8 @@ class ExcelWriter:
         output: str,
         sheet: str | None,
         start_row: int,
-        titles: list[str] | None,
-        rows: list[list[Any]],
+        with_titles: bool,
+        rows: Sequence[ExcelRow],
     ) -> str:
         wb = load_workbook(template)
         try:
@@ -39,12 +41,13 @@ class ExcelWriter:
                 raise ValueError("workbook has no active worksheet")
 
             r = start_row
+            titles = type(rows[0]).titles() if (with_titles and rows) else None
             if titles is not None:
                 for c, title in enumerate(titles, start=1):
                     ws.cell(row=r, column=c, value=title)
                 r += 1
-            for values in rows:
-                for c, value in enumerate(values, start=1):
+            for row in rows:
+                for c, value in enumerate(row.cells(), start=1):
                     ws.cell(row=r, column=c, value=value)
                 r += 1
 
@@ -84,9 +87,8 @@ class ExcelWriter:
     ) -> str:
         """Write a batch of rows into ``template`` starting at ``start_row``
         (1-based), saving to ``output``. With ``with_titles`` the header row is
-        written first (so the data then starts at ``start_row + 1``)."""
-        titles = type(rows[0]).titles() if (with_titles and rows) else None
-        payload = [row.cells() for row in rows]
+        written first (so the data then starts at ``start_row + 1``).
+        Rows must be pickleable and their classes importable by the worker."""
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             self._pool,
@@ -95,8 +97,8 @@ class ExcelWriter:
             output,
             sheet,
             start_row,
-            titles,
-            payload,
+            with_titles,
+            rows,
         )
         return result
 
