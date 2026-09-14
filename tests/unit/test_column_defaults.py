@@ -9,13 +9,13 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
 from papilio.infra.db.dialects.postgresql import ArrayField
+from papilio.infra.db.schema.entity import IdentifiedEntity, VersionEntity
 from papilio.infra.db.schema.fields import (
     BoolField,
     CharField,
     JSONField,
     TimestampField,
 )
-from papilio.infra.db.schema.entity import IdentifiedEntity, VersionEntity
 from papilio.infra.db.table import BaseTable
 
 

@@ -67,3 +67,77 @@ assert app.title == 'Probe'
 assert '/health' in app.openapi()['paths']
 """
     subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True)
+
+
+def test_unused_config_and_catalog_do_not_activate_infrastructure(tmp_path):
+    script = """
+import asyncio
+import importlib.abc
+import sys
+import yaml
+
+class BlockInfrastructure(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {
+            'sqlalchemy', 'sqlmodel', 'elasticsearch', 'redis', 'httpx',
+            'throttled', 'asyncpg', 'asyncmy', 'oracledb', 'aioodbc',
+        }:
+            raise AssertionError(f'Unexpected optional import: {fullname}')
+
+sys.meta_path.insert(0, BlockInfrastructure())
+from papilio.providers.catalog import PROVIDERS
+for spec in PROVIDERS:
+    spec.missing()
+from papilio.api.application import create_app
+from papilio.core.config import Settings
+from papilio.scaffolding.project import files
+from papilio.scaffolding.options import Infrastructure
+import papilio.api.application as application
+application.logger.setup = lambda config: None
+config = Settings.model_validate(yaml.safe_load(files(
+    'shop', 'Shop', infra=[Infrastructure.POSTGRESQL, Infrastructure.ES,
+                          Infrastructure.REDIS, Infrastructure.HTTP]
+)['config.yml']))
+config.app.modules = []
+app = create_app(config)
+async def run():
+    async with app.router.lifespan_context(app):
+        pass
+asyncio.run(run())
+"""
+    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True)
+
+
+def test_sqlite_provider_does_not_require_other_backends(tmp_path):
+    script = """
+import asyncio
+import importlib.abc
+import sys
+class OnlySQLite(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {
+            'asyncpg', 'psycopg2', 'psycopg', 'asyncmy', 'pymysql', 'MySQLdb',
+            'oracledb', 'cx_Oracle', 'aioodbc', 'pyodbc', 'elasticsearch',
+            'redis', 'throttled',
+        }:
+            raise AssertionError(f'Unselected dependency: {fullname}')
+sys.meta_path.insert(0, OnlySQLite())
+from dishka import Scope, make_async_container
+from sqlalchemy import select
+from papilio.core.config import DatabaseConfig
+from papilio.providers.db import SQLiteProvider
+from papilio.infra.db.uow import SQLiteUnitOfWork
+config = DatabaseConfig(dsn='sqlite+aiosqlite:///:memory:', test_dsn='',
+                        pool_size=1, max_overflow=0, pool_timeout=5,
+                        pool_recycle=1800)
+async def run():
+    container = make_async_container(SQLiteProvider(config))
+    try:
+        async with container(scope=Scope.REQUEST) as scope:
+            unit = await scope.get(SQLiteUnitOfWork)
+            assert (await unit.execute(select(1))).scalar_one() == 1
+    finally:
+        await container.close()
+asyncio.run(run())
+"""
+    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True)

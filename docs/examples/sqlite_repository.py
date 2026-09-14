@@ -1,11 +1,11 @@
 import asyncio
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.schema.fields import CharField, IntField
-from papilio.infra.db.schema.entity import IdentifiedEntity
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
 )
+from papilio.infra.db.schema.entity import IdentifiedEntity
+from papilio.infra.db.schema.fields import CharField, IntField
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.transaction import transaction
 from papilio.infra.db.uow import SQLiteUnitOfWork
