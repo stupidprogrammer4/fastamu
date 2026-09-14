@@ -6,8 +6,8 @@ from elasticsearch import AsyncElasticsearch
 class ESClient:
     """The async Elasticsearch client shared app-wide.
 
-    Use ``.client`` for raw calls, or pass it to an `ESRepository` /
-    `AsyncDocument` via ``using=``. ``close()`` is wired to app shutdown.
+    Pass this wrapper to ``ESStore``. Use ``.client`` for raw calls or as
+    ``AsyncDocument``'s ``using`` argument. The provider closes it on shutdown.
     """
 
     def __init__(

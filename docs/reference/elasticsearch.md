@@ -23,7 +23,7 @@ class ESClient:
         ...
 ```
 
-## `papilio.infra.es.provider`
+## `papilio.providers.es`
 
 ### `ESProvider`
 
@@ -37,46 +37,82 @@ class ESProvider(Provider):
         ...
 ```
 
-## `papilio.infra.es.repository`
+## `papilio.infra.es.store`
 
-### `ESRepository`
+`ESStore` binds an explicit document class to an ESClient. Native DSL objects
+retain their complete APIs. See the [capability map and migration guide](../guide/cqrs.md#dsl-capability-map).
+
+`Items[T]` means `Iterable[T] | AsyncIterable[T]`; `Action` is a native action
+dictionary; `VersionType` is `Literal["external", "external_gte"]`.
 
 ```python
-class ESRepository[TDoc: AsyncDocument]:
+class ESStore[TDoc: AsyncDocument]:
+    document: type[TDoc]
+
     def __init__(self, es: ESClient) -> None:
         ...
 
-    async def init(self) -> None:
+    def index(self) -> AsyncIndex:
         ...
 
-    async def save(self, doc: TDoc, **options: Any) -> TDoc:
+    async def init(self, *, index: str | None=None) -> None:
         ...
 
-    async def patch_by_id(self, id: str, fields: dict[str, Any]) -> None:
+    def search(self, *, index: str | None=None) -> AsyncSearch[TDoc]:
         ...
 
-    async def bulk_insert(self, docs: Sequence[TDoc], *, refresh: bool=False) -> int:
+    def msearch(self) -> AsyncMultiSearch[TDoc]:
         ...
 
-    async def bulk_update(self, updates: Mapping[str, dict[str, Any]], *, refresh: bool=False) -> int:
+    def update_by_query(self) -> AsyncUpdateByQuery:
         ...
 
-    async def bulk_delete(self, ids: Sequence[str], *, refresh: bool=False) -> int:
+    async def esql(self, query: str, **options: Any) -> ObjectApiResponse[Any]:
         ...
 
-    async def get(self, id: str) -> TDoc | None:
+    async def get(self, id: str, **options: Any) -> TDoc | None:
+        ...
+
+    async def mget(self, docs: Iterable[str | Action], *, missing: Literal['none', 'skip', 'raise']='none', **options: Any) -> list[TDoc | None]:
+        ...
+
+    async def exists(self, id: str, **options: Any) -> bool:
+        ...
+
+    async def save(self, doc: TDoc, *, skip_empty: bool=False, **options: Any) -> TDoc:
+        ...
+
+    async def save_version(self, doc: TDoc, version: int, *, version_type: VersionType, **options: Any) -> TDoc:
+        ...
+
+    async def create(self, doc: TDoc, **options: Any) -> TDoc:
         ...
 
     async def update(self, doc: TDoc, **fields: Any) -> TDoc:
         ...
 
-    async def delete(self, doc: TDoc) -> None:
+    async def patch(self, id: str, fields: Mapping[str, Any] | None=None, **options: Any) -> ObjectApiResponse[Any]:
         ...
 
-    async def exists(self, id: str) -> bool:
+    async def delete(self, doc: TDoc, **options: Any) -> None:
         ...
 
-    def search(self) -> AsyncSearch[TDoc]:
+    async def bulk(self, actions: Items[TDoc | Action], *, validate: bool=True, skip_empty: bool=False, **options: Any) -> tuple[int, int]:
+        ...
+
+    def stream(self, actions: Items[TDoc | Action], *, validate: bool=True, skip_empty: bool=False, **options: Any) -> AsyncIterable[tuple[bool, Action]]:
+        ...
+
+    async def bulk_index(self, docs: Items[TDoc], **options: Any) -> int:
+        ...
+
+    async def bulk_create(self, docs: Items[TDoc], **options: Any) -> int:
+        ...
+
+    async def bulk_update(self, updates: Mapping[str, dict[str, Any]], **options: Any) -> int:
+        ...
+
+    async def bulk_delete(self, ids: Items[str], **options: Any) -> int:
         ...
 ```
 

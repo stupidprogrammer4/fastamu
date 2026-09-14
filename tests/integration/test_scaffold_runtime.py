@@ -57,7 +57,7 @@ from shop.main import app
 from shop.modules.products.infra.tables import ProductTable
 
 if CQRS:
-    from shop.modules.products.infra.repository import ProductESRepository
+    from shop.modules.products.infra.repository import ProductESStore
 
     class Hit:
         def to_dict(self):
@@ -71,7 +71,7 @@ if CQRS:
         async def execute(self):
             return [Hit()]
 
-    ProductESRepository.search = lambda self: Search()
+    ProductESStore.search = lambda self: Search()
 
 
 async def main():

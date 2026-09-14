@@ -1,4 +1,4 @@
-from papilio.infra.es.repository import ESRepository
+from papilio.infra.es.store import ESStore
 from papilio.infra.db.repositories.backends.postgresql import (
     PGIdentifiedRepository,
 )
@@ -11,4 +11,5 @@ class <<P>>Repository(PGIdentifiedRepository[<<P>>Model]):
     table = <<P>>Table
 
 
-class <<P>>ESRepository(ESRepository[<<P>>Document]): ...
+class <<P>>ESStore(ESStore[<<P>>Document]):
+    document = <<P>>Document

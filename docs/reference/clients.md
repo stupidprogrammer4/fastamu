@@ -51,7 +51,7 @@ class BaseGateway:
         ...
 ```
 
-## `papilio.infra.http.provider`
+## `papilio.providers.http`
 
 ### `HTTPProvider`
 
@@ -88,7 +88,7 @@ class RedisClient:
         ...
 ```
 
-## `papilio.infra.redis.provider`
+## `papilio.providers.redis`
 
 ### `RedisProvider`
 
