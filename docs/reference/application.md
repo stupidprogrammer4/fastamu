@@ -131,7 +131,7 @@ class Logger:
 logger: Logger = Logger(name='app')
 ```
 
-## `papilio.core.provider`
+## `papilio.providers.base`
 
 ### `CoreProvider`
 

@@ -8,8 +8,8 @@ from dishka import Provider, Scope, make_async_container, provide
 
 from papilio.core.config import get_settings
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.provider import PGProvider
 from papilio.infra.db.uow import PGUnitOfWork
+from papilio.providers.db import PGProvider
 from papilio.testing.fixtures import core_provider_of
 
 
@@ -26,9 +26,7 @@ async def transaction(provider):
         commit=AsyncMock(), rollback=AsyncMock(), close=AsyncMock()
     )
     stub = SimpleNamespace(session_factory=lambda: session)
-    stub.uow = lambda: PGUnitOfWork(
-        cast(DBConnection[PGUnitOfWork], stub)
-    )
+    stub.uow = lambda: PGUnitOfWork(cast(DBConnection[PGUnitOfWork], stub))
     connection = cast(DBConnection[PGUnitOfWork], stub)
 
     class DatabaseProvider(Provider):

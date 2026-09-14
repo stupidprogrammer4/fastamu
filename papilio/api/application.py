@@ -15,7 +15,7 @@ from starlette.types import HTTPExceptionHandler, Lifespan
 from papilio.core.bootstrap import Bootstrapper
 from papilio.core.config import Settings, get_settings
 from papilio.core.logger import logger
-from papilio.core.provider import CoreProvider
+from papilio.providers.base import CoreProvider
 
 from .docs import setup_docs
 from .middlewares.logging import LoggingMiddleware

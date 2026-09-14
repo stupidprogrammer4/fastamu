@@ -24,7 +24,7 @@ class DBConnection[U: UnitOfWork]:
         ...
 ```
 
-## `papilio.infra.db.provider`
+## `papilio.providers.db`
 
 ### `PGProvider`
 

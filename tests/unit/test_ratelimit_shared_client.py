@@ -8,10 +8,10 @@ from throttled.asyncio.store import RedisStore
 from papilio.api.rate_limit.dependencies import _check
 from papilio.api.rate_limit.provider import RateLimitProvider
 from papilio.core.config import RateLimitRule, get_settings
-from papilio.core.provider import CoreProvider
+from papilio.providers.base import CoreProvider
 from papilio.errors.exceptions import TooManyRequestsException
 from papilio.infra.redis.client import RedisClient
-from papilio.infra.redis.provider import RedisProvider
+from papilio.providers.redis import RedisProvider
 
 
 @pytest.mark.asyncio

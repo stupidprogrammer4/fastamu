@@ -17,9 +17,9 @@ from papilio.api.responses.handlers import (
 from papilio.core.config import get_settings
 from papilio.errors.exceptions import ValidationException
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.provider import PGProvider
 from papilio.infra.db.tools.decorators import transactional
 from papilio.infra.db.uow import PGUnitOfWork
+from papilio.providers.db import PGProvider
 
 
 @pytest.fixture
