@@ -56,7 +56,7 @@ class ExcelReader:
 
     @staticmethod
     def _read_cell_job(path: str, sheet: str | None, cell: str) -> Any:
-        wb = load_workbook(path, data_only=True)
+        wb = load_workbook(path, read_only=True, data_only=True)
         try:
             ws = wb[sheet] if sheet else wb.active
             if ws is None:
@@ -92,7 +92,11 @@ class ExcelReader:
     async def read_cell(
         self, path: str, cell: str, *, sheet: str | None = None
     ) -> Any:
-        """Read a single cell value (e.g. ``"B3"``)."""
+        """Read a cell value using a read-only workbook in the worker.
+
+        Rows are scanned up to the requested cell; later rows cost more.
+        Formula cells return their cached value, without recalculation.
+        """
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             self._pool, self._read_cell_job, path, sheet, cell

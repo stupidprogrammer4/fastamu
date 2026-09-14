@@ -1,5 +1,8 @@
 import os
+from datetime import datetime
 from multiprocessing import current_process
+from xml.etree import ElementTree
+from zipfile import ZipFile
 
 import pytest
 from openpyxl import Workbook
@@ -26,6 +29,58 @@ class WorkerRow(ProductRow):
     def cells(self) -> list:
         assert os.getpid() != self._pid
         return super().cells()
+
+
+async def test_read_cell_preserves_values_and_sheet_selection(tmp_path):
+    path = tmp_path / "cells.xlsx"
+    workbook = Workbook()
+    workbook.active["A1"] = "first sheet"
+    sheet = workbook.create_sheet("values")
+    sheet["A1"] = "active sheet"
+    sheet["B2"] = datetime(2026, 1, 2)
+    sheet["C3"] = "merged"
+    sheet.merge_cells("C3:D3")
+    sheet["E4"] = "=1+2"
+    sheet["F4"] = "=2+3"
+    workbook.active = 1
+    workbook.save(path)
+    workbook.close()
+    # openpyxl does not calculate formulas; simulate a saved Excel result.
+    with ZipFile(path) as source:
+        entries = [(info, source.read(info)) for info in source.infolist()]
+    with ZipFile(path, "w") as target:
+        for info, data in entries:
+            if info.filename == "xl/worksheets/sheet2.xml":
+                root = ElementTree.fromstring(data)
+                value = root.find(
+                    ".//s:c[@r='E4']/s:v",
+                    {
+                        "s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+                    },
+                )
+                assert value is not None
+                value.text = "3"
+                data = ElementTree.tostring(root)
+            target.writestr(info, data)
+
+    reader = ExcelReader()
+    try:
+        assert await reader.read_cell(str(path), "A1") == "active sheet"
+        assert (
+            await reader.read_cell(str(path), "A1", sheet="Sheet")
+            == "first sheet"
+        )
+        assert await reader.read_cell(str(path), "B2") == datetime(2026, 1, 2)
+        assert await reader.read_cell(str(path), "C3") == "merged"
+        assert await reader.read_cell(str(path), "D3") is None
+        assert await reader.read_cell(str(path), "Z100") is None
+        assert await reader.read_cell(str(path), "E4") == 3
+        assert await reader.read_cell(str(path), "F4") is None
+        with pytest.raises(KeyError):
+            await reader.read_cell(str(path), "A1", sheet="missing")
+        assert await reader.read_cell(str(path), "A1") == "active sheet"
+    finally:
+        await reader.close()
 
 
 async def test_excel_roundtrip(tmp_path):

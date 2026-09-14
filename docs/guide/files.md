@@ -111,6 +111,10 @@ inside functions are not supported. Row values and instances must be pickleable
 for transfer between processes. Large transfers still carry serialization and
 memory costs.
 
+`read_cell` uses a read-only workbook to avoid loading all worksheet cells.
+It scans up to the requested row, so cells near the end still require more
+work. Formula cells return the workbook's cached result without recalculation.
+
 ## Connect tools to an API
 
 These classes do not require a framework-specific provider. Register stateless file/CSV tools directly with Dishka. Use a generator provider with cleanup for Excel, as shown in [dependency injection](application.md).
