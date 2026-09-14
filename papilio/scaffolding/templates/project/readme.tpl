@@ -34,7 +34,11 @@ creates a module without a database; `--context` creates a custom SQL reader
 and calculation skeleton.
 
 Required extras are recorded in `pyproject.toml`. After adding infrastructure,
-select its extra there and register its provider in `<<PKG>>/main.py`. SQL
+select its extra there and register its provider in `<<PKG>>/main.py`.
+Use `papilio providers` to inspect installed dependencies and
+`papilio providers NAME` for ready-provider imports and usage. Ready providers
+are in `papilio.providers`; you can also supply your own Dishka providers.
+ES startup and rate-limit registration are explicit in the generated entry point. SQL
 changes require `alembic revision --autogenerate` followed by `alembic upgrade head`.
 CQRS does not automatically synchronize SQL writes to Elasticsearch.
 

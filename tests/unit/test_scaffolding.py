@@ -150,7 +150,7 @@ def test_project_records_only_selected_infrastructure(name):
     assert name in dependency
     assert ("db" in config) == (name == "postgresql")
     assert ("es" in config) == (name == "es")
-    assert ("redis" in config) == (name in {"redis", "rate-limit"})
+    assert ("redis" in config) == (name == "redis")
     assert ("http" in config) == (name == "http")
     assert ("alembic.ini" in files) == (name == "postgresql")
     for path, source in files.items():

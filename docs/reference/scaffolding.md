@@ -84,3 +84,12 @@ def write(root: Path, package: str, name: str, *, cqrs: bool=False, infra: Seque
 def render(template: str, values: Mapping[str, str]) -> str:
     ...
 ```
+
+## `papilio.cli.providers`
+
+### `providers`
+
+```python
+def providers(name: str | None=typer.Argument(None, help='Provider name; omit to list installation availability')) -> None:
+    ...
+```

@@ -31,8 +31,6 @@ def files(
     selected = set(infra)
     if cqrs:
         selected.update((Infrastructure.POSTGRESQL, Infrastructure.ES))
-    if Infrastructure.RATE_LIMIT in selected:
-        selected.add(Infrastructure.REDIS)
     layout = {
         "config.yml.sample": "project/config_yml.tpl",
         "config.yml": "project/config_yml.tpl",
@@ -68,18 +66,69 @@ def files(
         (Infrastructure.HTTP, "http", "HTTPProvider", "http"),
     ):
         if feature in selected:
-            imports.append(
-                f"from papilio.infra.{folder}.provider import {cls}"
-            )
+            imports.append(f"from papilio.providers.{folder} import {cls}")
             checks.append(
                 f"    assert settings.{field} is not None, 'Configure {field}'"
             )
             wiring.append(f"        {cls}(settings.{field}),")
+    middleware_arg = ""
+    middleware_setup = ""
+    if Infrastructure.RATE_LIMIT in selected:
+        backend = "redis" if Infrastructure.REDIS in selected else "memory"
+        cls = (
+            "RedisRateProvider" if backend == "redis" else "MemoryRateProvider"
+        )
+        imports.extend(
+            (
+                f"from papilio.providers.rate_limit.{backend} import {cls}",
+                "from starlette.middleware import Middleware",
+                "from fastapi.middleware.cors import CORSMiddleware",
+                "from fastapi.middleware.gzip import GZipMiddleware",
+                "from papilio.api.middlewares.logging import "
+                "LoggingMiddleware",
+                "from papilio.api.middlewares.rate_limit import "
+                "RateLimitMiddleware",
+            )
+        )
+        wiring.append(f"        {cls}(),")
+        middleware_arg = ", middleware=middleware"
+        middleware_setup = """    middleware = [
+        Middleware(LoggingMiddleware),
+        Middleware(RateLimitMiddleware),
+        Middleware(GZipMiddleware, minimum_size=4096),
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        ),
+    ]
+"""
+    lifespan = ""
+    if Infrastructure.ES in selected:
+        imports.extend(
+            (
+                "from contextlib import asynccontextmanager",
+                "from papilio.core.bootstrap import Bootstrapper",
+                "from papilio.infra.es.client import ESClient",
+            )
+        )
+        lifespan = """    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        es = await app.state.dishka_container.get(ESClient)
+        await Bootstrapper(settings.app.modules).boot_es_indices(es.client)
+        yield
+"""
     values = {
         "PKG": package,
         "IMPORTS": "\n".join(imports),
         "CHECKS": "\n".join(checks),
         "PROVIDERS": "\n".join(wiring),
+        "LIFESPAN": lifespan,
+        "MIDDLEWARE": middleware_setup,
+        "LIFESPAN_ARG": (", lifespan=lifespan" if lifespan else "")
+        + middleware_arg,
         "DEPENDENCY": "papilio["
         + ",".join(sorted({"server", *(str(item) for item in selected)}))
         + "]",
@@ -110,6 +159,8 @@ def files(
     ):
         if feature not in selected:
             config.pop(key, None)
+    for unused in ("jwt", "crypto", "csrf"):
+        config.pop(unused, None)
     config["rate_limit"]["enabled"] = Infrastructure.RATE_LIMIT in selected
     if Infrastructure.POSTGRESQL not in selected:
         for path in tuple(rendered):

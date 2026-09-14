@@ -7,7 +7,9 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     providers = [
 <<PROVIDERS>>
     ]
-    return create_app(settings, providers=providers)
+<<LIFESPAN>>
+<<MIDDLEWARE>>
+    return create_app(settings, providers=providers<<LIFESPAN_ARG>>)
 
 
 app = build_app()
