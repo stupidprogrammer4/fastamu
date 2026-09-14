@@ -26,7 +26,7 @@ For date conversions, encoded identifiers, amount conversions and encryption pri
 | Joins, aggregates and reports | A backend-specific reader and `uow.execute` |
 | Commit and rollback an operation | `transaction` or `@transactional` |
 | Build custom SQL | Protected backend builders and SQLAlchemy |
-| Search documents | `ESRepository` |
+| Search documents | `ESStore` |
 | Call an external API or access Redis | `BaseGateway`, `RedisClient` |
 | Read or write a file | The reader and writer for that format |
 

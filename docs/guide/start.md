@@ -25,7 +25,9 @@ On PowerShell, activate with `.venv\Scripts\Activate.ps1`. Run `python` and `pap
 | `oracle` | SQL support and oracledb |
 | `es` | Async Elasticsearch |
 | `redis` | Async Redis |
-| `rate-limit` | Request limiting and Redis dependencies |
+| `rate-limit` | Rate-limit tools and the memory backend |
+| `rate-limit-redis` | Rate-limit tools and Redis dependencies |
+| `auth` / `passwords` / `crypto` / `csrf` | Optional security tools and adapters |
 | `http` | HTTPX client |
 | `files` / `csv` | Async file operations using AnyIO |
 | `excel` | Excel tools using openpyxl |
@@ -50,7 +52,7 @@ This example validates a request, injects a service and returns a response envel
 --8<-- "examples/plain_app.py"
 ```
 
-Its complete configuration lives beside the script. These placeholder secrets are for local demonstration only; the example does not use encrypted identifiers.
+Its complete configuration lives beside the script. It requires no authentication, crypto or CSRF settings.
 
 ```yaml
 --8<-- "examples/minimal.yml"

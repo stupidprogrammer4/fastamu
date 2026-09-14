@@ -25,8 +25,7 @@ Swagger assets are served locally under `/static/swagger`. `docs_url` changes th
 | App/module discovery | Startup imports and dependency graph construction |
 | Request UoW | One session per operation; not shared across concurrent tasks |
 | `fetch_page` | A count query and a page query |
-| MySQL `bulk_create` | Flush plus refresh per returned model |
-| MySQL `bulk_insert` | Count-returning alternative without model reloads |
+| MySQL `bulk_insert` | Native batch INSERT returning a count, without model reloads; replaces MySQL `bulk_create` |
 | Streamed SQL | Cursor and UoW remain open until consumption completes |
 | Whole-file reads / Excel row reads | Complete result held in memory |
 | CSV batches | Worker transfer per batch, plus individual record memory |

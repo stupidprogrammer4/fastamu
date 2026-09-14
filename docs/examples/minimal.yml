@@ -2,16 +2,6 @@ fastapi:
   title: Papilio example
   description: Local documentation example
   version: 0.1.0
-crypto:
-  encryption_key: local-example-only
-  password_salt: local-example-only
-jwt:
-  algorithm: HS256
-  secret_key: local-example-only-not-for-deployment
-  access_token_expire_minutes: 60
-  api_secret: local-example-only
-csrf:
-  secret_key: local-example-only
 storage:
   path: media
   temp_dir: tmp

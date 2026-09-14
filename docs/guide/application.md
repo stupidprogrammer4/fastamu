@@ -26,7 +26,7 @@ Extra options go to FastAPI. Explicit routers and providers are added to discove
 | `settings=None` | Load `config.yml` using `get_settings` |
 | `providers` | Add explicit dependencies |
 | `routers` | Add explicit routers |
-| `middleware=None` | Default logging, GZip, CORS and optional rate limiting |
+| `middleware=None` | Default logging, GZip and CORS; add rate limiting explicitly |
 | `middleware=()` | Remove default middleware; Dishka integration remains |
 | `exception_handlers` | Add or replace handlers for exception types/statuses |
 | `lifespan` | Your startup and shutdown context |
@@ -50,7 +50,7 @@ class ProductProvider(Provider):
     service = provide(ProductService, provides=IProductService)
 ```
 
-Constructor annotations declare actual dependencies. `CoreProvider` supplies base `Settings` and `PasswordHasher`. SQL, Redis, HTTP and Elasticsearch require their corresponding providers.
+Constructor annotations declare actual dependencies. `CoreProvider` supplies base `Settings`. Password hashing is an optional tool/provider. Optional infrastructure uses explicitly selected [ready or custom providers](providers.md). Installation and unused configuration do not activate services.
 
 | Lifetime | Typical objects |
 | --- | --- |
@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[dict]:
 app = create_app(settings, lifespan=lifespan)
 ```
 
-The yielded state is available through Starlette request state. Logging setup and configured ES index initialization happen before your lifespan. Your cleanup runs before the container closes. Use a fresh app for each independent test lifecycle.
+The yielded state is available through Starlette request state. Logging setup happens before your lifespan. ES index initialization is application-owned; configuration alone does not run it. Your cleanup runs before the container closes. Use a fresh app for each independent test lifecycle.
 
 ## Replace middleware deliberately
 

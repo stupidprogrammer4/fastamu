@@ -7,18 +7,18 @@ Settings are validated with Pydantic at application startup. `get_settings()` re
 | Section | Required? | Purpose |
 | --- | --- | --- |
 | `fastapi` | Yes | Title, description, version |
-| `crypto` | Yes | Encryption key and password pepper |
-| `jwt` | Yes | Algorithm, secrets and token expiry |
-| `csrf` | Yes | CSRF configuration secret |
+| `crypto` | No | Encryption key and password pepper |
+| `jwt` | No | Algorithm, secrets and token expiry |
+| `csrf` | No | CSRF configuration secret |
 | `storage` | Yes | Paths, allowed extensions and maximum size |
 | `logging` | Yes | Level, service, console/json format |
 | `app` | Defaults provided | Module roots, features, custom Settings type |
 | `db`, `es`, `redis`, `http` | No | Optional client configuration |
 | `rate_limit` | Disabled by default | General and named request budgets |
 
-A complete minimal configuration appears in [installation](start.md). The currently required sections must exist even if an application does not use authentication or storage. Configuring `csrf` does not automatically protect every endpoint, and configuring `storage` does not install upload routes.
+A complete minimal configuration appears in [installation](start.md). The required storage and logging sections must exist. Authentication, crypto and CSRF settings can be omitted. Configuring `csrf` does not automatically protect every endpoint, and configuring `storage` does not install upload routes.
 
-Unknown top-level keys are rejected. `FullSettings` makes all four optional infrastructure sections mandatory and narrows their types; it does not register providers.
+Unknown top-level keys are rejected. `FullSettings` requires `db`, `es`, `redis`, `http`, `crypto`, `jwt` and `csrf`, and narrows their types; it does not register providers.
 
 ## Add application settings
 

@@ -47,7 +47,7 @@ behave as one thing.
 | HTTP, validation, OpenAPI | **FastAPI** | Auto-included routers, a uniform response envelope, typed error handlers, offline (CDN-free) Swagger UI |
 | Dependency injection | **dishka** | A small `CoreProvider` plus explicit optional infrastructure providers; per-module providers discovered and merged automatically; `APP`/`REQUEST` scopes for the web application |
 | Write side / ORM | **SQLModel** + **SQLAlchemy 2.0** (async) | Explicit repositories for each database and entity shape, native writes, paging/streaming helpers, and a request-scoped `UnitOfWork` |
-| Read side / search | **Elasticsearch DSL** (async) | `ESRepository` and index auto-creation on boot |
+| Read side / search | **Elasticsearch DSL** (async) | `ESStore` and optional application-owned index initialization |
 | Migrations | **Alembic** | Metadata pulled straight from the bootstrapper, so `--autogenerate` sees every module without imports |
 | Cache / broker | **Redis** | Pooled async client, injectable |
 | Outbound HTTP | **httpx** | One pooled client for the process, plus a `BaseGateway` that owns base url, headers and per-API timeouts |
@@ -76,9 +76,11 @@ pip install -e ".[test]"
 | `server` | Uvicorn |
 | `db` | SQLModel, SQLAlchemy and Alembic, without a database driver |
 | `postgresql`, `mysql`, `mariadb`, `sqlite`, `mssql`, `oracle` | SQL tools plus the selected driver |
-| `es` | Elasticsearch client, documents and repository |
+| `es` | Elasticsearch client, documents and store |
 | `redis` | Redis client |
-| `rate-limit` | HTTP rate limiting and Redis |
+| `rate-limit` | Rate-limit tools and memory backend |
+| `rate-limit-redis` | Rate-limit tools with Redis |
+| `passwords` / `auth` / `crypto` / `csrf` | Optional security tools/adapters |
 | `http` | Outbound HTTP client and gateway |
 | `excel` | Spreadsheet reader/writer; no pandas or NumPy |
 | `files`, `csv` | Async file and CSV tools using AnyIO worker threads |
@@ -86,9 +88,11 @@ pip install -e ".[test]"
 | `test` | Pytest, async testing and HTTP test client |
 | `all` / `dev` | All optional runtime tools / runtime plus development tools |
 
-Installing an extra makes its imports available. Add its provider to
+Installing an extra makes its imports available. Run `papilio providers` to see
+installation availability and `papilio providers NAME` for a usage suggestion.
+Ready providers live in `papilio.providers`. Add your selected provider to
 `create_app(providers=...)` to manage its resources. CoreProvider provides only
-settings and password hashing. `db`, `redis`, `http` and `es` configuration may
+settings. Password hashing has a separate optional provider. `db`, `redis`, `http` and `es` configuration may
 be absent; rate limiting is off by default. Module discovery defaults to an
 empty list; only application-selected packages are discovered.
 
@@ -182,14 +186,15 @@ shop/
 papilio/
 ├── schemas/         # Validated inputs, outputs and application results
 ├── errors/          # Typed exceptions and error schemas
-├── security/        # Tokens, hashing, encryption and public IDs
+├── security/        # Token, hashing and encryption primitives
 ├── types/           # Shared aliases, enums and numeric constants
 ├── utils/           # Date, text and currency helpers
-├── services.py      # Base application service tools
-├── core/            # Settings, discovery, providers and logging
+├── tools/           # Checks, auth, ID mapping and rate-limit backends
+├── providers/       # Optional ready providers selected by the application
+├── core/            # Settings, discovery and logging
 ├── infra/
-│   ├── db/          # Models, fields, repositories, connections and UoWs
-│   ├── es/          # Search client and repository
+│   ├── db/          # SQL schemas, repositories, connections and UoWs
+│   ├── es/          # Search client and DSL store
 │   ├── redis/       # Shared Redis client
 │   ├── http/        # Outbound HTTP connection and gateways
 │   ├── excel/       # Spreadsheet readers and writers
@@ -197,11 +202,10 @@ papilio/
 │   └── csv/         # Async streaming CSV reader/writer
 ├── api/
 │   ├── application.py  # App factory and resource lifetime
-│   ├── authentication.py # Bearer authentication and scope guards
-│   ├── requests/       # Query models and path parameters
+│   ├── dependencies/   # Optional auth, ID and rate-limit adapters
+│   ├── requests/       # Query models
 │   ├── responses/      # Envelope, metadata and exception handlers
-│   ├── rate_limit/     # Route dependencies, provider and middleware
-│   ├── middlewares/    # Request logging
+│   ├── middlewares/    # Request logging and optional rate limiting
 │   └── docs.py         # Offline Swagger UI
 ├── cli/             # Project/module commands
 ├── scaffolding/     # Renderers and packaged template files
@@ -252,8 +256,7 @@ Local Swagger UI defaults to `/docs`; `docs_url=None` disables it. Custom schema
 paths, Swagger options and `root_path` are respected. Disabling `openapi_url`
 also disables Swagger UI.
 
-Each factory call creates a separate container. Startup configures logging and
-initializes enabled search indexes; shutdown closes owned resources, including
+Each factory call creates a separate container. Startup configures logging and runs the application lifespan; shutdown closes owned resources, including
 when startup fails. Importing the factory and CLI does not read `config.yml`.
 
 ## The core idea: a module
@@ -356,9 +359,9 @@ group is optional: `modules/pricing/` is found by the same rule that finds
 | What | Where the bootstrapper looks | What it collects |
 |---|---|---|
 | **Routers** | `<module>/routers/*.py` | Every module-level `APIRouter` instance (deduped), then `app.include_router(...)` |
-| **Providers** | `<module>/providers.py` | Every `dishka.Provider` subclass, instantiated and merged into the container |
+| **Providers** | `<module>/providers.py` | `dishka.Provider` subclasses defined in that module, instantiated and merged into the container |
 | **Tables** | `<module>/infra/tables.py` | Imported so the `table=True` classes register on the shared metadata (this is what Alembic autogenerate sees). Only this file — a `domain/entities.py` maps to nothing |
-| **ES documents** | `<module>/domain/documents.py` | Every `AsyncDocument` subclass; its index is created on app startup if missing |
+| **ES documents** | `<module>/domain/documents.py` | Every `AsyncDocument` subclass; optional index initialization is called from the application lifespan |
 
 Consequences worth internalising:
 
@@ -598,11 +601,11 @@ breaking `scalars()` and mis-counting anything that is not a plain `select(Model
 
 ### 5. Logic — `app/services.py`
 
-Business rules live here, and only here. `BaseIDService` reads the model off the
-generic parameter and gives you guards that raise the framework's typed errors.
+Application services own business rules. Optional `IDChecks` supplies validation
+and existence checks with an explicit entity label; it does not select a SQL model.
 
 ```python
-from papilio.services import BaseIDService
+from papilio.tools.checks import IDChecks
 from papilio.infra.db.tools.decorators import transactional
 from papilio.errors.exceptions import ConflictException
 from papilio.core import resources
@@ -611,7 +614,9 @@ from shop.modules.catalog.brands.domain.entities import BrandModel
 from shop.modules.catalog.brands.infra.repository import BrandRepository
 
 
-class BrandService(BaseIDService[BrandModel]):
+class BrandService(IDChecks[BrandModel]):
+    entity = "Brand"
+
     def __init__(self, repo: BrandRepository) -> None:
         self.repo = repo
 
@@ -635,16 +640,15 @@ class BrandService(BaseIDService[BrandModel]):
         return self._check_for_id_existence(id, await self.repo.get_by_id(id))
 
     async def remove(self, id: int) -> BrandModel:
-        record = self._check_for_id_existence(id, await self.repo.get_by_id(id))
-        await self.repo.remove_by_id(id)
-        return record
+        record = await self.repo.remove_by_id(id)
+        return self._check_for_id_existence(id, record)
 ```
 
-Guards on `BaseService` / `BaseIDService`:
+Guards on `Checks` / `IDChecks`:
 
 | Guard | Raises when |
 |---|---|
-| `_check_for_id_existence(id, obj)` | `obj` is `None` → `NotFoundException` (404), message auto-built from the model name |
+| `_check_for_id_existence(id, obj)` | `obj` is `None` → `NotFoundException` (404), message uses the explicit entity label |
 | `_check_for_existence(identifier, value, obj)` | same, for a non-id lookup key |
 | `_check_not_empty_dict(d)` / `_check_not_empty_list(ls)` | empty input → `ValidationException` (400) |
 | `_check_batch_data(input_ids, founded_objs)` | returns a `BatchResultType` splitting found items from per-index `ValidationException`s; raises only if **nothing** was found — this is how partial-success batch endpoints are built |
@@ -702,14 +706,15 @@ from papilio.types.aliases import IdType
 from shop.modules.catalog.brands.domain.dtos import BrandCreate
 from shop.modules.catalog.brands.routers.schemas import BrandOut
 from shop.modules.catalog.brands.interfaces import IBrandService
-from papilio.api.authentication import require_access
+from papilio.api.dependencies.auth import require_access
+from shop.auth import current_principal
 from papilio.api.responses.envelope import APIResponse
 
 router = APIRouter(
     prefix="/brands",
     tags=["Brands"],
     route_class=DishkaRoute,
-    dependencies=[Depends(require_access("brands"))],
+    dependencies=[Depends(require_access(current_principal, "brands"))],
 )
 
 BrandResponse = APIResponse[BrandOut, None]
@@ -759,10 +764,14 @@ dishka is the spine. Two scopes matter:
 - **`Scope.APP`** — created once per process (connection pools, clients).
 - **`Scope.REQUEST`** — created per HTTP request.
 
-`CoreProvider` supplies settings and password hashing. Infrastructure providers
+`CoreProvider` supplies settings. Select `PasswordProvider(salt)` for password hashing. Infrastructure providers
 are explicit: `PGProvider(settings.db)`, `ESProvider(settings.es)`,
-`RedisProvider(settings.redis)` and `HTTPProvider(settings.http)` live in each
-infra package's `provider.py`. After registering them, these types are available:
+`RedisProvider(settings.redis)` and `HTTPProvider(settings.http)` live under
+`papilio.providers`. The `db` module provides typed providers for all six
+backends, not only PG. Custom application providers remain ordinary Dishka
+providers. See [ready providers](docs/guide/providers.md) for the catalog, import
+migration, multiple database components and explicit startup hooks.
+After registering them, these types are available:
 
 | Inject this | Scope | What you get |
 |---|---|---|
@@ -886,7 +895,7 @@ class ProductRepository(PGPersistenceRepository[ProductEntity]):
 ```
 
 Each database provides four entity repository shapes and a reader.
-Replace `PostgreSQL` with `MySQL`,
+Replace the `PG` class prefix with `MySQL`,
 `MariaDB`, `SQLite`, `MSSQL` or `Oracle` and import from its corresponding file
 under `papilio.infra.db.repositories.backends`.
 
@@ -905,6 +914,9 @@ db/
 ├── connection.py
 ├── uow.py
 ├── transaction.py       # transaction scope and ownership
+├── schema/
+│   ├── entity.py        # SQLModel entity definitions
+│   └── fields.py        # SQL field declarations
 ├── tools/
 │   ├── read.py          # scalar/model pagination and streaming
 │   └── decorators.py    # @transactional
@@ -921,6 +933,7 @@ Repositories are separated into declarations and executable tools:
 
 ```text
 repositories/
+├── base.py             # implemented common reads and paging
 ├── contracts/
 │   ├── base.py         # common abstract obligations and reader contract
 │   ├── postgresql.py   # PostgreSQL contracts for all four shapes
@@ -936,8 +949,16 @@ shared operations; database contracts specify their native write results and
 supported tools. For example, MySQL/MariaDB ID updates return `int`, while
 PostgreSQL ID updates return models. Oracle/MSSQL contracts expose no upsert.
 All six databases have Base, Identified, Timestamp and Persistence contracts.
+Insert, update and delete operations belong to backend contracts, including their result
+types and protected builders. The common contract requires no mutations.
 
-Database families share no executable repository base. Their constructors take
+Database families inherit the executable classes in `repositories/base.py`:
+`Repository`, `IdentifiedRepository`, `TimestampRepository` and
+`PersistenceRepository` share reads, paging and timestamp filters.
+Persistence ordering uses both `created_at` and `id`. `Reader` shares only the
+execution context. Native writes stay in `backends`; there are no common
+upsert methods or protected upsert stubs. PostgreSQL retains its additional
+filtered query methods and override hooks. Backend constructors take
 backend-specific UoWs: `PGRepository` takes `PGUnitOfWork`,
 `MySQLRepository` takes `MySQLUnitOfWork`, and likewise for the other backends.
 A single `DBConnection[U]` takes `uow_factory` and creates that UoW type.
@@ -1007,7 +1028,7 @@ async with database.uow() as uow:
         product = await repo.update_by_id(product.id, {"name": "Updated"})
 ```
 
-Writes never commit implicitly. MySQL `create`/`bulk_create` use ORM `add`,
+Writes never commit implicitly. MySQL `create` uses ORM `add`,
 `flush` and `refresh`; native returning implementations use SQLAlchemy DML with
 `RETURNING` or the database equivalent. MySQL/MariaDB update methods execute
 only UPDATE and return the affected-row count. PostgreSQL, SQLite, Oracle and
@@ -1022,13 +1043,16 @@ custom queries. PostgreSQL takes its existing sequence of SQL columns; the
 other backends take an explicit input-name-to-column mapping. No builder
 discovers fields or executes SQL.
 
-MySQL also provides `bulk_insert(data, *, insert_columns) -> int` for a native
+MySQL provides `bulk_insert(data, *, insert_columns) -> int` for a native
 batch INSERT without loading or refreshing ORM objects. `insert_columns` maps
 input field names to SQL columns, just as for `bulk_upsert`; every selected
 field must be supplied in every row. The result is the driver's affected-row
 count (zero for empty input). Failed inserts raise; the caller owns rollback.
 `_bulk_insert_stmt(rows, *, insert_columns)` exposes the same native SQL builder.
-The existing `bulk_create` continues to return fully refreshed models.
+MySQL no longer exposes `bulk_create`: migrate batch calls to `bulk_insert`
+with explicit insertion columns and consume a count. If a caller needs saved
+models, it must issue its own read. The other five backend contracts retain
+`bulk_create(data) -> Sequence[T]` through their native returning statements.
 
 ```python
 columns = ProductTable.__table__.c
@@ -1038,9 +1062,14 @@ count = await repo.bulk_insert(
 )
 ```
 
-`remove_by_id(s)` returns the driver's affected-row count; it does not read
-deleted records. Obtain a record explicitly first
-when its contents are needed after deletion.
+Delete results are backend-owned too. MySQL `remove_by_id(s)` returns the
+driver's affected-row count. PostgreSQL, SQLite, MariaDB, Oracle and MSSQL use
+native DELETE RETURNING/OUTPUT: `remove_by_id` returns `T | None`, and
+`remove_by_ids` returns `Sequence[T]` with the deleted rows. Missing rows return
+`None` or an empty sequence; batch output order is not tied to input order.
+No deletion path adds a SELECT or commits. These are deleted-row values, not
+records that remain in the database. MariaDB UPDATE still returns a count;
+its DELETE RETURNING support does not imply UPDATE RETURNING support.
 
 `update_by_id(s)` accepts a field mapping. An omitted field stays untouched;
 explicit `None` follows the column's SQLAlchemy type semantics. Callers supply
@@ -1115,8 +1144,8 @@ methods choose their columns; services need not know SQLAlchemy tables.
 `exists(*conditions)` and `count(*conditions)` accept SQLAlchemy expressions.
 `get_page(order_by=..., limit=..., offset=..., where=...)` requires explicit
 ordering. `get_all_stream(batch_size, where=...)` streams filtered models.
-`update(where, changes)` returns written models; `remove(where)` returns the
-affected-row count. Both require an explicit predicate and execute only a
+`update(where, changes)` returns written models; `remove(where)` returns a
+sequence of deleted models. Both require an explicit predicate and execute only a
 write statement. ID repositories add convenience operations with fixed ID
 predicates; timestamp repositories add their time-range operations.
 
@@ -1307,40 +1336,22 @@ so a 500 in your logs maps to the exact client call.
 
 ## Authentication and scopes
 
-[papilio/api/authentication.py](papilio/api/authentication.py) ships a **deliberately generic**
-auth layer so the framework has no identity module baked in. It validates a bearer
-JWT and checks a `scopes` claim:
-
-```python
-router = APIRouter(
-    prefix="/brands",
-    dependencies=[Depends(require_access("brands"))],   # guard the whole router
-)
-
-_guarded = [Depends(require_access("storage"))]          # …or guard per route,
-@router.post("", dependencies=_guarded)                      #   leaving others public
-```
-
-The JWT contract is `sub` (subject) + `scopes` (a list of strings); a decoded token
-becomes a `Principal`, which a handler can also take as a value.
-
-`require_access` accepts an application-defined scope string. Define your scope
-vocabulary in your own package; no application scopes ship with Papilio.
-An identity adapter can replace `get_current_principal` while preserving the
-`Principal` contract.
+Authentication is explicitly selected. `papilio.api.dependencies.auth.bearer`
+accepts an application-owned async authenticator and preserves its identity type.
+`papilio.tools.auth.JWTAuth` is an optional access-token implementation;
+`require_access(principal_dependency, scope)` is an optional scope policy.
+No JWT/crypto configuration or identity model is required to create an app.
+See the [security guide](docs/guide/security.md) and [tool boundaries](docs/guide/tools.md).
 
 ---
 
 ## Rate limiting
 
-`papilio.api.rate_limit.dependencies` connects `throttled-py` to HTTP. The library owns the
-sliding-window algorithm and atomic Redis operations; `RateLimitProvider` borrows
-the existing app Redis client and pool. Standalone FastAPI apps must register
-`RateLimitProvider()`, `RedisProvider(settings.redis)` and `CoreProvider(settings)`
-in their Dishka container. Install the `rate-limit` extra.
-
-Two layers, both reading their budgets from `config.yml`, both counting in Redis so
-that N workers enforce **one** budget instead of N.
+Reusable limiting lives in `papilio.tools.rate_limit`; HTTP adapters are separate.
+Select `MemoryRateProvider()` with `papilio[rate-limit]` for per-process counters,
+or `RedisRateProvider()` plus `RedisProvider(settings.redis)` with
+`papilio[rate-limit-redis]` for shared counters. Config alone never registers a
+provider or middleware. See [backend selection and contracts](docs/guide/tools.md).
 
 **The floor.** `RateLimitMiddleware` charges `rate_limit.general` against every
 request, on every route — including the ones nobody remembered to guard. Successful
@@ -1351,7 +1362,7 @@ headers, so a client can pace itself instead of discovering the wall.
 asks for it by name, like any other dependency:
 
 ```python
-from papilio.api.rate_limit.dependencies import by_ip, rate_limit
+from papilio.api.dependencies.rate_limit import by_ip, rate_limit
 
 router = APIRouter(prefix="/auth", dependencies=[rate_limit("login")])   # whole router
 
@@ -1376,11 +1387,11 @@ off by deleting it, not by editing a handler. `enabled: false` turns off both la
 which is what a test suite wants.
 
 **Every key part is charged.** A part maps a request to a bucket; `rate_limit` takes
-a sequence of them and checks their Redis buckets concurrently. All checks finish
+a sequence of them and checks their selected backend's buckets concurrently. All checks finish
 before a refusal is returned; this is not an all-or-nothing multi-bucket transaction:
 
 ```python
-from papilio.api.rate_limit.dependencies import by_body_field, by_ip, rate_limit
+from papilio.api.dependencies.rate_limit import by_body_field, by_ip, rate_limit
 
 login_rate_limit = rate_limit(
     "login", (by_ip, by_body_field("username")), closed_when_down=True
@@ -1395,12 +1406,11 @@ addresses; `by_username` alone lets one address walk a user list. Charging both 
 both, and the same helper composes any other dimension you need — an admin id, an API
 key, a tenant.
 
-**Which way to fail.** When Redis is unreachable the limiter has no counters to judge
-by. It fails **open** by default, because losing the cache should not take the API
+**Which way to fail.** When the selected backend is unavailable, the limiter cannot check its counters. It fails **open** by default, because losing the cache should not take the API
 down with it; a guard on something worth brute-forcing passes `closed_when_down=True`
 and gets a refusal instead. Either way the outage is logged, not swallowed.
 
-**Trust nothing you did not put there.** `client_ip` believes `X-Forwarded-For` only
+**Trust nothing you did not put there.** `by_ip` believes `X-Forwarded-For` only
 when the immediate peer is listed in `trusted_proxies`. Leave that list empty when
 nothing sits in front of the app: an unvetted header is a free way to buy a fresh
 bucket per call. Behind a proxy, list the proxy — otherwise every caller in the world
@@ -1519,7 +1529,7 @@ confuse and must not be, so they sit in two files rather than one:
 A malformed stored hash is a non-match, never an exception — a legacy row cannot take
 a login endpoint down.
 
-**`IDEncryption`** ([papilio/security/ids.py](papilio/security/ids.py))
+**`IDEncryption`** ([papilio/tools/ids.py](papilio/tools/ids.py))
 — exposes a serial primary key as a public id that doesn't announce your row count
 (`/orders/42` says how many orders exist; `/orders/43` is a valid guess). It is a
 modular multiplication, so it is reversible, stateless and needs no extra column:
@@ -1608,7 +1618,7 @@ imports no optional infrastructure. Generated projects own an `anonymous`
 HTTP-client fixture using a fresh app and its lifespan; install `papilio[test]`
 for it. SQL uses `db.test_dsn` and rate limiting is disabled in that fixture.
 The infrastructure harness is opt-in: install its dependencies
-(`papilio[test,postgresql,es,redis,http,rate-limit]`) and declare
+(`papilio[test,postgresql,es,redis,http,rate-limit,passwords,auth,crypto,csrf]`) and declare
 `pytest_plugins = ["papilio.testing.fixtures"]` in your test conftest. The table
 below describes that optional harness, not a base installation.
 
