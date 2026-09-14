@@ -36,7 +36,7 @@ These helpers use authenticated encryption and raise `ValueError` for an invalid
 ## Encoded identifiers
 
 ```python
-from papilio.security.ids import IDEncryption
+from papilio.tools.ids import IDEncryption
 
 ids = IDEncryption(mod=1_000_003, coff=37, offset=10_000)
 public_id = ids.encode(42)
@@ -50,9 +50,9 @@ To encode an output ID and decode a path parameter:
 ```python
 from typing import Annotated, ClassVar
 from fastapi import APIRouter, Depends
-from papilio.api.requests.parameters import decode_path_id
+from papilio.api.dependencies.ids import decode_path_id
 from papilio.schemas.outputs import BaseIDOutput
-from papilio.security.ids import IDEncryption
+from papilio.tools.ids import IDEncryption
 
 product_ids = IDEncryption(mod=1_000_003, coff=37)
 

@@ -34,7 +34,7 @@ def secure_compare(a: str, b: str) -> bool:
     ...
 ```
 
-## `papilio.security.ids`
+## `papilio.tools.ids`
 
 ### `IDEncryption`
 

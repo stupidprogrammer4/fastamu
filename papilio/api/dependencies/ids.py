@@ -5,7 +5,7 @@ from typing import Callable
 
 from papilio.core import resources
 from papilio.errors.exceptions import NotFoundException
-from papilio.security.ids import IDEncryption
+from papilio.tools.ids import IDEncryption
 
 
 def decode_path_id(

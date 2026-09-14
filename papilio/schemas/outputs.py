@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 
-from papilio.security.ids import IDEncryption
+from papilio.tools.ids import IDEncryption
 from papilio.types.enums import FaStrEnum
 
 

@@ -134,6 +134,6 @@ The default app handlers convert it to an error envelope with HTTP 404.
 
 ## Services and reusable schemas
 
-`BaseService` and `BaseIDService` provide protected validation/existence helpers for subclasses. They do not define your transaction or publish policy. `PagedType` and `BatchResultType` are internal result containers; HTTP metadata and envelopes are separate. Utilities such as enum output schemas are listed in the [schema reference](../reference/schemas.md).
+`Checks` and `IDChecks` provide protected validation/existence helpers for subclasses. They do not define your transaction or publish policy. `PagedType` and `BatchResultType` are internal result containers; HTTP metadata and envelopes are separate. Utilities such as enum output schemas are listed in the [schema reference](../reference/schemas.md).
 
 [Complete API reference](../reference/api.md)
