@@ -148,10 +148,11 @@ class Bootstrapper:
             )
 
     def boot_providers(self) -> list[Provider]:
-        """Find and instantiate all subclasses of dishka.Provider.
+        """Instantiate providers defined in each feature's providers module.
 
         Tables are imported first; concrete repositories name their table
-        explicitly, and providers import those repositories.
+        explicitly, and providers import those repositories. Imported provider
+        classes are not registered implicitly.
         """
         self.boot_sqlmodels()
         providers = []
@@ -165,7 +166,7 @@ class Bootstrapper:
                         inspect.isclass(obj)
                         and issubclass(obj, Provider)
                         and obj is not Provider
-                        and obj.__module__.startswith(self.base_pkgs)
+                        and obj.__module__ == module.__name__
                     ):
                         providers.append(obj())
         return providers

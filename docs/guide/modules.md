@@ -65,6 +65,11 @@ app:
 
 The first module root is the CLI generation target. Packages must be importable and contain `__init__.py`. Discovery recognizes packages containing `domain` or `app`, including one group level. It imports `infra.tables` before providers, collects `APIRouter` objects from router files, and provider classes from `providers.py`.
 
+Only provider classes defined in that `providers.py` are instantiated.
+Imported base classes and providers re-exported from another module are not
+registered there. To use an external provider directly, pass its configured
+instance through `create_app(providers=[...])`.
+
 For a different structure, pass routers and providers directly to [create_app](application.md), leaving `app.modules` empty if you do not want discovery.
 
 ## Application-owned modules
