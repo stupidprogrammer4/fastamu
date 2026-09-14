@@ -2,15 +2,15 @@ import pytest
 
 from papilio.errors.exceptions import ValidationException
 from papilio.infra.db.schema.entity import IdentifiedEntity
-from papilio.services import BaseIDService
+from papilio.tools.checks import IDChecks
 
 
 class ThingModel(IdentifiedEntity):
     code: str
 
 
-class ThingService(BaseIDService[ThingModel]):
-    pass
+class ThingService(IDChecks[ThingModel]):
+    entity = "Thing"
 
 
 def thing(id: int, code: str) -> ThingModel:

@@ -1,11 +1,13 @@
-from papilio.services import BaseIDService
+from papilio.tools.checks import IDChecks
 from papilio.infra.db.tools.decorators import transactional
 from <<PKG>>.<<M>>.domain.dtos import <<P>>Create, <<P>>Update
 from <<PKG>>.<<M>>.domain.entities import <<P>>Model
 from <<PKG>>.<<M>>.infra.repository import <<P>>Repository
 
 
-class <<P>>Service(BaseIDService[<<P>>Model]):
+class <<P>>Service(IDChecks[<<P>>Model]):
+    entity = "<<P>>"
+
     def __init__(self, repo: <<P>>Repository) -> None:
         self.repo = repo
 

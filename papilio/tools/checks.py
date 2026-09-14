@@ -1,36 +1,20 @@
-from typing import Any, Callable, Sequence, TypeVar, get_args, get_origin
+from typing import Any, Callable, Protocol, Sequence
 
 from papilio.core import resources
 from papilio.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from papilio.infra.db.schema.entity import BaseEntity, IdentifiedEntity
 from papilio.schemas.results import BatchResultType
 
 
-class BaseService[TModel: BaseEntity]:
-    __entity__: type[TModel]
-    __entity_name__: str
+class HasID(Protocol):
+    @property
+    def id(self) -> int: ...
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
 
-        for base in getattr(cls, "__orig_bases__", []):
-            origin = get_origin(base)
-            args = get_args(base)
-
-            if not origin or not args:
-                continue
-
-            if isinstance(args[0], TypeVar):
-                continue
-
-            if isinstance(origin, type) and issubclass(origin, BaseService):
-                model_cls = args[0]
-                cls.__entity__ = model_cls
-                cls.__entity_name__ = model_cls.__name__.removesuffix("Entity")
-                break
+class Checks[TModel]:
+    entity: str
 
     def _check_not_empty_dict(self, d: dict):
         if not d:
@@ -55,34 +39,32 @@ class BaseService[TModel: BaseEntity]:
     def _check_for_existence(
         self, identifier: str, identifier_value: Any, obj: TModel | None
     ) -> TModel:
-        if not obj:
+        if obj is None:
             raise NotFoundException(
                 identifier=identifier,
                 identifier_value=identifier_value,
                 message=(
-                    f"Cannot find {self.__entity_name__} by {identifier} "
+                    f"Cannot find {self.entity} by {identifier} "
                     f"with value {identifier_value}"
                 ),
                 message_code=resources.NOT_FOUND_ERROR,
-                entity=self.__entity_name__,
+                entity=self.entity,
             )
         return obj
 
     def _check_batch_data(
         self,
-        founed_ids: Sequence[int],
+        found_ids: Sequence[int],
         input_ids: Sequence[int],
         prefix_loc: list[str],
     ) -> Sequence[ValidationException]:
-        set_founded_ids = set(founed_ids)
+        found_ids_set = set(found_ids)
         errors = []
         for idx, id in enumerate(input_ids):
-            if id not in set_founded_ids:
+            if id not in found_ids_set:
                 errors.append(
                     ValidationException(
-                        message=(
-                            f"Cannot find {self.__entity_name__} with id {id}"
-                        ),
+                        message=(f"Cannot find {self.entity} with id {id}"),
                         message_code=resources.NOT_FOUND_ERROR,
                         loc=prefix_loc + [idx],
                     )
@@ -90,7 +72,7 @@ class BaseService[TModel: BaseEntity]:
         return errors
 
 
-class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
+class IDChecks[TIDModel: HasID](Checks[TIDModel]):
     def _check_for_id_existence(self, id: int, obj: TIDModel | None):
         return super()._check_for_existence(
             identifier="id", identifier_value=id, obj=obj
@@ -99,7 +81,7 @@ class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
     def _check_batch_data(
         self,
         input_ids: Sequence[int],
-        founded_objs: Sequence[TIDModel],
+        found_objs: Sequence[TIDModel],
         loc: list[str] | None = None,
     ) -> BatchResultType[TIDModel, ValidationException]:
         """Split a batch of ids into the rows that exist and one error per id
@@ -108,7 +90,7 @@ class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
 
         Args:
             input_ids (Sequence[int]): The ids that were asked for.
-            founded_objs (Sequence[TIDModel]): The rows that came back.
+            found_objs (Sequence[TIDModel]): The rows that came back.
             loc (list[str] | None): Where the ids sat in the request body.
         Returns:
             (BatchResultType): The found rows, their ids, and the misses.
@@ -116,23 +98,21 @@ class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
             ValidationException: Nothing was found — there is no partial
                 success to report, so the whole input is rejected.
         """
-        founded_ids = {o.id: o for o in founded_objs}
+        found_ids = {o.id: o for o in found_objs}
 
         items, errors, ids = [], [], []
-        base_loc = loc or [f"{self.__entity_name__.lower()}_ids"]
+        base_loc = loc or [f"{self.entity.lower()}_ids"]
         positions = {}
         for index, value in enumerate(input_ids):
             positions.setdefault(value, index)
         for id in dict.fromkeys(input_ids):
-            if id in founded_ids:
-                items.append(founded_ids[id])
+            if id in found_ids:
+                items.append(found_ids[id])
                 ids.append(id)
             else:
                 errors.append(
                     ValidationException(
-                        message=(
-                            f"Cannot find {self.__entity_name__} with id {id}"
-                        ),
+                        message=(f"Cannot find {self.entity} with id {id}"),
                         message_code=resources.NOT_FOUND_ERROR,
                         loc=base_loc + [positions[id]],
                         input=id,
@@ -147,7 +127,7 @@ class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
     def _func_check_batch_data(
         self,
         input_values: Sequence[Any],
-        founded_objs: Sequence[TIDModel],
+        found_objs: Sequence[TIDModel],
         key: Callable[[TIDModel], Any],
         identifier: str,
         loc: list[str] | None = None,
@@ -162,7 +142,7 @@ class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
 
         Args:
             input_values (Sequence[Any]): The values that were asked for.
-            founded_objs (Sequence[TIDModel]): The rows that came back.
+            found_objs (Sequence[TIDModel]): The rows that came back.
             key (Callable[[TIDModel], Any]): Reads the matched field off a row.
             identifier (str): The field's name, for the message and the `loc`.
             loc (list[str] | None): Where the values sat in the request body.
@@ -171,22 +151,22 @@ class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
         Raises:
             ValidationException: Nothing was found.
         """
-        founded_values = {key(o): o for o in founded_objs}
+        found_values = {key(o): o for o in found_objs}
 
         items, errors, ids = [], [], []
-        base_loc = loc or [f"{self.__entity_name__.lower()}_{identifier}s"]
+        base_loc = loc or [f"{self.entity.lower()}_{identifier}s"]
         positions = {}
         for index, value in enumerate(input_values):
             positions.setdefault(value, index)
         for value in dict.fromkeys(input_values):
-            if value in founded_values:
-                items.append(founded_values[value])
-                ids.append(founded_values[value].id)
+            if value in found_values:
+                items.append(found_values[value])
+                ids.append(found_values[value].id)
             else:
                 errors.append(
                     ValidationException(
                         message=(
-                            f"Cannot find {self.__entity_name__} with "
+                            f"Cannot find {self.entity} with "
                             f"{identifier} {value}"
                         ),
                         message_code=resources.NOT_FOUND_ERROR,
