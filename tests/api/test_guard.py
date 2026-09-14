@@ -1,7 +1,30 @@
-"""The guard, over the live app: a router declaring a scope must refuse an
-anonymous caller before any handler runs."""
+"""An explicit guard rejects anonymous requests before the route handler."""
 
-from httpx import AsyncClient
+import pytest
+from fastapi import Depends, FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from papilio.api.dependencies.auth import Scoped, bearer, require_access
+from papilio.api.responses.handlers import setup_exception_handlers
+
+
+@pytest.fixture
+async def anonymous():
+    async def authenticate(token: str) -> Scoped:
+        raise AssertionError("Anonymous requests must not authenticate")
+
+    app = FastAPI()
+    setup_exception_handlers(app)
+    guard = require_access(bearer(authenticate), "jobs:read")
+
+    @app.get("/jobs", dependencies=[Depends(guard)])
+    async def jobs():
+        raise AssertionError("Anonymous requests must not reach the handler")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        yield client
 
 
 async def test_a_guarded_route_refuses_an_anonymous_caller(

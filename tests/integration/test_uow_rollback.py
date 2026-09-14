@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select
 from starlette.exceptions import HTTPException
 
+from papilio.api.responses.csrf import csrf_error_handler
 from papilio.api.responses.handlers import (
     setup_exception_handlers,
 )
@@ -71,6 +72,7 @@ async def client(database, records):
     app = FastAPI()
     setup_dishka(container, app)
     setup_exception_handlers(app)
+    app.add_exception_handler(CsrfProtectError, csrf_error_handler)
 
     @app.post("/{outcome}")
     @inject

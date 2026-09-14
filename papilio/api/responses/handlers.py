@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError as PydanticError
 from fastapi.responses import JSONResponse
-from fastapi_csrf_protect.exceptions import CsrfProtectError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from papilio.core import resources
@@ -91,22 +90,6 @@ async def http_error_handler(
     )
 
 
-async def csrf_error_handler(
-    request: Request, exc: CsrfProtectError
-) -> JSONResponse:
-    response_model = APIResponse(
-        success=False,
-        error=BaseErrorOut(
-            message=exc.message, message_code=resources.CSRF_FAILED
-        ),
-    )
-    return JSONResponse(
-        content=response_model.model_dump(exclude_defaults=True),
-        status_code=exc.status_code,
-        media_type=MediaType.JSON,
-    )
-
-
 def unexcepted_error_handler(request: Request, exc: Exception) -> JSONResponse:
     # the route is half the story of a 500; log it with the traceback
     logger.error(
@@ -128,7 +111,6 @@ exception_handlers = {
     PydanticError: pydantic_error_handler,
     StarletteHTTPException: http_error_handler,
     APPException: external_error_handler,
-    CsrfProtectError: csrf_error_handler,
     Exception: unexcepted_error_handler,
 }
 

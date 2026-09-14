@@ -4,7 +4,7 @@ Papilio supplies security primitives and HTTP dependencies. Your application own
 
 ## Hash passwords asynchronously
 
-`CoreProvider` supplies an application-scoped `PasswordHasher`, configured with `crypto.password_salt` as its pepper:
+Install `papilio[passwords]`. Construct `PasswordHasher` directly or explicitly register `PasswordProvider(salt)` for application-scoped injection:
 
 ```python
 from papilio.security.passwords import PasswordHasher
@@ -18,7 +18,7 @@ Hashing runs in a worker thread. Store the hash, keep the pepper stable and priv
 
 ## Issue and decode a token
 
-After your application has authenticated a user:
+Install `papilio[auth]` (and `crypto` for asymmetric algorithms that require it). After authenticating a user and explicitly supplying JWT configuration:
 
 ```python
 from papilio.security.tokens import (
@@ -27,6 +27,7 @@ from papilio.security.tokens import (
     decode_token,
 )
 
+assert settings.jwt is not None
 token = create_access_token(
     subject="42",
     secret_key=settings.jwt.secret_key,
@@ -44,28 +45,32 @@ payload = decode_token(
 
 Extra claims can overwrite existing claims in the current helper; do not pass an untrusted request dictionary. `decode_token` checks the requested token type only when `expected_type` is provided. Supply `audience` when your application uses an audience claim.
 
-## Built-in principal and scopes
+## Select an authenticator
 
 ```python
 from fastapi import APIRouter, Depends
-from papilio.api.authentication import CurrentPrincipal, require_access
+from papilio.api.dependencies.auth import bearer, require_access
+from papilio.tools.auth import JWTAuth
 
+assert settings.jwt is not None
+jwt_auth = JWTAuth(settings.jwt.secret_key, algorithm=settings.jwt.algorithm)
+current = bearer(jwt_auth.authenticate)
 router = APIRouter()
 
-
 @router.get("/me")
-async def me(principal: CurrentPrincipal):
-    return {"subject": principal.subject, "scopes": sorted(principal.scopes)}
+async def me(principal=Depends(current)):
+    return {"subject": principal.subject}
 
-
-@router.get("/protected", dependencies=[Depends(require_access("products:read"))])
+@router.get("/protected", dependencies=[Depends(require_access(current, "products:read"))])
 async def protected():
     return {"allowed": True}
 ```
 
-Register the router in a Papilio app so the Settings dependency is available. `Principal` contains a subject and a frozen set of scopes.
-
-The current built-in principal decoder does **not** pass `expected_type=ACCESS`; it should not be assumed to reject a refresh token signed with the same key. If both token types are used, define an authentication dependency using explicit type validation, as above. The built-in scope guard currently returns 401 for a missing scope. Use your own dependency with `ForbiddenException` when your policy requires 403.
+`bearer` also accepts your own async authenticator returning your own identity
+object; it does not import JWT or resolve Settings. The optional JWT implementation
+requires a valid access token, nonempty subject and string-list scopes. A refresh
+token is rejected. The optional scope guard retains the existing 401 response
+for a missing scope; applications can supply a different authorization policy.
 
 ## Public identifiers
 
@@ -73,7 +78,7 @@ The current built-in principal decoder does **not** pass `expected_type=ACCESS`;
 
 ## Configure rate limiting
 
-Install `rate-limit`, configure Redis, and register `RedisProvider(settings.redis)`. Add to your full configuration:
+Select memory or Redis as described in [ready tools](tools.md#choose-a-rate-limit-backend), and explicitly register the chosen provider. For HTTP limiting, configure:
 
 ```yaml
 rate_limit:
@@ -91,7 +96,7 @@ rate_limit:
 Attach a named dependency to a route:
 
 ```python
-from papilio.api.rate_limit.dependencies import by_body_field, by_ip, rate_limit
+from papilio.api.dependencies.rate_limit import by_body_field, by_ip, rate_limit
 
 login_limit = rate_limit(
     "login",
@@ -105,8 +110,8 @@ async def login():
     return {"next": "Implement credential verification here"}
 ```
 
-Each key part charges an **independent** bucket; this is not a combined IP-and-email key. A missing named rule or disabled rate-limit config skips that guard. The general limiter fails open when its Redis store is unavailable. Named guards can fail closed with `closed_when_down=True`.
+Each key part charges an **independent** bucket; this is not a combined IP-and-email key. A missing named rule or disabled rate-limit config skips that guard. The general limiter fails open when its backend is unavailable. Named guards can fail closed with `closed_when_down=True`.
 
-Only explicitly trusted proxy peers allow `X-Forwarded-For` to affect the client key. If you replace the default middleware list, add `RateLimitMiddleware` yourself to keep the general limiter. Named route dependencies remain separate.
+Only explicitly trusted proxy peers allow `X-Forwarded-For` to affect the client key. Explicitly add `RateLimitMiddleware` to enable the general limiter; settings alone do not add it. Named route dependencies remain separate.
 
 [Authentication and rate-limit signatures](../reference/api.md)
