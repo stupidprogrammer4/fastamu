@@ -1,8 +1,6 @@
 # Configuration
 
-Generated from this checkout. Code blocks show signatures; `...` replaces implementation bodies. These are reference declarations, not standalone executable modules.
-
-Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
+JWT, crypto and CSRF configuration are optional. Rate-limit settings do not activate a backend or HTTP middleware.
 
 ## `papilio.core.config`
 
@@ -74,24 +72,6 @@ class HTTPConfig(BaseModel):
     follow_redirects: bool = True
 ```
 
-### `RateLimitRule`
-
-```python
-class RateLimitRule(BaseModel):
-    limit: int = Field(gt=0)
-    window_seconds: int = Field(gt=0)
-```
-
-### `RateLimitConfig`
-
-```python
-class RateLimitConfig(BaseModel):
-    enabled: bool = False
-    trusted_proxies: list[str] = Field(default_factory=list)
-    general: RateLimitRule = RateLimitRule(limit=120, window_seconds=60)
-    rules: dict[str, RateLimitRule] = Field(default_factory=dict)
-```
-
 ### `JWTConfig`
 
 ```python
@@ -150,15 +130,16 @@ class Settings(BaseModel):
     app: AppConfig = AppConfig()
     fastapi: FastAPIConfig
     db: DatabaseConfig | None = None
-    crypto: CryptoConfig
+    crypto: CryptoConfig | None = None
     redis: RedisConfig | None = None
     rate_limit: RateLimitConfig = RateLimitConfig()
-    jwt: JWTConfig
+    jwt: JWTConfig | None = None
     storage: StorageConfig
-    csrf: CSRFConfig
+    csrf: CSRFConfig | None = None
     es: ESConfig | None = None
     http: HTTPConfig | None = None
     logging: LoggingConfig
+
     @model_validator(mode='after')
     def validate_features(self):
         ...
@@ -168,14 +149,13 @@ class Settings(BaseModel):
 
 ```python
 class FullSettings(Settings):
+    crypto: CryptoConfig = Field(...)
+    jwt: JWTConfig = Field(...)
+    csrf: CSRFConfig = Field(...)
     db: DatabaseConfig = Field(...)
     redis: RedisConfig = Field(...)
     http: HTTPConfig = Field(...)
     es: ESConfig = Field(...)
-```
-
-```python
-SettingsT = TypeVar('SettingsT', bound=Settings)
 ```
 
 ### `get_settings`
@@ -200,4 +180,24 @@ def get_settings(model: type[SettingsT]) -> SettingsT:
 @lru_cache
 def get_settings(model: type[SettingsT] | None=None) -> SettingsT | Settings:
     ...
+```
+
+## `papilio.tools.rate_limit.config`
+
+### `RateLimitRule`
+
+```python
+class RateLimitRule(BaseModel):
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+```
+
+### `RateLimitConfig`
+
+```python
+class RateLimitConfig(BaseModel):
+    enabled: bool = False
+    trusted_proxies: list[str] = Field(default_factory=list)
+    general: RateLimitRule = RateLimitRule(limit=120, window_seconds=60)
+    rules: dict[str, RateLimitRule] = Field(default_factory=dict)
 ```

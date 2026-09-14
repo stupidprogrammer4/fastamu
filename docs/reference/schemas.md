@@ -250,12 +250,24 @@ class PagedType(Generic[TItem]):
     total_items: int
 ```
 
-## `papilio.services`
+## `papilio.tools.checks`
 
-### `BaseService`
+### `HasID`
 
 ```python
-class BaseService[TModel: BaseEntity]:
+class HasID(Protocol):
+
+    @property
+    def id(self) -> int:
+        ...
+```
+
+### `Checks`
+
+```python
+class Checks[TModel]:
+    entity: str
+
     def _check_not_empty_dict(self, d: dict):
         ...
 
@@ -265,20 +277,24 @@ class BaseService[TModel: BaseEntity]:
     def _check_for_existence(self, identifier: str, identifier_value: Any, obj: TModel | None) -> TModel:
         ...
 
-    def _check_batch_data(self, founed_ids: Sequence[int], input_ids: Sequence[int], prefix_loc: list[str]) -> Sequence[ValidationException]:
+    def _check_batch_data(self, found_ids: Sequence[int], input_ids: Sequence[int], prefix_loc: list[str]) -> Sequence[ValidationException]:
+        ...
+
+    def _func_check_batch_data(self, input_values: Sequence[Any], found_objs: Sequence[TModel], key: Callable[[TModel], Any], identifier: str, loc: list[str] | None=None) -> BatchResultType[TModel, ValidationException]:
         ...
 ```
 
-### `BaseIDService`
+### `IDChecks`
 
 ```python
-class BaseIDService[TIDModel: IdentifiedEntity](BaseService[TIDModel]):
+class IDChecks[TIDModel: HasID](Checks[TIDModel]):
+
     def _check_for_id_existence(self, id: int, obj: TIDModel | None):
         ...
 
-    def _check_batch_data(self, input_ids: Sequence[int], founded_objs: Sequence[TIDModel], loc: list[str] | None=None) -> BatchResultType[TIDModel, ValidationException]:
+    def _check_batch_data(self, input_ids: Sequence[int], found_objs: Sequence[TIDModel], loc: list[str] | None=None) -> BatchResultType[TIDModel, ValidationException]:
         ...
 
-    def _func_check_batch_data(self, input_values: Sequence[Any], founded_objs: Sequence[TIDModel], key: Callable[[TIDModel], Any], identifier: str, loc: list[str] | None=None) -> BatchResultType[TIDModel, ValidationException]:
+    def _func_check_batch_data(self, input_values: Sequence[Any], found_objs: Sequence[TIDModel], key: Callable[[TIDModel], Any], identifier: str, loc: list[str] | None=None) -> BatchResultType[TIDModel, ValidationException]:
         ...
 ```

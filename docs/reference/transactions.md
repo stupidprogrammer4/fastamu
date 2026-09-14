@@ -26,7 +26,265 @@ class DBConnection[U: UnitOfWork]:
 
 ## `papilio.providers.db`
 
+See [ready providers](../guide/providers.md) for installation and application selection.
+
+### `DBProvider`
+
+```python
+class DBProvider[U: UnitOfWork](Provider):
+    uow_type: type[U]
+
+    def __init__(self, config: DatabaseConfig) -> None:
+        ...
+
+    @asynccontextmanager
+    async def _database(self) -> AsyncGenerator[DBConnection[U]]:
+        ...
+```
+
 ### `PGProvider`
+
+```python
+class PGProvider(DBProvider[PGUnitOfWork]):
+    uow_type = PGUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[PGUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[PGUnitOfWork]) -> AsyncGenerator[PGUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: PGUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `MySQLProvider`
+
+```python
+class MySQLProvider(DBProvider[MySQLUnitOfWork]):
+    uow_type = MySQLUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[MySQLUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[MySQLUnitOfWork]) -> AsyncGenerator[MySQLUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: MySQLUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `MariaDBProvider`
+
+```python
+class MariaDBProvider(DBProvider[MariaDBUnitOfWork]):
+    uow_type = MariaDBUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[MariaDBUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[MariaDBUnitOfWork]) -> AsyncGenerator[MariaDBUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: MariaDBUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `SQLiteProvider`
+
+```python
+class SQLiteProvider(DBProvider[SQLiteUnitOfWork]):
+    uow_type = SQLiteUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[SQLiteUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[SQLiteUnitOfWork]) -> AsyncGenerator[SQLiteUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: SQLiteUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `OracleProvider`
+
+```python
+class OracleProvider(DBProvider[OracleUnitOfWork]):
+    uow_type = OracleUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[OracleUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[OracleUnitOfWork]) -> AsyncGenerator[OracleUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: OracleUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `MSSQLProvider`
+
+```python
+class MSSQLProvider(DBProvider[MSSQLUnitOfWork]):
+    uow_type = MSSQLUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[MSSQLUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[MSSQLUnitOfWork]) -> AsyncGenerator[MSSQLUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: MSSQLUnitOfWork) -> AsyncSession:
+        ...
+```
+
+## `DBProvider`
+
+```python
+class DBProvider[U: UnitOfWork](Provider):
+    uow_type: type[U]
+
+    def __init__(self, config: DatabaseConfig) -> None:
+        ...
+
+    @asynccontextmanager
+    async def _database(self) -> AsyncGenerator[DBConnection[U]]:
+        ...
+```
+
+### `PGProvider`
+
+```python
+class PGProvider(DBProvider[PGUnitOfWork]):
+    uow_type = PGUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[PGUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[PGUnitOfWork]) -> AsyncGenerator[PGUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: PGUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `MySQLProvider`
+
+```python
+class MySQLProvider(DBProvider[MySQLUnitOfWork]):
+    uow_type = MySQLUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[MySQLUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[MySQLUnitOfWork]) -> AsyncGenerator[MySQLUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: MySQLUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `MariaDBProvider`
+
+```python
+class MariaDBProvider(DBProvider[MariaDBUnitOfWork]):
+    uow_type = MariaDBUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[MariaDBUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[MariaDBUnitOfWork]) -> AsyncGenerator[MariaDBUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: MariaDBUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `SQLiteProvider`
+
+```python
+class SQLiteProvider(DBProvider[SQLiteUnitOfWork]):
+    uow_type = SQLiteUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[SQLiteUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[SQLiteUnitOfWork]) -> AsyncGenerator[SQLiteUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: SQLiteUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `OracleProvider`
+
+```python
+class OracleProvider(DBProvider[OracleUnitOfWork]):
+    uow_type = OracleUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[OracleUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[OracleUnitOfWork]) -> AsyncGenerator[OracleUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: OracleUnitOfWork) -> AsyncSession:
+        ...
+```
+
+### `MSSQLProvider`
+
+```python
+class MSSQLProvider(DBProvider[MSSQLUnitOfWork]):
+    uow_type = MSSQLUnitOfWork
+
+    @provide(scope=Scope.APP)
+    async def database(self) -> AsyncGenerator[DBConnection[MSSQLUnitOfWork]]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    async def uow(self, connection: DBConnection[MSSQLUnitOfWork]) -> AsyncGenerator[MSSQLUnitOfWork]:
+        ...
+
+    @provide(scope=Scope.REQUEST)
+    def session(self, uow: MSSQLUnitOfWork) -> AsyncSession:
+        ...
+```
+
+## `PGProvider`
 
 ```python
 class PGProvider(Provider):

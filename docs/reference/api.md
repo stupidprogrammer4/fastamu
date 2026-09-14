@@ -1,68 +1,43 @@
-# API tools
+# API adapters
 
-Generated from this checkout. Code blocks show signatures; `...` replaces implementation bodies. These are reference declarations, not standalone executable modules.
+Signatures from this checkout. Providers and reusable tools are explicitly selected; these declarations are reference snippets.
 
-Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
+## `papilio.api.dependencies.auth`
 
-## `papilio.api.authentication`
-
-```python
-bearer = HTTPBearer(auto_error=False)
-```
+### `Scoped`
 
 ```python
-Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
-```
+class Scoped(Protocol):
 
-### `Principal`
-
-```python
-class Principal:
-    def __init__(self, subject: str, scopes: frozenset[str]) -> None:
+    @property
+    def scopes(self) -> frozenset[str]:
         ...
 ```
 
-### `get_current_principal`
+### `bearer`
 
 ```python
-@inject
-async def get_current_principal(credentials: Credentials, settings: FromDishka[Settings]) -> Principal:
+def bearer[T](authenticate: Callable[[str], Awaitable[T]]) -> Callable[..., Awaitable[T]]:
     ...
-```
-
-```python
-CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 ```
 
 ### `require_access`
 
 ```python
-def require_access(scope: str):
+def require_access[T: Scoped](principal: Callable[..., Awaitable[T]], scope: str) -> Callable[..., Awaitable[T]]:
     ...
 ```
 
-## `papilio.api.middlewares.logging`
+## `papilio.api.dependencies.ids`
 
-### `LoggingMiddleware`
-
-```python
-class LoggingMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, header_name: str='X-Request-ID') -> None:
-        ...
-
-    async def dispatch(self, request: Request, call_next) -> Response:
-        ...
-```
-
-## `papilio.api.rate_limit.dependencies`
+### `decode_path_id`
 
 ```python
-KeyPart = Callable[[Request], Awaitable[str]]
+def decode_path_id(encryption: IDEncryption, entity: str, param: str='id') -> Callable[..., int]:
+    ...
 ```
 
-```python
-type NamedLimits = dict[str, Throttled]
-```
+## `papilio.api.dependencies.rate_limit`
 
 ### `by_ip`
 
@@ -85,43 +60,29 @@ def rate_limit(name: str, parts: Sequence[KeyPart]=(by_ip,), *, closed_when_down
     ...
 ```
 
-## `papilio.api.rate_limit.middleware`
+## `papilio.api.middlewares.logging`
+
+### `LoggingMiddleware`
+
+```python
+class LoggingMiddleware(BaseHTTPMiddleware):
+
+    def __init__(self, app: ASGIApp, header_name: str='X-Request-ID') -> None:
+        ...
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        ...
+```
+
+## `papilio.api.middlewares.rate_limit`
 
 ### `RateLimitMiddleware`
 
 ```python
 class RateLimitMiddleware(BaseHTTPMiddleware):
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         ...
-```
-
-## `papilio.api.rate_limit.provider`
-
-### `RateLimitProvider`
-
-```python
-class RateLimitProvider(Provider):
-    scope = Scope.APP
-    @provide
-    def store(self, redis: RedisClient) -> RedisStore:
-        ...
-
-    @provide
-    def general(self, settings: Settings, store: RedisStore) -> Throttled:
-        ...
-
-    @provide
-    def rules(self, settings: Settings, store: RedisStore) -> NamedLimits:
-        ...
-```
-
-## `papilio.api.requests.parameters`
-
-### `decode_path_id`
-
-```python
-def decode_path_id(encryption: IDEncryption, entity: str, param: str='id') -> Callable[..., int]:
-    ...
 ```
 
 ## `papilio.api.requests.queries`
@@ -145,6 +106,13 @@ def pairs_folded(value: Sequence[str]) -> dict[int, list[int]]:
 ```python
 class BaseQuery(BaseDTO):
     model_config = ConfigDict(populate_by_name=True)
+    __mapped__: ClassVar[tuple[str, ...]] = ()
+    __maps__: ClassVar[tuple[str, ...]] = ()
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        ...
+
     @staticmethod
     def _carried(annotation: Any) -> Any:
         ...
@@ -154,10 +122,6 @@ class BaseQuery(BaseDTO):
 ```
 
 ## `papilio.api.responses.envelope`
-
-```python
-ErrorType = Union[*errors_types,]
-```
 
 ### `APIResponse`
 
@@ -169,6 +133,8 @@ class APIResponse[TOut: BaseModel | None, TMeta: BaseModel | None](BaseModel):
     meta: Optional[TMeta] = None
     error: Optional[ErrorType] = None
     errors: Optional[Sequence[ErrorType]] = None
+    _optional_envelope: ClassVar[tuple[str, ...]] = ('message_code', 'meta', 'error', 'errors')
+
     @model_serializer(mode='wrap')
     def _omit_empty_envelope(self, handler: SerializerFunctionWrapHandler) -> Any:
         ...
@@ -217,13 +183,6 @@ async def http_error_handler(request: Request, exc: StarletteHTTPException) -> J
     ...
 ```
 
-### `csrf_error_handler`
-
-```python
-async def csrf_error_handler(request: Request, exc: CsrfProtectError) -> JSONResponse:
-    ...
-```
-
 ### `unexcepted_error_handler`
 
 ```python
@@ -231,14 +190,19 @@ def unexcepted_error_handler(request: Request, exc: Exception) -> JSONResponse:
     ...
 ```
 
-```python
-exception_handlers = {PydanticError: pydantic_error_handler, StarletteHTTPException: http_error_handler, APPException: external_error_handler, CsrfProtectError: csrf_error_handler, Exception: unexcepted_error_handler}
-```
-
 ### `setup_exception_handlers`
 
 ```python
 def setup_exception_handlers(app: FastAPI) -> None:
+    ...
+```
+
+## `papilio.api.responses.csrf`
+
+### `csrf_error_handler`
+
+```python
+async def csrf_error_handler(request: Request, exc: CsrfProtectError) -> JSONResponse:
     ...
 ```
 
@@ -252,6 +216,7 @@ class PagerMeta(BaseModel):
     total_pages: int
     has_prev: bool
     has_next: bool
+
     @classmethod
     def from_total(cls, page: int, per_page: int, total: int) -> Self:
         ...
@@ -263,6 +228,7 @@ class PagerMeta(BaseModel):
 class SortMeta(BaseModel):
     options: list[EnumOut]
     orders: list[EnumOut]
+
     @classmethod
     def of(cls, options: type[FaStrEnum]) -> 'SortMeta':
         ...

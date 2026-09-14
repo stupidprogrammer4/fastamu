@@ -137,14 +137,11 @@ logger: Logger = Logger(name='app')
 
 ```python
 class CoreProvider(Provider):
+
     def __init__(self, settings: Settings | None=None) -> None:
         ...
 
     @provide(scope=Scope.APP)
     def settings(self) -> Settings:
-        ...
-
-    @provide(scope=Scope.APP)
-    def password_hasher(self, settings: Settings) -> PasswordHasher:
         ...
 ```
