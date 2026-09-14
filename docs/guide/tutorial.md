@@ -33,8 +33,8 @@ The CLI currently generates PostgreSQL SQL templates. Runtime support for other 
 Replace `shop/modules/products/domain/entities.py` with:
 
 ```python
-from papilio.infra.db.fields import CharField, IntField
-from papilio.infra.db.models import PersistenceEntity
+from papilio.infra.db.schema.fields import CharField, IntField
+from papilio.infra.db.schema.entity import PersistenceEntity
 
 
 class ProductModel(PersistenceEntity):

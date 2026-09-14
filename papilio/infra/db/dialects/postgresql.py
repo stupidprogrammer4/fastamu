@@ -4,7 +4,7 @@ from typing import Any, Unpack
 from sqlalchemy import BigInteger, Index
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
-from papilio.infra.db.fields import FieldOptions, _field
+from papilio.infra.db.schema.fields import FieldOptions, _field
 
 from .base import DatabaseDialect
 

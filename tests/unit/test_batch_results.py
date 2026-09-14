@@ -1,7 +1,7 @@
 import pytest
 
 from papilio.errors.exceptions import ValidationException
-from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.schema.entity import IdentifiedEntity
 from papilio.services import BaseIDService
 
 

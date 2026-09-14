@@ -26,7 +26,7 @@ from sqlmodel import Field
 
 from papilio.infra.db.connection import DBConnection
 from papilio.infra.db.dialects.oracle import OracleJSON
-from papilio.infra.db.models import (
+from papilio.infra.db.schema.entity import (
     BaseEntity,
     PersistenceEntity,
     TimestampEntity,

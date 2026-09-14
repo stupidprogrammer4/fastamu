@@ -26,7 +26,7 @@ def test_generated_sql_routes_and_query_tools(tmp_path, cqrs):
     config["db"]["dsn"] = dsn
     (root / "config.yml").write_text(yaml.safe_dump(config))
     (target / "domain/entities.py").write_text(
-        "from papilio.infra.db.models import PersistenceEntity\n"
+        "from papilio.infra.db.schema.entity import PersistenceEntity\n"
         "class ProductModel(PersistenceEntity):\n    name: str\n"
     )
     (target / "domain/dtos.py").write_text(

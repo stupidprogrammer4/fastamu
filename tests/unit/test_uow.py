@@ -6,7 +6,7 @@ from sqlalchemy import bindparam, insert, select, update
 from sqlmodel import Field
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.schema.entity import IdentifiedEntity
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.uow import SQLiteUnitOfWork, UnitOfWork
 

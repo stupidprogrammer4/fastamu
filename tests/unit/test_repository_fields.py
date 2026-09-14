@@ -8,8 +8,8 @@ from sqlalchemy import event, select
 from sqlalchemy.exc import IntegrityError
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.fields import CharField, IntField, JSONField
-from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.schema.fields import CharField, IntField, JSONField
+from papilio.infra.db.schema.entity import IdentifiedEntity
 from papilio.infra.db.repositories.backends.mariadb import (
     MariaDBIdentifiedRepository,
 )

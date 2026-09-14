@@ -16,8 +16,8 @@ Replace `Backend` with `PostgreSQL`, `SQLite`, or the selected database name. `V
 ## Define an entity and table
 
 ```python
-from papilio.infra.db.fields import CharField, IntField, JSONField
-from papilio.infra.db.models import IdentifiedEntity
+from papilio.infra.db.schema.fields import CharField, IntField, JSONField
+from papilio.infra.db.schema.entity import IdentifiedEntity
 from papilio.infra.db.table import BaseTable
 
 

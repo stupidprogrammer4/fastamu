@@ -11,7 +11,7 @@ from dishka.exceptions import GraphMissingFactoryError, NoFactoryError
 from sqlmodel import Field
 
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.models import BaseEntity
+from papilio.infra.db.schema.entity import BaseEntity
 from papilio.infra.db.repositories.backends.postgresql import (
     PostgreSQLRepository,
 )

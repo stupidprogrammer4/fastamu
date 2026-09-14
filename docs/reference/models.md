@@ -4,7 +4,7 @@ Generated from this checkout. Code blocks show signatures; `...` replaces implem
 
 Single-underscore methods are protected extension tools. For inherited methods, follow the base class reference. Localized string values use Unicode escapes.
 
-## `papilio.infra.db.fields`
+## `papilio.infra.db.schema.fields`
 
 ### `FieldOptions`
 
@@ -138,7 +138,7 @@ def ForeignKeyField(target: str, *, ondelete: str | None=None, **options: Unpack
     ...
 ```
 
-## `papilio.infra.db.models`
+## `papilio.infra.db.schema.entity`
 
 ### `BaseEntity`
 

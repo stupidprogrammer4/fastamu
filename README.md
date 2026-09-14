@@ -436,8 +436,8 @@ no table mapping or `__tablename__`. These SQLModel schemas describe
 what a brand *is*, and knows nothing about where brands are kept.
 
 ```python
-from papilio.infra.db.models import PersistenceEntity
-from papilio.infra.db.fields import BoolField, CharField
+from papilio.infra.db.schema.entity import PersistenceEntity
+from papilio.infra.db.schema.fields import BoolField, CharField
 
 
 class BrandModel(PersistenceEntity):
@@ -448,7 +448,7 @@ class BrandModel(PersistenceEntity):
 
 `PersistenceEntity` contributes `id`, `created_at` and `updated_at`. Columns use
 the **field factories** from
-[papilio/infra/db/fields.py](papilio/infra/db/fields.py), which default to
+[papilio/infra/db/schema/fields.py](papilio/infra/db/schema/fields.py), which default to
 `NOT NULL`. Common options are direct named arguments:
 
 ```python
@@ -855,7 +855,7 @@ lifetimes and dependency wiring.
 
 ### Model bases
 
-In `papilio.infra.db.models` — all pure, none of them a table:
+In `papilio.infra.db.schema.entity` — all pure, none of them a table:
 
 | Base | Adds |
 |---|---|

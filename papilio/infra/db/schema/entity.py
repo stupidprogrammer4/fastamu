@@ -7,7 +7,7 @@ import orjson
 from sqlalchemy import func, text
 from sqlmodel import SQLModel
 
-from papilio.infra.db.fields import (
+from papilio.infra.db.schema.fields import (
     IDField,
     TimestampField,
     VersionField,

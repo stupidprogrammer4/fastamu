@@ -26,7 +26,7 @@ from sqlalchemy.sql.dml import Update
 from sqlalchemy.sql.elements import ColumnClause
 from sqlmodel import col
 
-from papilio.infra.db.models import (
+from papilio.infra.db.schema.entity import (
     BaseEntity,
     IdentifiedEntity,
     PersistenceEntity,

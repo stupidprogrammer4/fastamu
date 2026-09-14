@@ -13,7 +13,7 @@ from sqlalchemy.sql.elements import ColumnClause
 from sqlalchemy.sql.selectable import CTE
 from sqlmodel import col
 
-from papilio.infra.db.models import (
+from papilio.infra.db.schema.entity import (
     BaseEntity,
     IdentifiedEntity,
     PersistenceEntity,

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Sequence
 from datetime import datetime
 
-from papilio.infra.db.models import (
+from papilio.infra.db.schema.entity import (
     BaseEntity,
     IdentifiedEntity,
     PersistenceEntity,

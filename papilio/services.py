@@ -5,7 +5,7 @@ from papilio.errors.exceptions import (
     NotFoundException,
     ValidationException,
 )
-from papilio.infra.db.models import BaseEntity, IdentifiedEntity
+from papilio.infra.db.schema.entity import BaseEntity, IdentifiedEntity
 from papilio.schemas.results import BatchResultType
 
 
