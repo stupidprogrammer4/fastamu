@@ -68,6 +68,8 @@ async def test_application_instances_own_settings_and_resource_lifetimes(
 
 
 async def test_startup_failure_closes_acquired_resources(monkeypatch):
+    from contextlib import asynccontextmanager
+
     from papilio.infra.es.client import ESClient
 
     class Search(Provider):
@@ -82,7 +84,15 @@ async def test_startup_failure_closes_acquired_resources(monkeypatch):
         yaml.safe_load(project.files("shop", "Shop", cqrs=True)["config.yml"])
     )
     config.app.modules = []
-    app = create_app(config, providers=(Resources(), Search()))
+
+    @asynccontextmanager
+    async def lifespan(app):
+        await app.state.dishka_container.get(ESClient)
+        yield
+
+    app = create_app(
+        config, providers=(Resources(), Search()), lifespan=lifespan
+    )
     resource = await app.state.dishka_container.get(Resource)
     with pytest.raises(RuntimeError, match="search startup failed"):
         async with app.router.lifespan_context(app):

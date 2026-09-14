@@ -22,7 +22,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import SQLModel
 
-from papilio.api.rate_limit.provider import RateLimitProvider
 from papilio.core.bootstrap import get_bootstrapper
 from papilio.core.config import Settings
 from papilio.infra.db.connection import DBConnection
@@ -30,6 +29,7 @@ from papilio.infra.db.uow import PGUnitOfWork
 from papilio.infra.es.client import ESClient
 from papilio.infra.http.connection import HTTPConnection
 from papilio.infra.redis.client import RedisClient
+from papilio.providers.rate_limit.redis import RedisRateProvider
 from papilio.security.passwords import PasswordHasher
 
 
@@ -160,9 +160,7 @@ async def es(integration_settings: Settings) -> AsyncIterator[ESClient]:
 
 
 @pytest.fixture
-async def clean_db(
-    pg: DBConnection[PGUnitOfWork], es: ESClient
-) -> None:
+async def clean_db(pg: DBConnection[PGUnitOfWork], es: ESClient) -> None:
     """Empty every mapped table and read-model index (both discovered from the
     modules) between tests."""
     bootstrapper = get_bootstrapper()
@@ -255,6 +253,7 @@ def core_provider_of(test_settings: Settings) -> Provider:
 
         @provide(scope=Scope.APP)
         def password_hasher(self, settings: Settings) -> PasswordHasher:
+            assert settings.crypto is not None
             return PasswordHasher(settings.crypto.password_salt)
 
         @provide(scope=Scope.APP)
@@ -338,7 +337,7 @@ async def dishka_container(integration_settings: Settings, test_dsn: str):
     # edit here.
     container = make_async_container(
         core_provider_of(test_settings_of(integration_settings, test_dsn)),
-        RateLimitProvider(),
+        RedisRateProvider(),
         *get_bootstrapper().boot_providers(),
     )
     try:
@@ -400,7 +399,7 @@ async def api_container(api_settings: Settings):
     container = make_async_container(
         FastapiProvider(),
         core_provider_of(api_settings),
-        RateLimitProvider(),
+        RedisRateProvider(),
         *get_bootstrapper().boot_providers(),
     )
     try:

@@ -39,15 +39,9 @@ def create_app(
     bootstrapper = Bootstrapper(config.app.modules)
     discovered = bootstrapper.boot_providers()
     discovered_routers = bootstrapper.boot_routers()
-    rate_providers: list[Provider] = []
-    if config.rate_limit.enabled:
-        from .rate_limit.provider import RateLimitProvider
-
-        rate_providers.append(RateLimitProvider())
     container = make_async_container(
         FastapiProvider(),
         CoreProvider(config),
-        *rate_providers,
         *discovered,
         *providers,
     )
@@ -58,11 +52,6 @@ def create_app(
     ) -> AsyncGenerator[Mapping[str, Any]]:
         try:
             logger.setup(config.logging)
-            if config.es is not None:
-                from papilio.infra.es.client import ESClient
-
-                es = await container.get(ESClient)
-                await bootstrapper.boot_es_indices(es.client)
             if lifespan is None:
                 yield {}
             else:
@@ -83,14 +72,6 @@ def create_app(
                 allow_headers=["*"],
             ),
         )
-        if config.rate_limit.enabled:
-            from .rate_limit.middleware import RateLimitMiddleware
-
-            middleware = (
-                middleware[0],
-                Middleware(RateLimitMiddleware),
-                *middleware[1:],
-            )
     options = {
         "title": config.fastapi.title,
         "description": config.fastapi.description,

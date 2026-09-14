@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 from starlette.requests import Request
 
-from papilio.api.rate_limit.dependencies import by_ip
+from papilio.api.dependencies.rate_limit import by_ip
 from papilio.core.config import get_settings
 
 

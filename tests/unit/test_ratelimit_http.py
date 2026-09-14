@@ -1,4 +1,3 @@
-from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -6,20 +5,20 @@ from dishka import Provider, Scope, make_async_container, provide
 from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from throttled.asyncio.store import MemoryStore, RedisStore
 
-from papilio.api.rate_limit.dependencies import (
+from papilio.api.dependencies.rate_limit import (
     by_body_field,
     by_ip,
     rate_limit,
 )
-from papilio.api.rate_limit.middleware import RateLimitMiddleware
-from papilio.api.rate_limit.provider import RateLimitProvider
+from papilio.api.middlewares.rate_limit import RateLimitMiddleware
 from papilio.api.responses.handlers import (
     setup_exception_handlers,
 )
-from papilio.core.config import RateLimitRule, Settings, get_settings
+from papilio.core.config import Settings, get_settings
 from papilio.infra.db.uow import UnitOfWork
+from papilio.providers.rate_limit.memory import MemoryRateProvider
+from papilio.tools.rate_limit.config import RateLimitRule
 
 
 @pytest.mark.asyncio
@@ -47,11 +46,7 @@ async def test_global_cross_path_and_independent_account_limits(general):
         def config(self) -> Settings:
             return settings
 
-        @provide(override=True)
-        def store(self) -> RedisStore:
-            return cast(RedisStore, MemoryStore())
-
-    container = make_async_container(RateLimitProvider(), TestProvider())
+    container = make_async_container(MemoryRateProvider(), TestProvider())
     app = FastAPI()
     app.add_middleware(RateLimitMiddleware)
     setup_dishka(container, app)

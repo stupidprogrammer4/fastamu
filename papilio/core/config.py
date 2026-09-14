@@ -9,6 +9,8 @@ from typing import Literal, TypeVar, overload
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from papilio.tools.rate_limit.config import RateLimitConfig
+
 
 class Feature(StrEnum):
     CQRS = "cqrs"
@@ -61,31 +63,6 @@ class HTTPConfig(BaseModel):
     follow_redirects: bool = True
 
 
-class RateLimitRule(BaseModel):
-    """One budget: `limit` calls per `window_seconds`."""
-
-    limit: int = Field(gt=0)
-    window_seconds: int = Field(gt=0)
-
-
-class RateLimitConfig(BaseModel):
-    """The rate-limit budgets, all of them tunable without a deploy.
-
-    `general` is the blanket rule the middleware applies to every request;
-    `rules` are the named ones a route asks for by name via
-    `rate_limit("login")` — a route whose name is missing here is simply not
-    limited, so a rule can be dropped from the config to turn it off.
-
-    `trusted_proxies` lists the peers whose ``X-Forwarded-For`` may be
-    believed. Leave it empty when nothing sits in front of the app: an unvetted
-    header is a free way to spoof a fresh bucket per call."""
-
-    enabled: bool = False
-    trusted_proxies: list[str] = Field(default_factory=list)
-    general: RateLimitRule = RateLimitRule(limit=120, window_seconds=60)
-    rules: dict[str, RateLimitRule] = Field(default_factory=dict)
-
-
 class JWTConfig(BaseModel):
     algorithm: str
     secret_key: str
@@ -132,12 +109,12 @@ class Settings(BaseModel):
     app: AppConfig = AppConfig()
     fastapi: FastAPIConfig
     db: DatabaseConfig | None = None
-    crypto: CryptoConfig
+    crypto: CryptoConfig | None = None
     redis: RedisConfig | None = None
     rate_limit: RateLimitConfig = RateLimitConfig()
-    jwt: JWTConfig
+    jwt: JWTConfig | None = None
     storage: StorageConfig
-    csrf: CSRFConfig
+    csrf: CSRFConfig | None = None
     es: ESConfig | None = None
     http: HTTPConfig | None = None
     logging: LoggingConfig
@@ -154,6 +131,9 @@ class FullSettings(Settings):
     the extras. Narrows the shapes the base leaves optional so a caller
     reads them without a None check."""
 
+    crypto: CryptoConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+    jwt: JWTConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
+    csrf: CSRFConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
     db: DatabaseConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
     redis: RedisConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
     http: HTTPConfig = Field(...)  # pyright: ignore[reportGeneralTypeIssues]
