@@ -312,7 +312,7 @@ modules/pricing/
 ├── routers/  interfaces.py  providers.py
 ```
 
-The reader extends `PostgreSQLReader` — a repository base
+The reader extends `PGReader` — a repository base
 with no model or table bound to it. It receives its typed UoW and session and
 returns the context its logic needs. The service splits in
 two: `run()` sits at the edge and does the reading, `calculate()` stays pure.
@@ -500,7 +500,7 @@ class BrandTable(BrandModel, BaseTable, table=True):
 
 Constraints and indexes that span columns live here too — `__table_args__`, a
 `UniqueConstraint`, an explicit `__tablename__`. Repositories are still declared
-against the **model** (`PostgreSQLIdentifiedRepository[BrandModel]`) and bind
+against the **model** (`PGIdentifiedRepository[BrandModel]`) and bind
 `table = BrandTable` explicitly in `infra/`.
 
 > **Table naming.** The class name becomes snake case and its final word is
@@ -571,13 +571,13 @@ Inherit and you get the whole CRUD surface for free.
 from sqlmodel import col, select
 
 from papilio.schemas.results import PagedType
-from papilio.infra.db.repositories.backends.postgresql import PostgreSQLIdentifiedRepository
+from papilio.infra.db.repositories.backends.postgresql import PGIdentifiedRepository
 from papilio.infra.db.tools.read import fetch_page
 from shop.modules.catalog.brands.domain.entities import BrandModel
 from shop.modules.catalog.brands.infra.tables import BrandTable
 
 
-class BrandRepository(PostgreSQLIdentifiedRepository[BrandModel]):
+class BrandRepository(PGIdentifiedRepository[BrandModel]):
     table = BrandTable
 
     async def get_by_slug(self, slug: str) -> BrandModel | None:
@@ -686,7 +686,7 @@ class BrandProvider(Provider):
 
 `provide(BrandService, provides=IBrandService)` binds the implementation to the
 `Protocol`. Callers depend on `IBrandService`; only this line knows the concrete
-class. `BrandRepository`'s `PostgreSQLUnitOfWork` argument is resolved by `PostgreSQLProvider`
+class. `BrandRepository`'s `PGUnitOfWork` argument is resolved by `PGProvider`
 — you never construct it.
 
 **This file is the entire registration.** No import into a central module, no list
@@ -760,15 +760,15 @@ dishka is the spine. Two scopes matter:
 - **`Scope.REQUEST`** — created per HTTP request.
 
 `CoreProvider` supplies settings and password hashing. Infrastructure providers
-are explicit: `PostgreSQLProvider(settings.db)`, `ESProvider(settings.es)`,
+are explicit: `PGProvider(settings.db)`, `ESProvider(settings.es)`,
 `RedisProvider(settings.redis)` and `HTTPProvider(settings.http)` live in each
 infra package's `provider.py`. After registering them, these types are available:
 
 | Inject this | Scope | What you get |
 |---|---|---|
 | `Settings` | APP | The parsed `config.yml` |
-| `DBConnection[PostgreSQLUnitOfWork]` | APP | The explicitly selected PostgreSQL engine + session factory |
-| `PostgreSQLUnitOfWork` | **REQUEST** | An open PostgreSQL session; operations own commit/rollback |
+| `DBConnection[PGUnitOfWork]` | APP | The explicitly selected PostgreSQL engine + session factory |
+| `PGUnitOfWork` | **REQUEST** | An open PostgreSQL session; operations own commit/rollback |
 | `ESClient` | APP | Async Elasticsearch client |
 | `RedisClient` | APP | Pooled async Redis client |
 
@@ -875,13 +875,13 @@ there is no repository factory, table discovery or runtime generic inspection.
 
 ```python
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLPersistenceRepository,
+    PGPersistenceRepository,
 )
 from shop.modules.catalog.products.domain.entities import ProductEntity
 from shop.modules.catalog.products.infra.tables import ProductTable
 
 
-class ProductRepository(PostgreSQLPersistenceRepository[ProductEntity]):
+class ProductRepository(PGPersistenceRepository[ProductEntity]):
     table = ProductTable
 ```
 
@@ -892,11 +892,11 @@ under `papilio.infra.db.repositories.backends`.
 
 | Shape | Example | Methods |
 |---|---|---|
-| Reader | `PostgreSQLReader` | Typed UoW for custom joins, aggregates and reports; no bound table |
-| Base | `PostgreSQLRepository[T]` | Explicit-column SQL builders; create/upsert/bulk writes; `get_one`, `get_all`, `get_all_stream`, `exists`, `count`, `get_page`, conditional `update` and `remove` |
-| ID | `PostgreSQLIdentifiedRepository[T]` | Base methods plus `get_by_id`, `get_by_ids`, `get_paged`, `update_by_id`, `update_by_ids`, `update_row_by_id`, `remove_by_id`, `remove_by_ids` |
-| Timestamp | `PostgreSQLTimestampRepository[T]` | Base methods plus `get_stream_range`, `get_paged_range` and `gt`, `ge`, `lt`, `le` stream/page variants |
-| ID + timestamp | `PostgreSQLPersistenceRepository[T]` | Combines the ID and timestamp methods |
+| Reader | `PGReader` | Typed UoW for custom joins, aggregates and reports; no bound table |
+| Base | `PGRepository[T]` | Explicit-column SQL builders; create/upsert/bulk writes; `get_one`, `get_all`, `get_all_stream`, `exists`, `count`, `get_page`, conditional `update` and `remove` |
+| ID | `PGIdentifiedRepository[T]` | Base methods plus `get_by_id`, `get_by_ids`, `get_paged`, `update_by_id`, `update_by_ids`, `update_row_by_id`, `remove_by_id`, `remove_by_ids` |
+| Timestamp | `PGTimestampRepository[T]` | Base methods plus `get_stream_range`, `get_paged_range` and `gt`, `ge`, `lt`, `le` stream/page variants |
+| ID + timestamp | `PGPersistenceRepository[T]` | Combines the ID and timestamp methods |
 
 Reusable database tools live together, separate from session and transaction ownership:
 
@@ -938,7 +938,7 @@ PostgreSQL ID updates return models. Oracle/MSSQL contracts expose no upsert.
 All six databases have Base, Identified, Timestamp and Persistence contracts.
 
 Database families share no executable repository base. Their constructors take
-backend-specific UoWs: `PostgreSQLRepository` takes `PostgreSQLUnitOfWork`,
+backend-specific UoWs: `PGRepository` takes `PGUnitOfWork`,
 `MySQLRepository` takes `MySQLUnitOfWork`, and likewise for the other backends.
 A single `DBConnection[U]` takes `uow_factory` and creates that UoW type.
 There is no repository
@@ -952,18 +952,18 @@ Application providers use native Dishka registration:
 ```python
 from dishka import Provider, Scope, provide
 from papilio.infra.db.repositories.contracts.postgresql import (
-    PostgreSQLPersistenceRepositoryContract,
+    PGPersistenceRepositoryContract,
 )
 
 class CatalogProvider(Provider):
     products = provide(
         ProductRepository,
-        provides=PostgreSQLPersistenceRepositoryContract[ProductEntity],
+        provides=PGPersistenceRepositoryContract[ProductEntity],
         scope=Scope.REQUEST,
     )
 ```
 
-`PostgreSQLProvider` configures its connection explicitly:
+`PGProvider` configures its connection explicitly:
 
 ```python
 connection = DBConnection(
@@ -972,10 +972,10 @@ connection = DBConnection(
     max_overflow=settings.db.max_overflow,
     pool_timeout=settings.db.pool_timeout,
     pool_recycle=settings.db.pool_recycle,
-    uow_factory=PostgreSQLUnitOfWork,
+    uow_factory=PGUnitOfWork,
 )
-# Inferred type: DBConnection[PostgreSQLUnitOfWork]
-# connection.uow() returns PostgreSQLUnitOfWork.
+# Inferred type: DBConnection[PGUnitOfWork]
+# connection.uow() returns PGUnitOfWork.
 ```
 
 For another backend, pass its UoW class as the factory and register it in the
@@ -985,8 +985,8 @@ classes or automatic backend selection. A custom provider opens the unit directl
 ```python
 @provide(scope=Scope.REQUEST)
 async def uow(
-    self, connection: DBConnection[PostgreSQLUnitOfWork]
-) -> AsyncIterator[PostgreSQLUnitOfWork]:
+    self, connection: DBConnection[PGUnitOfWork]
+) -> AsyncIterator[PGUnitOfWork]:
     async with connection.uow() as unit:
         yield unit
 ```
@@ -999,7 +999,7 @@ The example modules and scaffold explicitly choose PostgreSQL. Changing the
 DSN does not change their repository or dependency types.
 
 ```python
-# database is a DBConnection[PostgreSQLUnitOfWork].
+# database is a DBConnection[PGUnitOfWork].
 async with database.uow() as uow:
     repo = ProductRepository(uow)
     async with uow.transaction():
@@ -1060,7 +1060,7 @@ their own key.
 
 ### PostgreSQL tools and prepared operations
 
-PostgreSQL builders live on `PostgreSQLRepository[T: BaseEntity]` and have no
+PostgreSQL builders live on `PGRepository[T: BaseEntity]` and have no
 ID convention. They accept row mappings and explicit SQLAlchemy columns
 (`Table.__table__.c`), rather than deriving columns from an entity or the first
 row. All four builders perform no I/O and leave RETURNING and execution
@@ -1188,7 +1188,7 @@ parse driver errors on every write.
 
 ### Queries without a table repository
 
-Each database has its own reader: `PostgreSQLReader`,
+Each database has its own reader: `PGReader`,
 `MySQLReader`, `MariaDBReader`, `SQLiteReader`,
 `OracleReader`, and `MSSQLReader`. Each implements its own
 reader contract and takes the matching UoW. These readers can query several
@@ -1201,10 +1201,10 @@ or report type.
 from sqlalchemy import func, select
 from sqlmodel import col
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLReader,
+    PGReader,
 )
 
-class CatalogReader(PostgreSQLReader):
+class CatalogReader(PGReader):
     async def counts_by_category(self) -> dict[str, int]:
         stmt = (
             select(CategoryTable.name, func.count(ProductTable.id))
@@ -1216,7 +1216,7 @@ class CatalogReader(PostgreSQLReader):
 ```
 
 Register the reader with Dishka's ordinary `provide(CatalogReader)`; its
-constructor receives `PostgreSQLUnitOfWork`. Choose `result.mappings()` for
+constructor receives `PGUnitOfWork`. Choose `result.mappings()` for
 named report fields, iterate full rows for joined columns/entities, or use
 `result.scalars()` when the query deliberately selects a single value/model.
 The base does not collapse results to their first column. `uow.execute()` and
@@ -1615,8 +1615,8 @@ below describes that optional harness, not a base installation.
 | Fixture | Gives you |
 |---|---|
 | `migrated_test_db` (session) | Drops and recreates the `public` schema of `db.test_dsn`, then runs `alembic upgrade head`. **Refuses to run against a database whose name lacks `test`.** Skips cleanly if the DB is unreachable — but a migration that fails *after* connecting is still reported as a failure. |
-| `pg` | A `DBConnection[PostgreSQLUnitOfWork]` on the test DSN |
-| `uow` | An open `PostgreSQLUnitOfWork`; use `uow.transaction()` for writes that must commit |
+| `pg` | A `DBConnection[PGUnitOfWork]` on the test DSN |
+| `uow` | An open `PGUnitOfWork`; use `uow.transaction()` for writes that must commit |
 | `clean_db` | Empties every discovered table **and read-model index** between tests |
 | `es` | An `ESClient` on the configured hosts |
 | `dishka_container` / `dishka_request` | The **real** DI container, with module providers auto-discovered exactly as in production, but pointed at the test DB and explicit test resource configuration |

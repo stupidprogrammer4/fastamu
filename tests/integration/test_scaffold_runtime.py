@@ -50,7 +50,7 @@ from sqlalchemy import event
 from httpx import AsyncClient, ASGITransport
 from papilio.core.bootstrap import Bootstrapper
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork
 
 Bootstrapper.boot_es_indices = AsyncMock()
 from shop.main import app
@@ -77,7 +77,7 @@ if CQRS:
 async def main():
     async with app.router.lifespan_context(app):
         database = await app.state.dishka_container.get(
-            DBConnection[PostgreSQLUnitOfWork]
+            DBConnection[PGUnitOfWork]
         )
         async with database.engine.begin() as conn:
             await conn.run_sync(ProductTable.__table__.create)

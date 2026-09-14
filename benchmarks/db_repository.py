@@ -34,7 +34,7 @@ from papilio.infra.db.repositories.backends.oracle import (
     OracleIdentifiedRepository,
 )
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLIdentifiedRepository,
+    PGIdentifiedRepository,
 )
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
@@ -46,7 +46,7 @@ from papilio.infra.db.uow import (
     MSSQLUnitOfWork,
     MySQLUnitOfWork,
     OracleUnitOfWork,
-    PostgreSQLUnitOfWork,
+    PGUnitOfWork,
     SQLiteUnitOfWork,
 )
 
@@ -63,7 +63,7 @@ class Record(RecordEntity, BaseTable, table=True):
 
 
 BACKENDS = {
-    "postgresql": (PostgreSQLIdentifiedRepository, PostgreSQLUnitOfWork),
+    "postgresql": (PGIdentifiedRepository, PGUnitOfWork),
     "mysql": (MySQLIdentifiedRepository, MySQLUnitOfWork),
     "mariadb": (MariaDBIdentifiedRepository, MariaDBUnitOfWork),
     "sqlite": (SQLiteIdentifiedRepository, SQLiteUnitOfWork),

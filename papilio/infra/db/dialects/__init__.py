@@ -5,13 +5,13 @@ from .mariadb import MariaDBDialect
 from .mssql import MSSQLDialect
 from .mysql import MySQLDialect
 from .oracle import OracleDialect
-from .postgresql import PostgreSQLDialect
+from .postgresql import PGDialect
 from .sqlite import SQLiteDialect
 
 DIALECTS: dict[str, type[DatabaseDialect]] = {
     dialect.name: dialect
     for dialect in (
-        PostgreSQLDialect,
+        PGDialect,
         MySQLDialect,
         MariaDBDialect,
         SQLiteDialect,

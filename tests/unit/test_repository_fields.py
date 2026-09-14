@@ -17,7 +17,7 @@ from papilio.infra.db.repositories.backends.mysql import (
     MySQLIdentifiedRepository,
 )
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLIdentifiedRepository,
+    PGIdentifiedRepository,
 )
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteIdentifiedRepository,
@@ -26,7 +26,7 @@ from papilio.infra.db.table import BaseTable
 from papilio.infra.db.uow import (
     MariaDBUnitOfWork,
     MySQLUnitOfWork,
-    PostgreSQLUnitOfWork,
+    PGUnitOfWork,
     SQLiteUnitOfWork,
 )
 
@@ -53,7 +53,7 @@ class FieldMappingTable(FieldMappingEntity, BaseTable, table=True):
     params=[
         ("sqlite", SQLiteUnitOfWork, SQLiteIdentifiedRepository),
         ("mysql-orm", MySQLUnitOfWork, MySQLIdentifiedRepository),
-        ("postgresql", PostgreSQLUnitOfWork, PostgreSQLIdentifiedRepository),
+        ("postgresql", PGUnitOfWork, PGIdentifiedRepository),
         ("mysql", MySQLUnitOfWork, MySQLIdentifiedRepository),
         ("mariadb", MariaDBUnitOfWork, MariaDBIdentifiedRepository),
     ]

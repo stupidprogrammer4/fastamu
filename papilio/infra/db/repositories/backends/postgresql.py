@@ -33,31 +33,31 @@ from papilio.infra.db.schema.entity import (
     TimestampEntity,
 )
 from papilio.infra.db.repositories.contracts.postgresql import (
-    PostgreSQLIdentifiedRepositoryContract,
-    PostgreSQLPersistenceRepositoryContract,
-    PostgreSQLReaderContract,
-    PostgreSQLRepositoryContract,
-    PostgreSQLTimestampRepositoryContract,
+    PGIdentifiedRepositoryContract,
+    PGPersistenceRepositoryContract,
+    PGReaderContract,
+    PGRepositoryContract,
+    PGTimestampRepositoryContract,
 )
 from papilio.infra.db.tools.read import (
     fetch_page,
     stream,
 )
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork
 from papilio.schemas.results import PagedType
 
 
-class PostgreSQLReader(PostgreSQLReaderContract):
+class PGReader(PGReaderContract):
     """Table-independent base for PostgreSQL joins, aggregates and reports."""
 
-    def __init__(self, uow: PostgreSQLUnitOfWork) -> None:
+    def __init__(self, uow: PGUnitOfWork) -> None:
         self.uow = uow
 
 
-class PostgreSQLRepository[T: BaseEntity](PostgreSQLRepositoryContract[T]):
+class PGRepository[T: BaseEntity](PGRepositoryContract[T]):
     table: type[T]
 
-    def __init__(self, uow: PostgreSQLUnitOfWork):
+    def __init__(self, uow: PGUnitOfWork):
         self.uow = uow
 
     def _upsert_stmt(
@@ -287,8 +287,8 @@ class PostgreSQLRepository[T: BaseEntity](PostgreSQLRepositoryContract[T]):
         return cast(CursorResult[Any], result).rowcount
 
 
-class PostgreSQLIdentifiedRepository[T: IdentifiedEntity](
-    PostgreSQLRepository[T], PostgreSQLIdentifiedRepositoryContract[T]
+class PGIdentifiedRepository[T: IdentifiedEntity](
+    PGRepository[T], PGIdentifiedRepositoryContract[T]
 ):
     async def get_by_id(self, id: int) -> T | None:
         return await self.get_one(col(self.table.id) == id)
@@ -332,8 +332,8 @@ class PostgreSQLIdentifiedRepository[T: IdentifiedEntity](
         return await self.remove(col(self.table.id).in_(ids))
 
 
-class PostgreSQLTimestampRepository[T: TimestampEntity](
-    PostgreSQLRepository[T], PostgreSQLTimestampRepositoryContract[T]
+class PGTimestampRepository[T: TimestampEntity](
+    PGRepository[T], PGTimestampRepositoryContract[T]
 ):
     def _time_query(self):
         return select(self.table).order_by(col(self.table.created_at))
@@ -409,10 +409,10 @@ class PostgreSQLTimestampRepository[T: TimestampEntity](
         return await self._page_time(condition, limit, offset)
 
 
-class PostgreSQLPersistenceRepository[T: PersistenceEntity](
-    PostgreSQLIdentifiedRepository[T],
-    PostgreSQLTimestampRepository[T],
-    PostgreSQLPersistenceRepositoryContract[T],
+class PGPersistenceRepository[T: PersistenceEntity](
+    PGIdentifiedRepository[T],
+    PGTimestampRepository[T],
+    PGPersistenceRepositoryContract[T],
 ):
     def _time_query(self):
         return select(self.table).order_by(

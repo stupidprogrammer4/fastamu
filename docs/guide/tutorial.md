@@ -120,6 +120,6 @@ A duplicate SKU raises a database constraint error. If your API should return an
 
 ## 7. Understand the wiring
 
-`app.modules` points to `shop.modules`. At startup, the bootstrapper discovers tables, providers and routers. `PostgreSQLProvider` supplies an application-scoped connection and request-scoped UoW. The module provider connects the repository and service. `DishkaRoute` injects the service into each endpoint.
+`app.modules` points to `shop.modules`. At startup, the bootstrapper discovers tables, providers and routers. `PGProvider` supplies an application-scoped connection and request-scoped UoW. The module provider connects the repository and service. `DishkaRoute` injects the service into each endpoint.
 
 Next, add [custom queries and reports](repositories.md), then test [commit and rollback behavior](testing.md).

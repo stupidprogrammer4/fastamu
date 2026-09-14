@@ -13,7 +13,7 @@ from sqlmodel import Field
 from papilio.infra.db.connection import DBConnection
 from papilio.infra.db.schema.entity import BaseEntity
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLRepository,
+    PGRepository,
 )
 from papilio.infra.db.repositories.backends.sqlite import (
     SQLiteRepository,
@@ -50,7 +50,7 @@ class BindingProvider(Provider):
 @pytest.mark.parametrize(
     "backend,prefix",
     [
-        ("postgresql", "PostgreSQL"),
+        ("postgresql", "PG"),
         ("mysql", "MySQL"),
         ("mariadb", "MariaDB"),
         ("sqlite", "SQLite"),
@@ -203,14 +203,14 @@ async def test_named_bindings_share_only_their_own_session(
 
 
 async def test_wrong_backend_fails_when_building_container(databases):
-    class WrongRepository(PostgreSQLRepository[BindingEntity]):
+    class WrongRepository(PGRepository[BindingEntity]):
         table = BindingTable
 
     class WrongProvider(Provider):
         repository = provide(WrongRepository, scope=Scope.REQUEST)
 
-    # No custom validation: PostgreSQLUnitOfWork has no registered factory.
-    with pytest.raises(GraphMissingFactoryError, match="PostgreSQLUnitOfWork"):
+    # No custom validation: PGUnitOfWork has no registered factory.
+    with pytest.raises(GraphMissingFactoryError, match="PGUnitOfWork"):
         make_async_container(
             connection_provider(databases[0], ""), WrongProvider()
         )

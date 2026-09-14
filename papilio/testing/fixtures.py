@@ -26,7 +26,7 @@ from papilio.api.rate_limit.provider import RateLimitProvider
 from papilio.core.bootstrap import get_bootstrapper
 from papilio.core.config import Settings
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork
 from papilio.infra.es.client import ESClient
 from papilio.infra.http.connection import HTTPConnection
 from papilio.infra.redis.client import RedisClient
@@ -118,9 +118,9 @@ async def _reset_test_schema(dsn: str) -> None:
 @pytest.fixture
 async def pg(
     test_dsn: str,
-) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
+) -> AsyncIterator[DBConnection[PGUnitOfWork]]:
     connection = DBConnection(
-        uow_factory=PostgreSQLUnitOfWork,
+        uow_factory=PGUnitOfWork,
         dsn=test_dsn,
         pool_size=1,
         max_overflow=0,
@@ -135,8 +135,8 @@ async def pg(
 
 @pytest.fixture
 async def uow(
-    pg: DBConnection[PostgreSQLUnitOfWork],
-) -> AsyncIterator[PostgreSQLUnitOfWork]:
+    pg: DBConnection[PGUnitOfWork],
+) -> AsyncIterator[PGUnitOfWork]:
     async with pg.uow() as unit:
         yield unit
 
@@ -161,7 +161,7 @@ async def es(integration_settings: Settings) -> AsyncIterator[ESClient]:
 
 @pytest.fixture
 async def clean_db(
-    pg: DBConnection[PostgreSQLUnitOfWork], es: ESClient
+    pg: DBConnection[PGUnitOfWork], es: ESClient
 ) -> None:
     """Empty every mapped table and read-model index (both discovered from the
     modules) between tests."""
@@ -240,13 +240,13 @@ def core_provider_of(test_settings: Settings) -> Provider:
     class TestCoreProvider(Provider):
         @provide(scope=Scope.REQUEST)
         async def uow(
-            self, connection: DBConnection[PostgreSQLUnitOfWork]
-        ) -> AsyncIterator[PostgreSQLUnitOfWork]:
+            self, connection: DBConnection[PGUnitOfWork]
+        ) -> AsyncIterator[PGUnitOfWork]:
             async with connection.uow() as unit:
                 yield unit
 
         @provide(scope=Scope.REQUEST)
-        def session(self, uow: PostgreSQLUnitOfWork) -> AsyncSession:
+        def session(self, uow: PGUnitOfWork) -> AsyncSession:
             return uow.session
 
         @provide(scope=Scope.APP)
@@ -260,10 +260,10 @@ def core_provider_of(test_settings: Settings) -> Provider:
         @provide(scope=Scope.APP)
         async def database(
             self, settings: Settings
-        ) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
+        ) -> AsyncIterator[DBConnection[PGUnitOfWork]]:
             assert settings.db is not None
             database = DBConnection(
-                uow_factory=PostgreSQLUnitOfWork,
+                uow_factory=PGUnitOfWork,
                 dsn=settings.db.dsn,
                 pool_size=2,
                 max_overflow=1,

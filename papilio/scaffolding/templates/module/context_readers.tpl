@@ -1,10 +1,10 @@
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLReader,
+    PGReader,
 )
 from <<PKG>>.<<M>>.domain.context import <<P>>Context
 
 
-class <<P>>Reader(PostgreSQLReader):
+class <<P>>Reader(PGReader):
     """Reads the specific columns the <<S>> logic runs on — nothing more.
 
     It owns no table: one statement selects exactly the fields it needs and

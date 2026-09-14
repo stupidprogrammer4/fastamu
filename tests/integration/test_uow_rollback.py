@@ -16,9 +16,9 @@ from papilio.api.responses.handlers import (
 from papilio.core.config import get_settings
 from papilio.errors.exceptions import ValidationException
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.provider import PostgreSQLProvider
+from papilio.infra.db.provider import PGProvider
 from papilio.infra.db.tools.decorators import transactional
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ async def database(tmp_path):
         0,
         5,
         1800,
-        uow_factory=PostgreSQLUnitOfWork,
+        uow_factory=PGUnitOfWork,
     )
     try:
         yield db
@@ -62,11 +62,11 @@ async def records(database):
 async def client(database, records):
     class DatabaseProvider(Provider):
         @provide(scope=Scope.APP, override=True)
-        def database(self) -> DBConnection[PostgreSQLUnitOfWork]:
+        def database(self) -> DBConnection[PGUnitOfWork]:
             return database
 
     container = make_async_container(
-        PostgreSQLProvider(get_settings().db), DatabaseProvider()
+        PGProvider(get_settings().db), DatabaseProvider()
     )
     app = FastAPI()
     setup_dishka(container, app)
@@ -75,7 +75,7 @@ async def client(database, records):
     @app.post("/{outcome}")
     @inject
     @transactional
-    async def write(outcome: str, uow: FromDishka[PostgreSQLUnitOfWork]):
+    async def write(outcome: str, uow: FromDishka[PGUnitOfWork]):
         await uow.session.execute(insert(records).values(id=1))
         if outcome == "validation":
             raise ValidationException(

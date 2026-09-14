@@ -5,31 +5,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from papilio.core.config import DatabaseConfig
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork
 
 
-class PostgreSQLProvider(Provider):
+class PGProvider(Provider):
     def __init__(self, config: DatabaseConfig) -> None:
         super().__init__()
         self.config = config
 
     @provide(scope=Scope.REQUEST)
     async def uow(
-        self, connection: DBConnection[PostgreSQLUnitOfWork]
-    ) -> AsyncIterator[PostgreSQLUnitOfWork]:
+        self, connection: DBConnection[PGUnitOfWork]
+    ) -> AsyncIterator[PGUnitOfWork]:
         async with connection.uow() as unit:
             yield unit
 
     @provide(scope=Scope.REQUEST)
-    def session(self, uow: PostgreSQLUnitOfWork) -> AsyncSession:
+    def session(self, uow: PGUnitOfWork) -> AsyncSession:
         return uow.session
 
     @provide(scope=Scope.APP)
     async def database(
         self,
-    ) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
+    ) -> AsyncIterator[DBConnection[PGUnitOfWork]]:
         database = DBConnection(
-            uow_factory=PostgreSQLUnitOfWork,
+            uow_factory=PGUnitOfWork,
             dsn=self.config.dsn,
             pool_size=self.config.pool_size,
             max_overflow=self.config.max_overflow,

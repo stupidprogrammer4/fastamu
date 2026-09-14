@@ -8,15 +8,15 @@ from dishka import Provider, Scope, make_async_container, provide
 
 from papilio.core.config import get_settings
 from papilio.infra.db.connection import DBConnection
-from papilio.infra.db.provider import PostgreSQLProvider
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.provider import PGProvider
+from papilio.infra.db.uow import PGUnitOfWork
 from papilio.testing.fixtures import core_provider_of
 
 
 @pytest.fixture(params=["runtime", "testing"])
 def provider(request):
     if request.param == "runtime":
-        return PostgreSQLProvider(get_settings().db)
+        return PGProvider(get_settings().db)
     return core_provider_of(get_settings())
 
 
@@ -26,14 +26,14 @@ async def transaction(provider):
         commit=AsyncMock(), rollback=AsyncMock(), close=AsyncMock()
     )
     stub = SimpleNamespace(session_factory=lambda: session)
-    stub.uow = lambda: PostgreSQLUnitOfWork(
-        cast(DBConnection[PostgreSQLUnitOfWork], stub)
+    stub.uow = lambda: PGUnitOfWork(
+        cast(DBConnection[PGUnitOfWork], stub)
     )
-    connection = cast(DBConnection[PostgreSQLUnitOfWork], stub)
+    connection = cast(DBConnection[PGUnitOfWork], stub)
 
     class DatabaseProvider(Provider):
         @provide(scope=Scope.APP, override=True)
-        def database(self) -> DBConnection[PostgreSQLUnitOfWork]:
+        def database(self) -> DBConnection[PGUnitOfWork]:
             return connection
 
     container = make_async_container(provider, DatabaseProvider())
@@ -45,7 +45,7 @@ async def transaction(provider):
 
 async def test_scope_closes_without_committing(transaction):
     async with transaction.container(scope=Scope.REQUEST) as scope:
-        await scope.get(PostgreSQLUnitOfWork)
+        await scope.get(PGUnitOfWork)
     transaction.session.commit.assert_not_awaited()
     transaction.session.close.assert_awaited_once()
 
@@ -56,7 +56,7 @@ async def test_scope_closes_without_committing(transaction):
 async def test_scope_error_preserves_exception_and_closes(transaction, error):
     with pytest.raises(type(error)) as raised:
         async with transaction.container(scope=Scope.REQUEST) as scope:
-            await scope.get(PostgreSQLUnitOfWork)
+            await scope.get(PGUnitOfWork)
             raise error
     assert raised.value is error
     transaction.session.commit.assert_not_awaited()
@@ -78,18 +78,18 @@ async def test_provider_disposes_database_on_container_close(
         def settings(self) -> Settings:
             return settings
 
-    if isinstance(provider, PostgreSQLProvider):
+    if isinstance(provider, PGProvider):
         provider.config = settings.db
         container = make_async_container(provider)
     else:
         container = make_async_container(provider, SettingsProvider())
-    database = await container.get(DBConnection[PostgreSQLUnitOfWork])
+    database = await container.get(DBConnection[PGUnitOfWork])
     original_dispose = database.dispose
     dispose = AsyncMock(wraps=original_dispose)
     monkeypatch.setattr(database, "dispose", dispose)
     try:
         async with container(scope=Scope.REQUEST) as scope:
-            unit = await scope.get(PostgreSQLUnitOfWork)
+            unit = await scope.get(PGUnitOfWork)
             await unit.session.execute(select(1))
         await container.close()
         dispose.assert_awaited_once()

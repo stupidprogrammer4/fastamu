@@ -409,21 +409,21 @@ class OraclePersistenceRepositoryContract[T: PersistenceEntity](OracleIdentified
 
 ## `papilio.infra.db.repositories.contracts.postgresql`
 
-### `PostgreSQLReaderContract`
+### `PGReaderContract`
 
 ```python
-class PostgreSQLReaderContract(ReaderContract[PostgreSQLUnitOfWork]):
+class PGReaderContract(ReaderContract[PGUnitOfWork]):
     @abstractmethod
-    def __init__(self, uow: PostgreSQLUnitOfWork) -> None:
+    def __init__(self, uow: PGUnitOfWork) -> None:
         ...
 ```
 
-### `PostgreSQLRepositoryContract`
+### `PGRepositoryContract`
 
 ```python
-class PostgreSQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
     @abstractmethod
-    def __init__(self, uow: PostgreSQLUnitOfWork) -> None:
+    def __init__(self, uow: PGUnitOfWork) -> None:
         ...
 
     @abstractmethod
@@ -487,10 +487,10 @@ class PostgreSQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
         ...
 ```
 
-### `PostgreSQLIdentifiedRepositoryContract`
+### `PGIdentifiedRepositoryContract`
 
 ```python
-class PostgreSQLIdentifiedRepositoryContract[T: IdentifiedEntity](PostgreSQLRepositoryContract[T], IdentifiedRepositoryContract[T]):
+class PGIdentifiedRepositoryContract[T: IdentifiedEntity](PGRepositoryContract[T], IdentifiedRepositoryContract[T]):
     @abstractmethod
     async def update_by_id(self, id: int, changes: Mapping[str, Any]) -> T | None:
         ...
@@ -504,17 +504,17 @@ class PostgreSQLIdentifiedRepositoryContract[T: IdentifiedEntity](PostgreSQLRepo
         ...
 ```
 
-### `PostgreSQLTimestampRepositoryContract`
+### `PGTimestampRepositoryContract`
 
 ```python
-class PostgreSQLTimestampRepositoryContract[T: TimestampEntity](PostgreSQLRepositoryContract[T], TimestampRepositoryContract[T]):
+class PGTimestampRepositoryContract[T: TimestampEntity](PGRepositoryContract[T], TimestampRepositoryContract[T]):
     ...
 ```
 
-### `PostgreSQLPersistenceRepositoryContract`
+### `PGPersistenceRepositoryContract`
 
 ```python
-class PostgreSQLPersistenceRepositoryContract[T: PersistenceEntity](PostgreSQLIdentifiedRepositoryContract[T], PostgreSQLTimestampRepositoryContract[T], PersistenceRepositoryContract[T]):
+class PGPersistenceRepositoryContract[T: PersistenceEntity](PGIdentifiedRepositoryContract[T], PGTimestampRepositoryContract[T], PersistenceRepositoryContract[T]):
     ...
 ```
 

@@ -85,7 +85,7 @@ class ReportReader(SQLiteReader):
 @pytest.mark.parametrize(
     "backend,prefix",
     [
-        ("postgresql", "PostgreSQL"),
+        ("postgresql", "PG"),
         ("mysql", "MySQL"),
         ("mariadb", "MariaDB"),
         ("sqlite", "SQLite"),

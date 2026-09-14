@@ -26,23 +26,23 @@ class DBConnection[U: UnitOfWork]:
 
 ## `papilio.infra.db.provider`
 
-### `PostgreSQLProvider`
+### `PGProvider`
 
 ```python
-class PostgreSQLProvider(Provider):
+class PGProvider(Provider):
     def __init__(self, config: DatabaseConfig) -> None:
         ...
 
     @provide(scope=Scope.REQUEST)
-    async def uow(self, connection: DBConnection[PostgreSQLUnitOfWork]) -> AsyncIterator[PostgreSQLUnitOfWork]:
+    async def uow(self, connection: DBConnection[PGUnitOfWork]) -> AsyncIterator[PGUnitOfWork]:
         ...
 
     @provide(scope=Scope.REQUEST)
-    def session(self, uow: PostgreSQLUnitOfWork) -> AsyncSession:
+    def session(self, uow: PGUnitOfWork) -> AsyncSession:
         ...
 
     @provide(scope=Scope.APP)
-    async def database(self) -> AsyncIterator[DBConnection[PostgreSQLUnitOfWork]]:
+    async def database(self) -> AsyncIterator[DBConnection[PGUnitOfWork]]:
         ...
 ```
 
@@ -179,10 +179,10 @@ class UnitOfWork:
         ...
 ```
 
-### `PostgreSQLUnitOfWork`
+### `PGUnitOfWork`
 
 ```python
-class PostgreSQLUnitOfWork(UnitOfWork):
+class PGUnitOfWork(UnitOfWork):
     ...
 ```
 

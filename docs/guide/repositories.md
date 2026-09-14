@@ -6,23 +6,23 @@ A repository binds one table. A reader has no table requirement and is suitable 
 
 ```python
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLIdentifiedRepository,
+    PGIdentifiedRepository,
 )
 from shop.modules.products.domain.entities import ProductModel
 from shop.modules.products.infra.tables import ProductTable
 
 
-class ProductRepository(PostgreSQLIdentifiedRepository[ProductModel]):
+class ProductRepository(PGIdentifiedRepository[ProductModel]):
     table = ProductTable
 ```
 
-This repository requires `PostgreSQLUnitOfWork`. There is no per-request repository routing based on the DSN. For SQLite, select both a SQLite repository and SQLite UoW; the [complete example](../examples/index.md) demonstrates this.
+This repository requires `PGUnitOfWork`. There is no per-request repository routing based on the DSN. For SQLite, select both a SQLite repository and SQLite UoW; the [complete example](../examples/index.md) demonstrates this.
 
 The `contracts` package defines abstract obligations; `backends` contains usable implementations and protected SQL builders. Select the base, identified, timestamp or persistence shape according to the fields your entity actually owns. A reader has only an execution context and does not require an entity type or `table`.
 
 ### Connect another backend to Dishka
 
-The bundled SQL provider is `PostgreSQLProvider`. For another backend, write an ordinary typed provider; no provider factory or runtime backend validator is required. For example, a SQLite application can use:
+The bundled SQL provider is `PGProvider`. For another backend, write an ordinary typed provider; no provider factory or runtime backend validator is required. For example, a SQLite application can use:
 
 ```python
 from collections.abc import AsyncIterator
@@ -108,11 +108,11 @@ Using the table from the tutorial:
 
 ```python
 from sqlalchemy import func, select
-from papilio.infra.db.repositories.backends.postgresql import PostgreSQLReader
+from papilio.infra.db.repositories.backends.postgresql import PGReader
 from shop.modules.products.infra.tables import ProductTable
 
 
-class StockReader(PostgreSQLReader):
+class StockReader(PGReader):
     async def totals(self):
         stmt = select(
             func.count(ProductTable.id).label("products"),

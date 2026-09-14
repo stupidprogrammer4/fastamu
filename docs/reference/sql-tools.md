@@ -78,10 +78,10 @@ class OracleJSON(TypeDecorator[Any]):
 
 ## `papilio.infra.db.dialects.postgresql`
 
-### `PostgreSQLDialect`
+### `PGDialect`
 
 ```python
-class PostgreSQLDialect(DatabaseDialect):
+class PGDialect(DatabaseDialect):
     name = 'postgresql'
     def unique_values(self, error):
         ...

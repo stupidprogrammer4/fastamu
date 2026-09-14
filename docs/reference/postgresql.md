@@ -6,20 +6,20 @@ Single-underscore methods are protected extension tools. For inherited methods, 
 
 ## `papilio.infra.db.repositories.backends.postgresql`
 
-### `PostgreSQLReader`
+### `PGReader`
 
 ```python
-class PostgreSQLReader(PostgreSQLReaderContract):
-    def __init__(self, uow: PostgreSQLUnitOfWork) -> None:
+class PGReader(PGReaderContract):
+    def __init__(self, uow: PGUnitOfWork) -> None:
         ...
 ```
 
-### `PostgreSQLRepository`
+### `PGRepository`
 
 ```python
-class PostgreSQLRepository[T: BaseEntity](PostgreSQLRepositoryContract[T]):
+class PGRepository[T: BaseEntity](PGRepositoryContract[T]):
     table: type[T]
-    def __init__(self, uow: PostgreSQLUnitOfWork):
+    def __init__(self, uow: PGUnitOfWork):
         ...
 
     def _upsert_stmt(self, row: Mapping[str, Any], *, conflict_columns: Sequence[ColumnClause[Any]], update_columns: Sequence[ColumnClause[Any]], changes: Mapping[ColumnClause[Any], Any] | None=None) -> Insert:
@@ -74,10 +74,10 @@ class PostgreSQLRepository[T: BaseEntity](PostgreSQLRepositoryContract[T]):
         ...
 ```
 
-### `PostgreSQLIdentifiedRepository`
+### `PGIdentifiedRepository`
 
 ```python
-class PostgreSQLIdentifiedRepository[T: IdentifiedEntity](PostgreSQLRepository[T], PostgreSQLIdentifiedRepositoryContract[T]):
+class PGIdentifiedRepository[T: IdentifiedEntity](PGRepository[T], PGIdentifiedRepositoryContract[T]):
     async def get_by_id(self, id: int) -> T | None:
         ...
 
@@ -103,10 +103,10 @@ class PostgreSQLIdentifiedRepository[T: IdentifiedEntity](PostgreSQLRepository[T
         ...
 ```
 
-### `PostgreSQLTimestampRepository`
+### `PGTimestampRepository`
 
 ```python
-class PostgreSQLTimestampRepository[T: TimestampEntity](PostgreSQLRepository[T], PostgreSQLTimestampRepositoryContract[T]):
+class PGTimestampRepository[T: TimestampEntity](PGRepository[T], PGTimestampRepositoryContract[T]):
     def _time_query(self):
         ...
 
@@ -147,10 +147,10 @@ class PostgreSQLTimestampRepository[T: TimestampEntity](PostgreSQLRepository[T],
         ...
 ```
 
-### `PostgreSQLPersistenceRepository`
+### `PGPersistenceRepository`
 
 ```python
-class PostgreSQLPersistenceRepository[T: PersistenceEntity](PostgreSQLIdentifiedRepository[T], PostgreSQLTimestampRepository[T], PostgreSQLPersistenceRepositoryContract[T]):
+class PGPersistenceRepository[T: PersistenceEntity](PGIdentifiedRepository[T], PGTimestampRepository[T], PGPersistenceRepositoryContract[T]):
     def _time_query(self):
         ...
 ```

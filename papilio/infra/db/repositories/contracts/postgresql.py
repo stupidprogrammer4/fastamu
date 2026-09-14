@@ -22,18 +22,18 @@ from papilio.infra.db.repositories.contracts.base import (
     RepositoryContract,
     TimestampRepositoryContract,
 )
-from papilio.infra.db.uow import PostgreSQLUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork
 from papilio.schemas.results import PagedType
 
 
-class PostgreSQLReaderContract(ReaderContract[PostgreSQLUnitOfWork]):
+class PGReaderContract(ReaderContract[PGUnitOfWork]):
     @abstractmethod
-    def __init__(self, uow: PostgreSQLUnitOfWork) -> None: ...
+    def __init__(self, uow: PGUnitOfWork) -> None: ...
 
 
-class PostgreSQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
+class PGRepositoryContract[T: BaseEntity](RepositoryContract[T]):
     @abstractmethod
-    def __init__(self, uow: PostgreSQLUnitOfWork) -> None: ...
+    def __init__(self, uow: PGUnitOfWork) -> None: ...
 
     @abstractmethod
     def _upsert_stmt(
@@ -143,8 +143,8 @@ class PostgreSQLRepositoryContract[T: BaseEntity](RepositoryContract[T]):
     async def remove(self, where: ColumnElement[bool]) -> int: ...
 
 
-class PostgreSQLIdentifiedRepositoryContract[T: IdentifiedEntity](
-    PostgreSQLRepositoryContract[T], IdentifiedRepositoryContract[T]
+class PGIdentifiedRepositoryContract[T: IdentifiedEntity](
+    PGRepositoryContract[T], IdentifiedRepositoryContract[T]
 ):
     @abstractmethod
     async def update_by_id(
@@ -160,13 +160,13 @@ class PostgreSQLIdentifiedRepositoryContract[T: IdentifiedEntity](
     async def update_row_by_id(self, id: int, data: T) -> T | None: ...
 
 
-class PostgreSQLTimestampRepositoryContract[T: TimestampEntity](
-    PostgreSQLRepositoryContract[T], TimestampRepositoryContract[T]
+class PGTimestampRepositoryContract[T: TimestampEntity](
+    PGRepositoryContract[T], TimestampRepositoryContract[T]
 ): ...
 
 
-class PostgreSQLPersistenceRepositoryContract[T: PersistenceEntity](
-    PostgreSQLIdentifiedRepositoryContract[T],
-    PostgreSQLTimestampRepositoryContract[T],
+class PGPersistenceRepositoryContract[T: PersistenceEntity](
+    PGIdentifiedRepositoryContract[T],
+    PGTimestampRepositoryContract[T],
     PersistenceRepositoryContract[T],
 ): ...

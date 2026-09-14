@@ -13,13 +13,13 @@ from sqlmodel import Field
 from papilio.infra.db.connection import DBConnection
 from papilio.infra.db.schema.entity import BaseEntity
 from papilio.infra.db.repositories.backends.postgresql import (
-    PostgreSQLReader,
-    PostgreSQLRepository,
+    PGReader,
+    PGRepository,
 )
 from papilio.infra.db.repositories.backends.sqlite import SQLiteRepository
 from papilio.infra.db.table import BaseTable
 from papilio.infra.db.transaction import transaction
-from papilio.infra.db.uow import PostgreSQLUnitOfWork, SQLiteUnitOfWork
+from papilio.infra.db.uow import PGUnitOfWork, SQLiteUnitOfWork
 
 
 class ToolEntity(BaseEntity):
@@ -29,15 +29,15 @@ class ToolEntity(BaseEntity):
     payload: dict | None = Field(default=None, sa_type=JSON)
 
 
-class PostgreSQLToolTable(ToolEntity, BaseTable, table=True):
+class PGToolTable(ToolEntity, BaseTable, table=True):
     pass
 
 
-class ToolRepository(PostgreSQLRepository[ToolEntity]):
-    table = PostgreSQLToolTable
+class ToolRepository(PGRepository[ToolEntity]):
+    table = PGToolTable
 
 
-columns = PostgreSQLToolTable.__table__.c
+columns = PGToolTable.__table__.c
 
 
 def test_values_grid_uses_explicit_order_types_and_extra_columns():
@@ -77,7 +77,7 @@ def test_builders_leave_returning_and_execution_options_to_caller():
         )
         returned = stmt.returning(columns.amount)
         assert str(returned.compile(dialect=postgresql.dialect())).endswith(
-            f"RETURNING {PostgreSQLToolTable.__table__.name}.amount"
+            f"RETURNING {PGToolTable.__table__.name}.amount"
         )
 
 
@@ -108,17 +108,17 @@ async def postgres_tools():
         pytest.skip(
             "Set FASTAMU_TEST_POSTGRESQL for live PostgreSQL tool tests"
         )
-    db = DBConnection(dsn, 2, 0, 5, 1800, uow_factory=PostgreSQLUnitOfWork)
+    db = DBConnection(dsn, 2, 0, 5, 1800, uow_factory=PGUnitOfWork)
     created = False
     try:
         async with db.engine.begin() as conn:
-            await conn.run_sync(PostgreSQLToolTable.__table__.create)
+            await conn.run_sync(PGToolTable.__table__.create)
             created = True
         yield db
     finally:
         if created:
             async with db.engine.begin() as conn:
-                await conn.run_sync(PostgreSQLToolTable.__table__.drop)
+                await conn.run_sync(PGToolTable.__table__.drop)
         await db.dispose()
 
 
@@ -215,7 +215,7 @@ async def test_reads_keep_pending_orm_changes_and_caller_can_refresh(
 ):
     async with postgres_tools.uow() as unit, transaction():
         repo = ToolRepository(unit)
-        query = PostgreSQLReader(unit)
+        query = PGReader(unit)
         row = await repo.create(ToolEntity(tenant=1, code="a", amount=1))
         statements = []
         event.listen(
@@ -227,7 +227,7 @@ async def test_reads_keep_pending_orm_changes_and_caller_can_refresh(
         )
         row.amount = 99
         await repo.get_all()
-        stmt = select(PostgreSQLToolTable)
+        stmt = select(PGToolTable)
         result = await query.uow.execute(stmt)
         assert result.scalar_one() is row
         await repo.get_page(order_by=[columns.tenant], limit=10)
@@ -236,7 +236,7 @@ async def test_reads_keep_pending_orm_changes_and_caller_can_refresh(
         assert all(
             stmt.lstrip().upper().startswith("SELECT") for stmt in statements
         )
-        stmt = select(PostgreSQLToolTable).execution_options(
+        stmt = select(PGToolTable).execution_options(
             populate_existing=True
         )
         result = await query.uow.execute(stmt)
@@ -246,7 +246,7 @@ async def test_reads_keep_pending_orm_changes_and_caller_can_refresh(
 
 async def test_sqlite_upsert_accepts_composite_keys_without_id(tmp_path):
     class Repository(SQLiteRepository[ToolEntity]):
-        table = PostgreSQLToolTable
+        table = PGToolTable
 
     db = DBConnection(
         f"sqlite+aiosqlite:///{tmp_path}/composite.db",
@@ -258,7 +258,7 @@ async def test_sqlite_upsert_accepts_composite_keys_without_id(tmp_path):
     )
     try:
         async with db.engine.begin() as connection:
-            await connection.run_sync(PostgreSQLToolTable.__table__.create)
+            await connection.run_sync(PGToolTable.__table__.create)
         async with db.uow() as unit, transaction():
             repo = Repository(unit)
             row = await repo.upsert(

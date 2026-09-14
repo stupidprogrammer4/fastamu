@@ -49,7 +49,7 @@ from papilio.infra.db.uow import (
     MSSQLUnitOfWork,
     MySQLUnitOfWork,
     OracleUnitOfWork,
-    PostgreSQLUnitOfWork,
+    PGUnitOfWork,
     SQLiteUnitOfWork,
 )
 
@@ -106,7 +106,7 @@ class MySQLProbe(my_repos.MySQLPersistenceRepository[ProbeEntity]):
     table = RepositoryProbeTable
 
 
-class PostgreSQLProbe(pg_repos.PostgreSQLPersistenceRepository[ProbeEntity]):
+class PGProbe(pg_repos.PGPersistenceRepository[ProbeEntity]):
     table = RepositoryProbeTable
 
 
@@ -216,7 +216,7 @@ async def runtime(request, tmp_path):
     uow_factories = {
         "sqlite": SQLiteUnitOfWork,
         "mysql-orm": MySQLUnitOfWork,
-        "postgresql": PostgreSQLUnitOfWork,
+        "postgresql": PGUnitOfWork,
         "mysql": MySQLUnitOfWork,
         "mariadb": MariaDBUnitOfWork,
         "oracle": OracleUnitOfWork,
@@ -226,7 +226,7 @@ async def runtime(request, tmp_path):
     repositories = {
         "sqlite": SQLiteProbe,
         "mysql-orm": MySQLProbe,
-        "postgresql": PostgreSQLProbe,
+        "postgresql": PGProbe,
         "mysql": MySQLProbe,
         "mariadb": MariaDBProbe,
         "oracle": OracleProbe,
@@ -248,7 +248,7 @@ async def runtime(request, tmp_path):
 
 
 async def update_probe_batch(repo, data, *, columns):
-    if isinstance(repo, PostgreSQLProbe):
+    if isinstance(repo, PGProbe):
         return await repo.bulk_update(
             [item.to_row() for item in data],
             key_columns=[RepositoryProbeTable.__table__.c.id],
@@ -456,7 +456,7 @@ async def test_base_and_timestamp_shapes_do_not_require_id(tmp_path):
 @pytest.mark.parametrize(
     "repo_type,dialect,syntax",
     [
-        (PostgreSQLProbe, postgresql.dialect(), "RETURNING"),
+        (PGProbe, postgresql.dialect(), "RETURNING"),
         (SQLiteProbe, sqlite.dialect(), "RETURNING"),
         (MariaDBProbe, mysql.dialect(), "RETURNING"),
         (OracleProbe, oracle.dialect(), "RETURNING"),
@@ -494,7 +494,7 @@ async def test_native_insert_and_bulk_update_sql(repo_type, dialect, syntax):
     "repo_type,dialect,options,syntax",
     [
         (
-            PostgreSQLProbe,
+            PGProbe,
             postgresql.dialect(),
             {
                 "conflict_columns": [RepositoryProbeTable.__table__.c.code],
@@ -595,7 +595,7 @@ async def test_overriding_bulk_update_builder_changes_public_write(runtime):
 @pytest.mark.parametrize(
     "repo_type,dialect",
     [
-        (PostgreSQLProbe, postgresql.dialect()),
+        (PGProbe, postgresql.dialect()),
         (SQLiteProbe, sqlite.dialect()),
         (MySQLProbe, mysql.dialect()),
         (MariaDBProbe, mysql.dialect()),
@@ -608,7 +608,7 @@ def test_bulk_update_builder_leaves_result_and_session_policy_to_caller(
 ):
     repo = repo_type(None)
     columns = RepositoryProbeTable.__table__.c
-    if repo_type is PostgreSQLProbe:
+    if repo_type is PGProbe:
         stmt = repo._bulk_update_stmt(
             [{"id": 1, "quantity": 7}],
             key_columns=[columns.id],
@@ -780,7 +780,7 @@ async def test_postgresql_values_grid_supports_custom_join_without_id(runtime):
 @pytest.mark.parametrize(
     "repo_type,uow_factory",
     [
-        (PostgreSQLProbe, PostgreSQLUnitOfWork),
+        (PGProbe, PGUnitOfWork),
         (MySQLProbe, MySQLUnitOfWork),
         (MariaDBProbe, MariaDBUnitOfWork),
         (SQLiteProbe, SQLiteUnitOfWork),

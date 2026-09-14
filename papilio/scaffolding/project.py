@@ -62,7 +62,7 @@ def files(
     wiring = []
     checks = []
     for feature, folder, cls, field in (
-        (Infrastructure.POSTGRESQL, "db", "PostgreSQLProvider", "db"),
+        (Infrastructure.POSTGRESQL, "db", "PGProvider", "db"),
         (Infrastructure.ES, "es", "ESProvider", "es"),
         (Infrastructure.REDIS, "redis", "RedisProvider", "redis"),
         (Infrastructure.HTTP, "http", "HTTPProvider", "http"),

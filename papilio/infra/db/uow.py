@@ -228,7 +228,7 @@ class UnitOfWork:
         return result.scalar_one()
 
 
-class PostgreSQLUnitOfWork(UnitOfWork):
+class PGUnitOfWork(UnitOfWork):
     pass
 
 

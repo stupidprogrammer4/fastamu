@@ -9,7 +9,7 @@ from papilio.infra.db.schema.fields import FieldOptions, _field
 from .base import DatabaseDialect
 
 
-class PostgreSQLDialect(DatabaseDialect):
+class PGDialect(DatabaseDialect):
     name = "postgresql"
 
     def unique_values(self, error):
